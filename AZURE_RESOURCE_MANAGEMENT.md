@@ -7,8 +7,9 @@
 1. **Azure CLI** ✅
    - **Status**: Installed, authenticated, and **UPGRADED**
    - **Version**: **2.79.0** (latest)
-   - **Subscription**: "Triviai" (ea32cc6b-3647-4f47-b218-aabb0aeef3b6)
-   - **Tenant**: 96ebf722-1be3-4aba-96e3-b423f43dcd7d
+   - **Subscription**: **"Evermail"** (8e14c1ce-c216-4ac4-b274-2df2da25aa6f) ✅
+   - **Tenant**: Default Directory (96ebf722-1be3-4aba-96e3-b423f43dcd7d)
+   - **Role**: Owner
    - **Updated**: 2025-11-11
 
 2. **Azure Developer CLI (azd)** ✅
