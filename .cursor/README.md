@@ -8,14 +8,16 @@ Evermail uses Cursor's modern `.cursor/rules/` directory with focused, composabl
 
 ```
 .cursor/rules/
+├── documentation.mdc          # CRITICAL - Always applied (Doc-driven dev)
 ├── multi-tenancy.mdc         # CRITICAL - Always applied
+├── security.mdc               # CRITICAL - Always applied
 ├── csharp-standards.mdc       # C# 12+ conventions
 ├── database-patterns.mdc      # EF Core patterns
-├── security.mdc               # Auth, encryption, GDPR
 ├── azure-aspire.mdc           # Aspire integration
 ├── email-processing.mdc       # MimeKit patterns
 ├── api-design.mdc             # REST conventions
-└── blazor-frontend.mdc        # Blazor components
+├── blazor-frontend.mdc        # Blazor components
+└── development-workflow.mdc   # Dev standards & practices
 ```
 
 Plus `AGENTS.md` in project root for high-level project context.
@@ -23,8 +25,9 @@ Plus `AGENTS.md` in project root for high-level project context.
 ## 🎯 Rule Types
 
 ### 1. Always Apply Rules
-- **multi-tenancy.mdc** - Applied to every chat/cmd-k session
-- **security.mdc** - Security patterns always active
+- **documentation.mdc** - Document-driven development (check docs FIRST)
+- **multi-tenancy.mdc** - Multi-tenant patterns (TenantId enforcement)
+- **security.mdc** - Security patterns (auth, encryption, GDPR)
 
 ### 2. File-Scoped Rules
 Automatically applied when working with matching files:
@@ -67,16 +70,18 @@ Ask Cursor to create something:
 
 | Rule File | Lines | Description | Always Apply |
 |-----------|-------|-------------|--------------|
+| `documentation.mdc` | ~380 | Document-driven development | ✅ Yes |
 | `multi-tenancy.mdc` | ~180 | Multi-tenant patterns (CRITICAL) | ✅ Yes |
+| `security.mdc` | ~350 | Auth, encryption, GDPR | ✅ Yes |
 | `csharp-standards.mdc` | ~220 | C# 12+ conventions | ❌ `**/*.cs` |
 | `database-patterns.mdc` | ~270 | EF Core patterns | ❌ Data files |
-| `security.mdc` | ~350 | Auth, encryption, GDPR | ✅ Yes |
 | `azure-aspire.mdc` | ~200 | Aspire integration | ❌ AppHost files |
 | `email-processing.mdc` | ~280 | MimeKit patterns | ❌ Email services |
 | `api-design.mdc` | ~300 | REST API patterns | ❌ API files |
 | `blazor-frontend.mdc` | ~260 | Blazor components | ❌ `.razor` files |
+| `development-workflow.mdc` | ~350 | Dev standards & practices | ❌ General |
 
-**Total**: ~2,060 lines (well under the 500-line recommendation per file)
+**Total**: ~2,790 lines across 10 focused files (each under 400 lines)
 
 ## 🆚 Old vs New Format
 
