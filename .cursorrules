@@ -1,0 +1,564 @@
+# Evermail - Cursor AI Rules
+
+## Project Overview
+Evermail is a SaaS platform for viewing, searching, and managing email archives from .mbox files.
+Users can upload mailbox archives, search with full-text indexing, and leverage AI-powered features.
+
+**Target Platform**: Microsoft Azure
+**Primary Language**: C# (.NET 8+)
+**Deployment**: Azure Aspire
+**Database**: Azure SQL Serverless (cost-effective, with full-text search)
+**Storage**: Azure Blob Storage
+**Payment**: Stripe
+
+## Architecture Principles
+
+### Clean Architecture
+- Follow Domain-Driven Design (DDD) principles
+- Separate concerns: Domain, Application, Infrastructure, Presentation
+- Dependencies flow inward (Infrastructure → Application → Domain)
+- Use CQRS pattern for complex operations
+
+### Multi-Tenancy
+- Every entity MUST have a `TenantId` property
+- All queries MUST filter by current tenant
+- Use query filters in EF Core for automatic tenant isolation
+- Store tenant context in HTTP context or claims
+
+### Microservices Structure (Aspire)
+```
+Evermail.AppHost         # Aspire orchestrator
+Evermail.WebApp          # User-facing Blazor WebAssembly + APIs
+Evermail.AdminApp        # Admin dashboard (Blazor Server)
+Evermail.IngestionWorker # Background mbox parser
+Evermail.SearchIndexer   # Optional: Azure AI Search synchronization
+Evermail.Domain          # Shared domain entities, interfaces
+Evermail.Infrastructure  # EF Core, Blob Storage, Queue adapters
+Evermail.Common          # DTOs, utilities, constants
+```
+
+## Code Style & Standards
+
+### C# Conventions
+- Use C# 12+ features (file-scoped namespaces, global usings, record types)
+- Prefer `readonly` and `const` where applicable
+- Use nullable reference types (`#nullable enable`)
+- Follow Microsoft naming conventions:
+  - PascalCase for classes, methods, properties
+  - camelCase for local variables, parameters
+  - _camelCase for private fields (with underscore prefix)
+- Use async/await consistently; suffix async methods with `Async`
+- Prefer records for DTOs and immutable data structures
+
+### File Organization
+```
+├── Services/
+│   ├── IServiceName.cs      # Interface
+│   └── ServiceName.cs        # Implementation
+├── Models/
+│   ├── Entities/             # EF Core entities
+│   ├── DTOs/                 # Data transfer objects
+│   └── ViewModels/           # UI-specific models
+├── Controllers/              # API controllers
+├── Pages/                    # Blazor pages
+├── Components/               # Blazor components
+└── Data/
+    ├── DbContexts/
+    └── Migrations/
+```
+
+### Dependency Injection
+- Register services in `Program.cs` or extension methods
+- Use scoped lifetime for EF Core contexts
+- Use singleton for stateless services
+- Prefer constructor injection over property/method injection
+- Use `IOptions<T>` for configuration
+
+## Database Conventions
+
+### Entity Design
+```csharp
+public class EmailMessage
+{
+    public Guid Id { get; set; }
+    
+    [Required, MaxLength(64)]
+    public string TenantId { get; set; } = string.Empty;
+    
+    [Required, MaxLength(64)]
+    public string UserId { get; set; } = string.Empty;
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ModifiedAt { get; set; }
+    
+    // ... other properties
+}
+```
+
+### Indexing Strategy
+- Index foreign keys (`TenantId`, `UserId`, `WorkspaceId`)
+- Index frequently queried fields (`Date`, `Subject`, `FromAddress`)
+- Use composite indexes for multi-column queries
+- Enable SQL Server Full-Text Search on `Subject`, `TextBody`, `FromName`
+
+### Migrations
+- Create descriptive migration names: `AddEmailMessageTable`, `AddFullTextIndexToEmails`
+- Never modify existing migrations in production
+- Test migrations on development database first
+- Include data seeding in separate migration if needed
+
+## Azure Aspire Integration
+
+### Component Usage
+```csharp
+// In AppHost/Program.cs
+var builder = DistributedApplication.CreateBuilder(args);
+
+// Add SQL Server
+var sql = builder.AddSqlServer("sql")
+    .AddDatabase("evermaildb");
+
+// Add Blob Storage
+var storage = builder.AddAzureStorage("storage");
+var blobs = storage.AddBlobs("blobs");
+
+// Add Queue
+var queues = storage.AddQueues("queues");
+
+// Add services
+builder.AddProject<Projects.Evermail_WebApp>("webapp")
+    .WithReference(sql)
+    .WithReference(blobs);
+
+builder.AddProject<Projects.Evermail_IngestionWorker>("worker")
+    .WithReference(sql)
+    .WithReference(blobs)
+    .WithReference(queues);
+```
+
+### Service Discovery
+- Use Aspire's service discovery instead of hardcoded URLs
+- Access services via named references
+- Let Aspire manage connection strings via configuration
+
+## Email Processing with MimeKit
+
+### Parsing Rules
+- ALWAYS use streaming (never load entire mbox into memory)
+- Use `MimeParser` with `MimeFormat.Mbox`
+- Wrap parsing in try-catch per message (skip corrupt messages)
+- Process in batches (e.g., 500 messages) before committing to DB
+- Extract: MessageId, Subject, From, To, Cc, Date, TextBody, HtmlBody
+- Store attachments separately in Blob Storage
+- Generate snippet (first 200 chars of text body)
+
+### Example Pattern
+```csharp
+using var fileStream = File.OpenRead(mboxPath);
+using var parser = new MimeParser(fileStream, MimeFormat.Mbox);
+
+var batch = new List<EmailMessage>();
+const int batchSize = 500;
+
+while (!parser.IsEndOfStream)
+{
+    try 
+    {
+        var message = parser.ParseMessage();
+        var entity = MapToEntity(message, tenantId, userId);
+        batch.Add(entity);
+        
+        if (batch.Count >= batchSize)
+        {
+            await dbContext.EmailMessages.AddRangeAsync(batch);
+            await dbContext.SaveChangesAsync();
+            batch.Clear();
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Failed to parse message, skipping");
+    }
+}
+```
+
+## Security Best Practices
+
+### Authentication & Authorization
+- Use ASP.NET Core Identity for authentication
+- Implement 2FA for all users
+- Consider Azure Entra External ID for SSO (future)
+- Use role-based access control (RBAC) for admin features
+- Validate tenant ownership on every request
+
+### Data Protection
+- Enable Azure SQL TDE (Transparent Data Encryption)
+- Use Azure Key Vault for secrets (connection strings, Stripe keys)
+- Store blob encryption keys in Key Vault
+- Implement SAS tokens with expiry for blob access
+- Log all access to sensitive data in audit table
+
+### GDPR Compliance
+- Implement "export my data" feature (emails as .eml + JSON)
+- Implement "delete my account" with cascade deletion
+- Store audit logs for all data access
+- Allow users to set data retention period
+- Use Azure Immutable Blob Storage for compliance tier
+
+## Blazor Best Practices
+
+### Component Design
+- Keep components small and focused (single responsibility)
+- Use `@rendermode InteractiveWebAssembly` for WASM
+- Use `@rendermode InteractiveServer` for admin dashboard
+- Prefer component parameters over cascading parameters (unless deep hierarchy)
+- Use `EventCallback<T>` for child-to-parent communication
+
+### State Management
+- Use Fluxor or simple service-based state for complex state
+- Avoid excessive use of `StateHasChanged()`
+- Use `ShouldRender()` to optimize rendering
+- Cache API results in service layer
+
+### UI Framework
+- Use MudBlazor for rapid UI development
+- Follow Material Design principles
+- Ensure mobile responsiveness
+- Implement loading states for async operations
+- Show user-friendly error messages
+
+## API Design
+
+### RESTful Conventions
+```
+GET    /api/mailboxes                 # List user's mailboxes
+POST   /api/mailboxes                 # Upload new mbox
+GET    /api/mailboxes/{id}            # Get mailbox details
+DELETE /api/mailboxes/{id}            # Delete mailbox
+
+GET    /api/emails/search?q=keyword   # Search emails
+GET    /api/emails/{id}               # Get email details
+GET    /api/emails/{id}/attachments   # List attachments
+```
+
+### Response Format
+```csharp
+public record ApiResponse<T>(
+    bool Success,
+    T? Data = default,
+    string? Error = null,
+    Dictionary<string, string[]>? ValidationErrors = null
+);
+```
+
+### Versioning
+- Use URL versioning: `/api/v1/emails`
+- Keep v1 stable; introduce v2 for breaking changes
+
+## Payment Integration (Stripe)
+
+### Webhook Security
+- ALWAYS verify webhook signatures
+- Use idempotency keys for API calls
+- Store webhook events in database for debugging
+- Handle webhook retries gracefully
+
+### Subscription Flow
+```csharp
+// 1. Create Stripe customer on user registration
+var customer = await stripeCustomerService.CreateAsync(new CustomerCreateOptions 
+{
+    Email = user.Email,
+    Metadata = new Dictionary<string, string> { ["TenantId"] = tenant.Id }
+});
+
+// 2. Create checkout session for subscription
+var session = await checkoutService.CreateAsync(new SessionCreateOptions 
+{
+    Customer = customer.Id,
+    LineItems = new List<SessionLineItemOptions>
+    {
+        new() { Price = "price_pro_plan", Quantity = 1 }
+    },
+    Mode = "subscription"
+});
+
+// 3. Handle webhook for subscription updates
+[HttpPost("api/webhooks/stripe")]
+public async Task<IActionResult> HandleStripeWebhook()
+{
+    var json = await new StreamReader(HttpContext.Request.Body).ReadToEndAsync();
+    var stripeEvent = EventUtility.ConstructEvent(json, signature, webhookSecret);
+    
+    // Handle subscription.created, subscription.updated, etc.
+}
+```
+
+## Testing Strategy
+
+### Unit Tests
+- Test business logic in Domain layer
+- Mock external dependencies (IEmailRepository, IBlobStorage)
+- Use xUnit as test framework
+- Aim for 70%+ code coverage on Domain and Application layers
+
+### Integration Tests
+- Use WebApplicationFactory for API tests
+- Use Testcontainers for SQL Server in tests
+- Test Aspire service references in integration tests
+- Test MimeKit parsing with real .mbox samples
+
+### End-to-End Tests
+- Use Playwright for Blazor UI testing
+- Test critical user flows: signup, upload, search
+- Test payment flow in Stripe test mode
+
+## Performance Guidelines
+
+### Database Optimization
+- Use compiled queries for frequently-used queries
+- Implement pagination (never return unbounded results)
+- Use `AsNoTracking()` for read-only queries
+- Consider read replicas for heavy read workloads
+
+### Blob Storage Optimization
+- Use hot tier for recent mailboxes, cool tier for old archives
+- Implement lifecycle policies (auto-move to cool after 90 days)
+- Use compression for text bodies if >10KB
+- Generate blob SAS tokens with 15-minute expiry
+
+### Caching Strategy
+- Cache search results in Redis (optional, for high traffic)
+- Cache user permissions and roles
+- Use output caching for public endpoints
+- Implement ETag for conditional requests
+
+## AI Features (Phase 2+)
+
+### Azure OpenAI Integration
+```csharp
+// Example: Summarize mailbox
+var chatClient = new ChatClient(endpoint, credential);
+var context = await GetEmailsContext(mailboxId, limit: 50);
+
+var response = await chatClient.CompleteChatAsync(new[]
+{
+    new ChatMessage(ChatRole.System, "You are an email summarizer."),
+    new ChatMessage(ChatRole.User, $"Summarize these emails:\n{context}")
+});
+
+return response.Value.Content[0].Text;
+```
+
+### Semantic Search
+- Generate embeddings during ingestion (Azure OpenAI text-embedding-3-small)
+- Store in dedicated Vectors table or Azure AI Search
+- Implement vector similarity search for natural language queries
+
+## Logging & Monitoring
+
+### Structured Logging
+```csharp
+logger.LogInformation(
+    "Processing mbox for tenant {TenantId}, user {UserId}, size {SizeBytes}",
+    tenantId, userId, fileSize
+);
+```
+
+### Application Insights
+- Track custom metrics: mailbox processing time, search latency
+- Monitor exceptions and failed requests
+- Set up alerts for high error rates
+- Track Stripe webhook failures
+
+### Telemetry
+- Use Aspire's built-in telemetry dashboard
+- Export traces to Application Insights in production
+- Monitor queue depth for ingestion worker
+
+## Documentation Standards
+
+### Document-Driven Development
+- Update `/Documentation` folder BEFORE implementing features
+- Required docs:
+  - `Architecture.md` - System architecture diagrams and decisions
+  - `API.md` - API endpoint specifications
+  - `DatabaseSchema.md` - EF entities and relationships
+  - `Deployment.md` - Azure Aspire deployment guide
+  - `Security.md` - Authentication, authorization, data protection
+  - `Pricing.md` - Business model and cost calculations
+
+### Code Documentation
+- Use XML documentation for public APIs
+- Document complex algorithms with inline comments
+- Keep README.md updated with setup instructions
+- Document breaking changes in CHANGELOG.md
+
+## Git Workflow
+
+### Branch Strategy
+- `main` - production-ready code
+- `develop` - integration branch
+- `feature/*` - feature branches
+- `hotfix/*` - urgent production fixes
+
+### Commit Messages
+```
+feat: add Gmail OAuth import
+fix: handle corrupt mbox files gracefully
+docs: update architecture with AI features
+chore: upgrade to .NET 9
+```
+
+### Pull Requests
+- Require code review before merging to develop
+- Run CI pipeline (build, test, lint)
+- Update documentation in same PR as code changes
+
+## Cost Optimization
+
+### Azure Resources
+- Use SQL Serverless (auto-pause when idle)
+- Use consumption-based pricing for Container Apps
+- Implement blob lifecycle policies
+- Monitor costs with Azure Cost Management
+- Set budget alerts at €100, €200, €300
+
+### Data Retention
+- Free tier: 30-day auto-delete
+- Pro tier: 1-year retention
+- Compliance tier: configurable retention (1-10 years)
+
+## Development Workflow
+
+### Local Development
+```bash
+# Start Aspire AppHost (runs all services locally)
+cd Evermail.AppHost
+dotnet run
+
+# Access Aspire dashboard
+open http://localhost:15000
+```
+
+### Environment Variables
+```bash
+# Store in .env (never commit)
+AZURE_STORAGE_CONNECTION_STRING=...
+STRIPE_SECRET_KEY=...
+STRIPE_WEBHOOK_SECRET=...
+OPENAI_API_KEY=...
+```
+
+### Database Migrations
+```bash
+# Add migration
+dotnet ef migrations add MigrationName -p Evermail.Infrastructure -s Evermail.WebApp
+
+# Update database
+dotnet ef database update -p Evermail.Infrastructure -s Evermail.WebApp
+```
+
+## Error Handling
+
+### Global Exception Handling
+```csharp
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var error = context.Features.Get<IExceptionHandlerFeature>();
+        logger.LogError(error.Error, "Unhandled exception");
+        
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new ApiResponse<object>(
+            Success: false,
+            Error: "An error occurred. Please try again."
+        ));
+    });
+});
+```
+
+### Domain-Specific Exceptions
+```csharp
+public class MailboxProcessingException : Exception
+{
+    public MailboxProcessingException(string message, Exception? innerException = null) 
+        : base(message, innerException) { }
+}
+```
+
+## Deployment Checklist
+
+### Pre-Production
+- [ ] All tests passing
+- [ ] Documentation updated
+- [ ] Security scan completed
+- [ ] Performance testing done
+- [ ] Stripe webhooks tested in test mode
+- [ ] Database migrations reviewed
+- [ ] Secrets migrated to Key Vault
+
+### Production Deployment
+- [ ] Deploy via Aspire CLI: `azd deploy`
+- [ ] Verify health endpoints
+- [ ] Check Application Insights for errors
+- [ ] Test critical user flows
+- [ ] Monitor for 24 hours
+
+## Key Dependencies
+
+```xml
+<!-- Core -->
+<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+<PackageReference Include="Aspire.Hosting.Azure.Storage" />
+<PackageReference Include="Aspire.Hosting.SqlServer" />
+
+<!-- Email Processing -->
+<PackageReference Include="MimeKit" />
+
+<!-- Database -->
+<PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />
+<PackageReference Include="Microsoft.EntityFrameworkCore.Tools" />
+
+<!-- Azure SDKs -->
+<PackageReference Include="Azure.Storage.Blobs" />
+<PackageReference Include="Azure.Storage.Queues" />
+<PackageReference Include="Azure.Identity" />
+
+<!-- Payment -->
+<PackageReference Include="Stripe.net" />
+
+<!-- UI -->
+<PackageReference Include="MudBlazor" />
+
+<!-- AI (Phase 2) -->
+<PackageReference Include="Azure.AI.OpenAI" />
+<PackageReference Include="Microsoft.SemanticKernel" />
+
+<!-- Testing -->
+<PackageReference Include="xUnit" />
+<PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+<PackageReference Include="Testcontainers" />
+<PackageReference Include="Microsoft.Playwright" />
+```
+
+## Success Metrics
+
+### Technical KPIs
+- Mailbox processing time: <1 minute per 100MB
+- Search latency: <500ms for p95
+- API availability: >99.5%
+- Zero data loss incidents
+
+### Business KPIs
+- Break-even: 20 paying users
+- Target: 100 users by month 6
+- Gross margin: >85%
+- Churn rate: <5% monthly
+
+---
+
+**Remember**: This is a side-hustle SaaS. Keep it simple, ship fast, iterate based on user feedback. 
+Don't over-engineer. Solve real problems. Get to paying customers quickly.
+

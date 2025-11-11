@@ -1,0 +1,534 @@
+# Evermail - Deployment Guide
+
+## Overview
+
+Evermail is deployed using **Azure Aspire** to Azure Container Apps. This guide covers local development, CI/CD setup, and production deployment.
+
+## Prerequisites
+
+### Local Development
+- .NET 8 SDK or later
+- Docker Desktop (for local Aspire orchestration)
+- Azure CLI (`az`) version 2.50+
+- Visual Studio 2022 17.9+ or VS Code with C# Dev Kit
+
+### Azure Resources
+- Azure subscription
+- Resource group created
+- Azure CLI authenticated: `az login`
+
+## Local Development Setup
+
+### 1. Install Azure Aspire Workload
+```bash
+dotnet workload update
+dotnet workload install aspire
+```
+
+### 2. Clone Repository
+```bash
+git clone https://github.com/yourusername/evermail.git
+cd evermail
+```
+
+### 3. Set Up User Secrets
+```bash
+cd Evermail.AppHost
+
+# Azure Storage (for local development, use Azurite)
+dotnet user-secrets set "ConnectionStrings:storage" "UseDevelopmentStorage=true"
+
+# SQL Server (local container)
+dotnet user-secrets set "ConnectionStrings:evermaildb" "Server=localhost,1433;Database=Evermail;User=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true"
+
+# Stripe (test keys)
+dotnet user-secrets set "Stripe:SecretKey" "sk_test_..."
+dotnet user-secrets set "Stripe:WebhookSecret" "whsec_..."
+
+# Optional: Azure OpenAI (for AI features)
+dotnet user-secrets set "AzureOpenAI:Endpoint" "https://your-resource.openai.azure.com/"
+dotnet user-secrets set "AzureOpenAI:ApiKey" "..."
+```
+
+### 4. Start Aspire AppHost
+```bash
+cd Evermail.AppHost
+dotnet run
+```
+
+This will:
+- Start SQL Server container
+- Start Azurite (local blob/queue storage)
+- Start WebApp API
+- Start Admin Dashboard
+- Start Ingestion Worker
+- Open Aspire Dashboard at `http://localhost:15000`
+
+### 5. Apply Database Migrations
+```bash
+cd ../Evermail.WebApp
+dotnet ef database update --project ../Evermail.Infrastructure
+```
+
+### 6. Access Applications
+- **User Web App**: `http://localhost:5000`
+- **Admin Dashboard**: `http://localhost:5001`
+- **API**: `http://localhost:5000/api/v1`
+- **Aspire Dashboard**: `http://localhost:15000`
+
+## Azure Deployment
+
+### Option 1: Azure Developer CLI (azd) - Recommended
+
+#### 1. Initialize azd
+```bash
+# From project root
+azd init
+
+# Follow prompts:
+# - Environment name: evermail-prod
+# - Azure region: westeurope
+```
+
+#### 2. Provision Infrastructure
+```bash
+azd provision
+```
+
+This creates:
+- Resource group
+- Azure SQL Database (Serverless)
+- Azure Storage Account (blobs + queues)
+- Azure Container Apps Environment
+- Container Apps for each service
+- Application Insights
+- Azure Key Vault
+
+#### 3. Set Secrets in Key Vault
+```bash
+# Get Key Vault name from azd output
+KV_NAME=$(azd env get-values | grep AZURE_KEY_VAULT_NAME | cut -d'=' -f2)
+
+# Set Stripe secrets
+az keyvault secret set --vault-name $KV_NAME --name "Stripe--SecretKey" --value "sk_live_..."
+az keyvault secret set --vault-name $KV_NAME --name "Stripe--WebhookSecret" --value "whsec_..."
+
+# Set database connection string (auto-generated, but verify)
+CONN_STRING=$(az keyvault secret show --vault-name $KV_NAME --name "ConnectionStrings--evermaildb" --query value -o tsv)
+echo $CONN_STRING
+```
+
+#### 4. Deploy Applications
+```bash
+azd deploy
+```
+
+#### 5. Apply Database Migrations
+```bash
+# Connect to Azure SQL and apply migrations
+# Option A: From local machine with Azure SQL firewall rule
+az sql server firewall-rule create \
+  --resource-group evermail-prod-rg \
+  --server evermail-sql-server \
+  --name AllowLocalClient \
+  --start-ip-address <your-ip> \
+  --end-ip-address <your-ip>
+
+# Get connection string from Key Vault
+CONN_STRING=$(az keyvault secret show --vault-name $KV_NAME --name "ConnectionStrings--evermaildb" --query value -o tsv)
+
+# Apply migrations
+dotnet ef database update --project Evermail.Infrastructure --startup-project Evermail.WebApp --connection "$CONN_STRING"
+
+# Option B: Use Azure SQL migration bundle (recommended for prod)
+dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp -o migrate
+
+# Run bundle in Azure Container Instance or from local
+./migrate --connection "$CONN_STRING"
+```
+
+#### 6. Verify Deployment
+```bash
+# Get app URLs
+azd env get-values
+
+# Test API health endpoint
+curl https://evermail-webapp-<hash>.azurecontainerapps.io/health
+```
+
+### Option 2: Manual Bicep/ARM Deployment
+
+#### 1. Create Resource Group
+```bash
+az group create --name evermail-prod-rg --location westeurope
+```
+
+#### 2. Deploy Bicep Templates
+```bash
+cd infra
+
+# Deploy infrastructure
+az deployment group create \
+  --resource-group evermail-prod-rg \
+  --template-file main.bicep \
+  --parameters @main.parameters.json
+```
+
+#### 3. Build and Push Container Images
+```bash
+# Login to Azure Container Registry
+ACR_NAME="evermailacr"
+az acr login --name $ACR_NAME
+
+# Build and push WebApp
+cd Evermail.WebApp
+docker build -t $ACR_NAME.azurecr.io/evermail-webapp:latest .
+docker push $ACR_NAME.azurecr.io/evermail-webapp:latest
+
+# Build and push Worker
+cd ../Evermail.IngestionWorker
+docker build -t $ACR_NAME.azurecr.io/evermail-worker:latest .
+docker push $ACR_NAME.azurecr.io/evermail-worker:latest
+
+# Build and push AdminApp
+cd ../Evermail.AdminApp
+docker build -t $ACR_NAME.azurecr.io/evermail-admin:latest .
+docker push $ACR_NAME.azurecr.io/evermail-admin:latest
+```
+
+#### 4. Update Container Apps
+```bash
+# Update WebApp
+az containerapp update \
+  --name evermail-webapp \
+  --resource-group evermail-prod-rg \
+  --image $ACR_NAME.azurecr.io/evermail-webapp:latest
+
+# Update Worker
+az containerapp update \
+  --name evermail-worker \
+  --resource-group evermail-prod-rg \
+  --image $ACR_NAME.azurecr.io/evermail-worker:latest
+
+# Update Admin
+az containerapp update \
+  --name evermail-admin \
+  --resource-group evermail-prod-rg \
+  --image $ACR_NAME.azurecr.io/evermail-admin:latest
+```
+
+## CI/CD with GitHub Actions
+
+### 1. Create GitHub Secrets
+In your GitHub repository, go to Settings → Secrets and add:
+
+- `AZURE_CREDENTIALS`: Service principal JSON
+- `AZURE_SUBSCRIPTION_ID`: Your Azure subscription ID
+- `AZURE_TENANT_ID`: Your Azure tenant ID
+- `ACR_USERNAME`: Container registry username
+- `ACR_PASSWORD`: Container registry password
+- `STRIPE_SECRET_KEY`: Stripe secret key (for integration tests)
+
+### 2. Service Principal Setup
+```bash
+# Create service principal for GitHub Actions
+az ad sp create-for-rbac \
+  --name "evermail-github-actions" \
+  --role contributor \
+  --scopes /subscriptions/<subscription-id>/resourceGroups/evermail-prod-rg \
+  --sdk-auth
+
+# Copy output JSON to AZURE_CREDENTIALS secret
+```
+
+### 3. GitHub Actions Workflow
+Create `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  ACR_NAME: 'evermailacr'
+  RESOURCE_GROUP: 'evermail-prod-rg'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      
+      - name: Restore dependencies
+        run: dotnet restore
+      
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+      
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+      
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+      
+      - name: Build and push WebApp
+        run: |
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:${{ github.sha }} -t ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:latest -f Evermail.WebApp/Dockerfile .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:${{ github.sha }}
+          docker push ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:latest
+      
+      - name: Build and push Worker
+        run: |
+          docker build -t ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:${{ github.sha }} -t ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:latest -f Evermail.IngestionWorker/Dockerfile .
+          docker push ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:${{ github.sha }}
+          docker push ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:latest
+      
+      - name: Deploy to Container Apps
+        run: |
+          az containerapp update --name evermail-webapp --resource-group ${{ env.RESOURCE_GROUP }} --image ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:${{ github.sha }}
+          az containerapp update --name evermail-worker --resource-group ${{ env.RESOURCE_GROUP }} --image ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:${{ github.sha }}
+      
+      - name: Run Database Migrations
+        run: |
+          # Get connection string from Key Vault
+          CONN_STRING=$(az keyvault secret show --vault-name evermail-kv --name "ConnectionStrings--evermaildb" --query value -o tsv)
+          
+          # Create migration bundle
+          dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp -o migrate
+          
+          # Apply migrations
+          ./migrate --connection "$CONN_STRING"
+```
+
+## Monitoring & Health Checks
+
+### Application Insights
+Aspire automatically configures Application Insights for all services.
+
+**View Telemetry**:
+```bash
+az monitor app-insights component show \
+  --resource-group evermail-prod-rg \
+  --app evermail-appinsights \
+  --query "instrumentationKey"
+```
+
+**Key Metrics to Monitor**:
+- Request latency (p50, p95, p99)
+- Exception rate
+- Queue depth
+- Database DTU percentage
+- Blob storage operations
+
+### Health Endpoints
+Each service exposes health endpoints:
+
+```csharp
+app.MapHealthChecks("/health");
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+```
+
+**Test Health**:
+```bash
+curl https://evermail-webapp.azurecontainerapps.io/health
+curl https://evermail-worker.azurecontainerapps.io/health
+```
+
+### Alerts
+Set up Azure Monitor alerts for:
+- High error rate (>5% in 5 minutes)
+- Queue depth >1000 for >10 minutes
+- Database DTU >80% for >15 minutes
+- Container app crashed (restart count >3)
+
+```bash
+az monitor metrics alert create \
+  --name "High Error Rate" \
+  --resource-group evermail-prod-rg \
+  --scopes /subscriptions/<sub-id>/resourceGroups/evermail-prod-rg/providers/Microsoft.App/containerApps/evermail-webapp \
+  --condition "count requests failed > 50 in 5m" \
+  --description "Alert when error rate exceeds 5%"
+```
+
+## Scaling Configuration
+
+### WebApp Auto-Scaling
+```bash
+az containerapp update \
+  --name evermail-webapp \
+  --resource-group evermail-prod-rg \
+  --min-replicas 1 \
+  --max-replicas 10 \
+  --scale-rule-name http-requests \
+  --scale-rule-type http \
+  --scale-rule-http-concurrency 100
+```
+
+### Worker Queue-Based Scaling
+```bash
+az containerapp update \
+  --name evermail-worker \
+  --resource-group evermail-prod-rg \
+  --min-replicas 0 \
+  --max-replicas 5 \
+  --scale-rule-name queue-depth \
+  --scale-rule-type azure-queue \
+  --scale-rule-metadata queueName=mailbox-ingestion accountName=evermailstorage queueLength=10 \
+  --scale-rule-auth secretRef=storage-connection-string
+```
+
+## Backup & Disaster Recovery
+
+### Database Backups
+Azure SQL Serverless provides automatic backups:
+- **Point-in-time restore**: Last 7 days
+- **Long-term retention**: Configure for 1-10 years
+
+```bash
+# Create manual backup
+az sql db copy \
+  --resource-group evermail-prod-rg \
+  --server evermail-sql-server \
+  --name Evermail \
+  --dest-name Evermail-backup-$(date +%Y%m%d)
+```
+
+### Blob Storage Backups
+Enable soft delete and versioning:
+```bash
+az storage account blob-service-properties update \
+  --account-name evermailstorage \
+  --enable-delete-retention true \
+  --delete-retention-days 30 \
+  --enable-versioning true
+```
+
+### Disaster Recovery Plan
+1. **Database**: Restore from point-in-time backup
+2. **Blobs**: Failover to geo-redundant secondary region
+3. **Secrets**: Restore from Key Vault soft delete
+4. **Configuration**: Redeploy via IaC (Bicep templates)
+
+**RTO**: 4 hours  
+**RPO**: 1 hour (Azure SQL automatic backups)
+
+## Cost Optimization
+
+### Azure SQL Serverless
+- Auto-pauses after 1 hour of inactivity
+- Auto-resumes on first connection
+- Pay only for compute used
+
+**Estimate**: €15-30/month for small workload
+
+### Container Apps
+- Scale to zero when idle (Worker)
+- Consumption-based pricing
+- Use minimum replicas = 0 for non-critical services
+
+**Estimate**: €40-80/month
+
+### Blob Storage Lifecycle
+```bash
+# Move old mbox files to cool tier after 90 days
+az storage account management-policy create \
+  --account-name evermailstorage \
+  --policy @lifecycle-policy.json
+```
+
+**lifecycle-policy.json**:
+```json
+{
+  "rules": [
+    {
+      "name": "moveToCool",
+      "enabled": true,
+      "type": "Lifecycle",
+      "definition": {
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["mbox-archives/"]
+        },
+        "actions": {
+          "baseBlob": {
+            "tierToCool": {
+              "daysAfterModificationGreaterThan": 90
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+## Troubleshooting
+
+### View Container Logs
+```bash
+az containerapp logs show \
+  --name evermail-webapp \
+  --resource-group evermail-prod-rg \
+  --follow
+```
+
+### Connect to Container Shell
+```bash
+az containerapp exec \
+  --name evermail-webapp \
+  --resource-group evermail-prod-rg \
+  --command /bin/bash
+```
+
+### Check Queue Messages
+```bash
+az storage message peek \
+  --queue-name mailbox-ingestion \
+  --account-name evermailstorage \
+  --num-messages 10
+```
+
+### Database Connection Issues
+```bash
+# Test connection from local machine
+sqlcmd -S evermail-sql-server.database.windows.net -d Evermail -U sqladmin -P <password> -Q "SELECT @@VERSION"
+
+# Check firewall rules
+az sql server firewall-rule list \
+  --resource-group evermail-prod-rg \
+  --server evermail-sql-server
+```
+
+---
+
+**Last Updated**: 2025-11-11  
+**Next Review**: Before major infrastructure changes
+
