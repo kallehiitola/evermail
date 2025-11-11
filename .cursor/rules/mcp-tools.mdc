@@ -69,6 +69,68 @@ For Evermail project specifically:
    "How do I configure auto-scaling for Azure Container Apps? search Microsoft Learn and fetch full doc"
    ```
 
+## Querying Library Documentation with Context7
+
+You have access to Context7 MCP for up-to-date documentation on any library or framework. **ALWAYS use Context7 for library-specific questions**.
+
+### Context7 MCP Tools
+
+**When to Use**:
+- MudBlazor component documentation
+- ASP.NET Core libraries
+- Entity Framework Core
+- Azure SDKs (when more detailed than Microsoft Learn)
+- MimeKit email parsing
+- Any NuGet package or JavaScript library
+- Code examples and setup guides
+
+**Available Tools**:
+1. `resolve-library-id` - Find the Context7 ID for a library
+2. `get-library-docs` - Get documentation for a specific library
+
+**Example Prompts**:
+```
+"How do I use MudBlazor's MudDataGrid component? use context7"
+
+"Show me MimeKit examples for parsing email attachments. use context7"
+
+"Configure Azure.Storage.Blobs for connection pooling. use context7"
+
+"Implement Entity Framework Core global query filters. use context7"
+
+"How do I use the Stripe.NET SDK for subscriptions? use context7"
+```
+
+### Library-Specific Usage for Evermail
+
+**MudBlazor UI Components**:
+```
+"Create a MudBlazor form with validation. use library /mudblazor/mudblazor"
+
+"How do I implement MudTable with server-side pagination? use context7"
+```
+
+**MimeKit Email Parsing**:
+```
+"Parse mbox file with MimeKit streaming. use library /jstedfast/mimekit"
+
+"Extract email attachments with MimeKit. use context7"
+```
+
+**Entity Framework Core**:
+```
+"Implement EF Core compiled queries for performance. use context7"
+
+"Set up EF Core migrations with Azure SQL. use context7"
+```
+
+**Azure SDKs**:
+```
+"Use Azure.Storage.Blobs for file upload. use context7"
+
+"Configure Azure.Storage.Queues for background jobs. use context7"
+```
+
 ## Querying Stripe Documentation
 
 You have access to Stripe MCP tools for payment integration. **ALWAYS use these tools for Stripe-related questions**.
@@ -140,6 +202,13 @@ You have access to Stripe MCP tools for payment integration. **ALWAYS use these 
 - ❌ **DON'T**: Rely solely on training data for Microsoft tech
 - ❌ **DON'T**: Guess at API changes or new features
 
+### For Library-Specific Questions
+- ✅ **DO**: Use Context7 for library documentation (MudBlazor, MimeKit, etc.)
+- ✅ **DO**: Add "use context7" to prompts about libraries
+- ✅ **DO**: Use library ID syntax when you know the exact library (e.g., `/mudblazor/mudblazor`)
+- ❌ **DON'T**: Rely on training data for library APIs
+- ❌ **DON'T**: Use outdated library patterns
+
 ### For Stripe Integration
 - ✅ **DO**: Use Stripe MCP tools for payment workflows
 - ✅ **DO**: Verify webhook signatures methods
@@ -152,10 +221,13 @@ You have access to Stripe MCP tools for payment integration. **ALWAYS use these 
 When answering questions related to:
 - **Azure** → Always search Microsoft Learn first
 - **.NET/C#** → Always search Microsoft Learn first
-- **EF Core** → Always search Microsoft Learn first
-- **Blazor** → Always search Microsoft Learn first
+- **EF Core** → Microsoft Learn for concepts, Context7 for specific API usage
+- **Blazor** → Microsoft Learn for framework, Context7 for component libraries
 - **Azure Aspire** → Always search Microsoft Learn first
-- **Stripe** → Always use Stripe MCP tools first
+- **MudBlazor** → Always use Context7
+- **MimeKit** → Always use Context7
+- **NuGet packages** → Use Context7 for library-specific docs
+- **Stripe** → Use Stripe MCP tools first, Context7 for .NET SDK specifics
 
 ## Response Pattern
 
@@ -217,11 +289,38 @@ However, I recommend verifying this against the official Microsoft Learn documen
 ## Integration with Evermail Project
 
 For Evermail-specific implementations:
-- **Always search Microsoft Learn** for Azure, .NET, Blazor patterns
+- **Always search Microsoft Learn** for Azure, .NET, Blazor core patterns
+- **Always use Context7** for library documentation (MudBlazor, MimeKit, Azure SDKs)
 - **Always use Stripe MCP** for payment integration code
 - **Fetch full documentation** when implementing critical features
 - **Find official code samples** rather than creating from scratch
 - **Verify best practices** against official sources
+
+### Key Libraries to Use with Context7
+
+When working with these libraries, always use Context7:
+
+1. **MudBlazor** (`/mudblazor/mudblazor`) - UI components
+2. **MimeKit** (`/jstedfast/mimekit`) - Email parsing
+3. **Azure.Storage.Blobs** - Blob storage operations
+4. **Azure.Storage.Queues** - Queue operations
+5. **Stripe.NET** (`/stripe/stripe-dotnet`) - Payment SDK
+6. **Entity Framework Core** - Database operations
+
+### Example Workflow
+
+```
+User: "How do I implement MudBlazor's MudDataGrid with server-side pagination?"
+
+AI: "Let me get the latest MudBlazor documentation..."
+
+[Uses Context7: resolve-library-id for "mudblazor"]
+[Uses Context7: get-library-docs with library ID and topic "MudDataGrid"]
+
+AI: "According to the latest MudBlazor documentation, here's how to implement 
+server-side pagination..."
+[Provides up-to-date code example]
+```
 
 ---
 

@@ -99,40 +99,68 @@ Ask Cursor to create something:
 
 ## 🔌 MCP Servers Configuration
 
-Evermail uses **Model Context Protocol (MCP)** servers to access official documentation:
+Evermail uses **three Model Context Protocol (MCP)** servers to access official documentation:
 
-### Configured MCP Servers
-
-**Microsoft Learn MCP** (`~/.cursor/mcp.json`):
+### 1. Microsoft Learn MCP ✅
 - **URL**: `https://learn.microsoft.com/api/mcp`
-- **Type**: HTTP (streamable)
+- **Type**: HTTP (streamable, no local installation)
 - **Tools**:
   - `microsoft_docs_search` - Search Microsoft documentation
   - `microsoft_docs_fetch` - Fetch full doc pages as markdown
   - `microsoft_code_sample_search` - Find official code samples
 - **Use for**: Azure, .NET, C#, Blazor, EF Core, Aspire, Azure CLI
+- **Status**: ✅ Active
 
-**Stripe MCP** (`~/.cursor/mcp.json`):
+### 2. Context7 MCP ✅
+- **Command**: `npx -y @upstash/context7-mcp`
+- **Type**: Local process
+- **Tools**:
+  - `resolve-library-id` - Find Context7 ID for a library
+  - `get-library-docs` - Get up-to-date library documentation
+- **Use for**: MudBlazor, MimeKit, Azure SDKs, NuGet packages, any library
+- **Status**: ✅ Active
+- **Rate Limit**: 10 requests/day free (get API key at context7.com/dashboard for unlimited)
+
+### 3. Stripe MCP ✅
 - **Command**: `npx -y @stripe/mcp --tools=all`
 - **Type**: Local process
-- **Tools**: Customer, payment, subscription, invoice management
+- **Tools**: Customer, payment, subscription, invoice management (20+ tools)
 - **Use for**: All Stripe payment integration questions
+- **Status**: ✅ Active
 
 ### Using MCP Tools
 
 Simply ask questions and the AI will automatically use MCP tools:
 
 ```
+# Microsoft Learn (Azure/Microsoft)
 "How do I configure Azure Blob Storage in Aspire? search Microsoft Learn"
-
 "Show me the official EF Core migration best practices. fetch full doc"
 
-"Create a Stripe subscription for the Pro tier"
+# Context7 (Libraries)
+"How do I use MudBlazor's MudDataGrid? use context7"
+"Parse mbox with MimeKit streaming. use library /jstedfast/mimekit"
+"Configure Azure.Storage.Blobs connection pooling. use context7"
 
+# Stripe (Payments)
+"Create a Stripe subscription for the Pro tier"
 "List my Stripe test customers"
+"How do I verify webhook signatures?"
 ```
 
 The `mcp-tools.mdc` rule ensures AI **always** consults official documentation instead of relying on training data.
+
+### Key Libraries Available via Context7
+
+For Evermail development:
+- **MudBlazor** (`/mudblazor/mudblazor`) - UI components
+- **MimeKit** (`/jstedfast/mimekit`) - Email parsing  
+- **Azure.Storage.Blobs** - Blob operations
+- **Azure.Storage.Queues** - Queue operations
+- **Stripe.NET** (`/stripe/stripe-dotnet`) - Payment SDK
+- **Entity Framework Core** - ORM
+- **ASP.NET Core** - Web framework
+- And 1000+ more libraries!
 
 ## 🔧 Forcing Cursor to Reload Rules
 
