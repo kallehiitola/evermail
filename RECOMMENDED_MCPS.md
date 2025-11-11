@@ -1,11 +1,12 @@
 # Recommended MCP Servers for Evermail
 
-## ✅ Currently Configured (4)
+## ✅ Currently Configured (5)
 
 1. **Microsoft Learn** - Official Microsoft/Azure documentation
 2. **Context7** - Up-to-date library documentation (MudBlazor, MimeKit, etc.)
 3. **Stripe** - Payment processing and subscription management
 4. **Azure Pricing** - Real-time Azure service pricing and cost estimation
+5. **Framer** - Design and prototype websites directly from Cursor
 
 ## 🎯 Additional Recommended MCPs
 
@@ -135,12 +136,96 @@ Based on your Evermail project needs, here are additional MCP servers you might 
 
 **Note**: You're using Azure SQL, so this is only if you switch to PostgreSQL.
 
-### 4. Filesystem MCP (Built-in to Cursor)
+### 4. Framer MCP ✅ CONFIGURED
+**Use for**: Marketing website design only (NOT the Blazor application)
+
+**⚠️ IMPORTANT**: Framer is ONLY for the public-facing marketing website (evermail.com). The actual SaaS application is built with Blazor Web App and is completely separate.
+
+**Why Essential for Evermail**: 
+- Create and iterate on the Evermail **marketing website** (landing pages, pricing, features)
+- Customer-facing content and design
+- Fast website iteration without coding
+- Separate from the actual Blazor application development
+
+**Configuration**:
+```json
+{
+  "framer": {
+    "type": "sse",
+    "url": "https://mcp.unframer.co/sse?id=xxx&secret=xxx"
+  }
+}
+```
+
+**Important**: The Framer MCP plugin must be **open inside the Framer app** for the MCP to work. Only one MCP plugin can be open at a time.
+
+**Use cases (Marketing Website Only)**:
+- **Landing Pages**: "Create a modern landing page for Evermail with hero section and pricing"
+- **Pricing Pages**: "Design a pricing comparison table for subscription tiers"
+- **Feature Pages**: "Build a features overview page with benefit cards"
+- **Content Updates**: "Update the homepage hero text to emphasize AI search"
+- **Publishing**: "Publish the marketing website to production"
+
+**NOT for**:
+- ❌ Building the actual Blazor application UI
+- ❌ Creating the email viewer interface
+- ❌ Designing the admin dashboard
+- ❌ Application-level components (use MudBlazor for those)
+
+**Example Prompts (Marketing Website)**:
+```
+"Create a modern SaaS landing page for Evermail marketing site with hero, features, and pricing sections"
+
+"Design a pricing comparison table for the marketing website showing Free, Pro, Team, and Enterprise tiers"
+
+"Update the marketing website CTA button color to Azure Blue (#0078D4)"
+
+"Publish the marketing website homepage to production"
+
+"Rewrite the marketing site hero headline to focus on email archive security"
+```
+
+**Remember**: Framer = Marketing Website | Blazor = Actual Application
+
+**Tools Available**:
+- Design and create page components
+- Update text and styling
+- Manage layouts and sections
+- Publish to production
+- Export designs
+
+**Benefits for Evermail Marketing Website**:
+- ✅ Rapid marketing website iteration
+- ✅ Focus on customer acquisition and conversion
+- ✅ No context switching for marketing content
+- ✅ AI-assisted design decisions for landing pages
+- ✅ Quick A/B testing variations for CTAs and messaging
+
+**Architecture Separation**:
+```
+Evermail Marketing Website (Framer)
+├── evermail.com (public marketing site)
+│   ├── Landing page
+│   ├── Pricing page
+│   ├── Features page
+│   └── About/Contact pages
+│
+Evermail SaaS Application (Blazor)
+├── app.evermail.com (authenticated application)
+│   ├── Email viewer
+│   ├── Search interface
+│   ├── Account settings
+│   └── Admin dashboard
+```
+
+**Setup Guide**: [https://unframer.co/guides/connect-framer-mcp](https://unframer.co/guides/connect-framer-mcp)
+
+### 5. Filesystem MCP (Built-in to Cursor)
 **Use for**: File operations, directory navigation
 
 Already available in Cursor by default. The AI can read files, list directories, etc.
 
-### 5. Web Browser MCP (Optional - For Testing)
+### 6. Web Browser MCP (Optional - For Testing)
 **Use for**: Testing your deployed application, web scraping
 
 **Configuration**:
@@ -167,10 +252,11 @@ For your project, I recommend these MCPs:
 2. **Context7** - MudBlazor, MimeKit, libraries
 3. **Stripe** - Payment processing
 4. **Azure Pricing** - Cost estimation and service selection
+5. **Framer** - Website design and prototyping
 
 ### Nice to Have (Optional)
-5. **Git MCP** - If you do a lot of git operations via AI
-6. **GitHub MCP** - If you want to create issues/PRs from Cursor
+6. **Git MCP** - If you do a lot of git operations via AI
+7. **GitHub MCP** - If you want to create issues/PRs from Cursor
 
 ### Not Needed (At least for now)
 - Postgres MCP (you're using Azure SQL)
@@ -227,6 +313,10 @@ use context7 for MudBlazor MudFileUpload component"
 | Azure SDKs | Context7 | "Azure.Storage.Blobs API" |
 | Stripe API | Stripe MCP | "Create subscription" |
 | Payment webhooks | Stripe MCP | "List payment intents" |
+| Marketing website | Framer MCP | "Create landing page" |
+| Marketing pages | Framer MCP | "Design pricing page" |
+| Marketing content | Framer MCP | "Update CTA button" |
+| **Application UI** | **Context7 (MudBlazor)** | **"MudBlazor MudDataGrid"** |
 
 ## 🚀 Getting Started
 
@@ -244,9 +334,15 @@ After restarting Cursor, try these commands:
 
 # Test Azure Pricing
 "What's the price of Azure SQL Serverless in West Europe?"
+
+# Test Framer (requires Framer MCP plugin to be open in Framer app)
+# NOTE: This is ONLY for the marketing website, not the Blazor application
+"Create a modern landing page section for Evermail marketing website"
 ```
 
-All four should work seamlessly! 🎉
+All five should work seamlessly! 🎉
+
+**Note for Framer MCP**: Make sure the Framer MCP plugin is open inside your Framer app before using the MCP. See the [setup guide](https://unframer.co/guides/connect-framer-mcp) for details.
 
 ## 🔗 Resources
 
@@ -254,6 +350,7 @@ All four should work seamlessly! 🎉
 - **Context7**: https://context7.com
 - **Stripe MCP**: https://github.com/stripe/agent-toolkit
 - **Azure Pricing MCP**: https://github.com/charris-msft/azure-pricing-mcp
+- **Framer MCP**: https://unframer.co/guides/connect-framer-mcp
 - **MCP Registry**: https://github.com/punkpeye/awesome-mcp-servers
 
 ## 📝 Configuration File Location
@@ -265,6 +362,6 @@ Your MCP servers are configured in:
 ---
 
 **Last Updated**: 2025-11-11  
-**Configured MCPs**: 4 (Microsoft Learn, Context7, Stripe, Azure Pricing)  
-**Status**: ✅ Microsoft Learn, Context7, Stripe Active | ⚙️ Azure Pricing Setup Required
+**Configured MCPs**: 5 (Microsoft Learn, Context7, Stripe, Azure Pricing, Framer)  
+**Status**: ✅ Microsoft Learn, Context7, Stripe, Framer Active | ⚙️ Azure Pricing Setup Required
 
