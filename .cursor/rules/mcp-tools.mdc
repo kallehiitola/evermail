@@ -1,0 +1,228 @@
+---
+description: MCP tool usage for Microsoft Learn and Stripe - ALWAYS use these for official documentation
+alwaysApply: true
+---
+
+# MCP Tool Usage - CRITICAL
+
+## Querying Microsoft Documentation
+
+You have access to MCP tools called `microsoft_docs_search`, `microsoft_docs_fetch`, and `microsoft_code_sample_search` - these tools allow you to search through and fetch Microsoft's latest official documentation and code samples, and that information might be more detailed or newer than what's in your training data set.
+
+**ALWAYS use these tools when dealing with Microsoft technologies:**
+
+### Microsoft Learn MCP Tools
+
+**When to Use**:
+- Questions about C#, F#, ASP.NET Core, .NET 8+
+- Azure services (Azure Aspire, Container Apps, SQL, Blob Storage, Functions)
+- Microsoft.Extensions libraries
+- Entity Framework Core
+- NuGet packages
+- Azure CLI commands
+- Any Microsoft/Azure best practices
+
+**Available Tools**:
+1. `microsoft_docs_search` - Search Microsoft Learn documentation
+2. `microsoft_docs_fetch` - Fetch full documentation page as markdown
+3. `microsoft_code_sample_search` - Find official Microsoft code samples
+
+**Example Prompts**:
+```
+"Give me the Azure CLI commands to create an Azure Container App with a managed identity. search Microsoft Learn"
+
+"Is the latest .NET 9 compatible with Azure App Service? fetch full doc"
+
+"Show me the official way to implement IHttpClientFactory in .NET 8 minimal API. search Microsoft Learn and fetch full doc"
+
+"I need to understand Azure Functions end-to-end. search Microsoft Learn and deep dive"
+
+"What's the best practice for EF Core migrations in production? search Microsoft Learn"
+```
+
+### Usage Pattern
+
+For Evermail project specifically:
+
+1. **Azure Aspire Setup**
+   ```
+   "Show me the latest Azure Aspire configuration for SQL Server and Blob Storage. search Microsoft Learn and fetch full doc"
+   ```
+
+2. **Azure SQL Serverless**
+   ```
+   "What are the best practices for Azure SQL Serverless connection pooling? search Microsoft Learn"
+   ```
+
+3. **Blazor WebAssembly**
+   ```
+   "Show me the official Blazor WASM authentication patterns with JWT. search Microsoft Learn and fetch full doc"
+   ```
+
+4. **Entity Framework Core**
+   ```
+   "What's the recommended way to implement global query filters in EF Core 8? search Microsoft Learn"
+   ```
+
+5. **Azure Container Apps**
+   ```
+   "How do I configure auto-scaling for Azure Container Apps? search Microsoft Learn and fetch full doc"
+   ```
+
+## Querying Stripe Documentation
+
+You have access to Stripe MCP tools for payment integration. **ALWAYS use these tools for Stripe-related questions**.
+
+### Stripe MCP Tools
+
+**When to Use**:
+- Payment processing questions
+- Subscription management
+- Customer creation and management
+- Webhook handling
+- Invoice generation
+- Payment intents
+- Checkout sessions
+- Stripe API questions
+
+**Available Tools** (from @stripe/mcp):
+- Customer management (create, list, retrieve)
+- Payment intents (create, retrieve, confirm)
+- Charges (list, retrieve)
+- Subscriptions (create, update, cancel, list)
+- Products & Prices (create, list)
+- Invoices (create, list, finalize)
+- Refunds (create)
+- Payment methods
+- And more...
+
+**Example Prompts**:
+```
+"Show me my Stripe test customers"
+
+"How do I create a subscription with a 7-day trial using Stripe?"
+
+"What's the correct way to verify Stripe webhook signatures in C#?"
+
+"Create a test payment intent for €9 EUR"
+
+"List my Stripe products and their prices"
+```
+
+### Usage Pattern for Evermail
+
+1. **Creating Subscription Plans**
+   ```
+   "Create Stripe products for Evermail Free, Pro, Team, and Enterprise tiers"
+   ```
+
+2. **Webhook Verification**
+   ```
+   "How do I verify Stripe webhook signatures in ASP.NET Core?"
+   ```
+
+3. **Customer Portal**
+   ```
+   "Generate a Stripe customer portal session for user management"
+   ```
+
+4. **Metered Billing**
+   ```
+   "How do I implement usage-based billing with Stripe for AI features?"
+   ```
+
+## Critical: Always Prefer Official Documentation
+
+### For Microsoft Technologies
+- ✅ **DO**: Use Microsoft Learn MCP tools first
+- ✅ **DO**: Verify your suggestions against official docs
+- ✅ **DO**: Fetch full documentation when implementing complex features
+- ❌ **DON'T**: Rely solely on training data for Microsoft tech
+- ❌ **DON'T**: Guess at API changes or new features
+
+### For Stripe Integration
+- ✅ **DO**: Use Stripe MCP tools for payment workflows
+- ✅ **DO**: Verify webhook signatures methods
+- ✅ **DO**: Check latest API versions and best practices
+- ❌ **DON'T**: Use outdated Stripe patterns
+- ❌ **DON'T**: Implement security-sensitive code without verification
+
+## Encouraging Tool Usage
+
+When answering questions related to:
+- **Azure** → Always search Microsoft Learn first
+- **.NET/C#** → Always search Microsoft Learn first
+- **EF Core** → Always search Microsoft Learn first
+- **Blazor** → Always search Microsoft Learn first
+- **Azure Aspire** → Always search Microsoft Learn first
+- **Stripe** → Always use Stripe MCP tools first
+
+## Response Pattern
+
+When user asks about these technologies:
+
+1. **Acknowledge**: "Let me check the official Microsoft Learn documentation..."
+2. **Search**: Use `microsoft_docs_search` or Stripe tools
+3. **Verify**: Use `microsoft_docs_fetch` for detailed information
+4. **Provide**: Give answer with reference to official docs
+5. **Code Sample**: Use `microsoft_code_sample_search` if needed
+
+**Example Flow**:
+```
+User: "How do I configure Azure Blob Storage in Aspire?"
+
+AI: "Let me check the official Microsoft Learn documentation for Azure Aspire Blob Storage integration..."
+
+[Uses microsoft_docs_search("Azure Aspire Blob Storage configuration")]
+[Uses microsoft_docs_fetch(url from search results)]
+[Uses microsoft_code_sample_search("Azure Aspire Blob Storage C#")]
+
+AI: "According to the official Microsoft Learn documentation, here's how to configure Azure Blob Storage in Aspire..."
+[Provides answer with official code samples]
+```
+
+## Tool Parameters
+
+### microsoft_docs_search
+- **query** (string): Search query for Microsoft documentation
+- **Returns**: Relevant documentation snippets with URLs
+
+### microsoft_docs_fetch
+- **url** (string): Full URL to Microsoft Learn page
+- **Returns**: Complete page content in markdown format
+
+### microsoft_code_sample_search
+- **query** (string): Search query for code samples
+- **language** (optional): Filter by programming language (e.g., "csharp", "typescript")
+- **Returns**: Official Microsoft/Azure code samples
+
+### Stripe MCP Tools
+- Various tools for customer, payment, subscription management
+- All return structured Stripe API responses
+- Use for any Stripe-related operations
+
+## Fallback Strategy
+
+If MCP tools are not available or return no results:
+1. State that you're using training data
+2. Recommend user verify against official docs
+3. Provide standard answer with appropriate caveats
+
+**Example**:
+```
+"While I cannot access the Microsoft Learn MCP server right now, based on my training data... 
+However, I recommend verifying this against the official Microsoft Learn documentation at https://learn.microsoft.com/..."
+```
+
+## Integration with Evermail Project
+
+For Evermail-specific implementations:
+- **Always search Microsoft Learn** for Azure, .NET, Blazor patterns
+- **Always use Stripe MCP** for payment integration code
+- **Fetch full documentation** when implementing critical features
+- **Find official code samples** rather than creating from scratch
+- **Verify best practices** against official sources
+
+---
+
+**Remember**: Official documentation is always more accurate than training data. Use MCP tools proactively, not reactively.
