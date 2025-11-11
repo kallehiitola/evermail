@@ -1,0 +1,56 @@
+# Cursor Ignore File
+# These files/directories will not be indexed by Cursor's AI
+
+# Build outputs
+**/bin/
+**/obj/
+**/Debug/
+**/Release/
+
+# Dependencies
+**/node_modules/
+**/packages/
+
+# Logs
+**/*.log
+**/logs/
+
+# Test outputs
+**/TestResults/
+**/coverage/
+
+# Temporary files
+**/*.tmp
+**/*.temp
+**/*.swp
+**/*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+
+# Large binary files
+**/*.exe
+**/*.dll
+**/*.so
+**/*.dylib
+**/*.zip
+**/*.tar.gz
+
+# Database files
+**/*.mdf
+**/*.ldf
+**/*.db
+**/*.sqlite
+
+# Keep documentation and configuration files indexed
+!**/*.md
+!**/*.json
+!**/*.yaml
+!**/*.yml
+!**/*.cs
+!.cursorrules
+
