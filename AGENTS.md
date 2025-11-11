@@ -38,6 +38,25 @@ Evermail is a **SaaS platform** for viewing, searching, and managing email archi
 
 ## Development Standards
 
+### Document-Driven Development
+**CRITICAL**: ALWAYS check and update Documentation/ folder BEFORE implementing features:
+
+1. **Check existing documentation FIRST**
+   - Read relevant files in `Documentation/` before coding
+   - Identify where new content should go
+
+2. **Update existing docs, don't create duplicates**
+   - Add to appropriate existing document
+   - Only create new doc if truly necessary
+
+3. **Update docs BEFORE writing code**
+   - Document the design first
+   - Implement following the updated documentation
+
+4. **Never create duplicate documentation**
+   - Check if information already exists
+   - Update existing docs rather than creating new files
+
 ### Communication Style
 - Be concise and actionable
 - Provide code examples over explanations
@@ -49,11 +68,13 @@ Evermail is a **SaaS platform** for viewing, searching, and managing email archi
 - _camelCase: private fields (underscore prefix)
 
 ### Documentation References
-When implementing features, reference:
+When implementing features, CHECK THESE FIRST:
 - `Documentation/Architecture.md` - System design
 - `Documentation/DatabaseSchema.md` - Entity models
 - `Documentation/Security.md` - Auth & encryption
 - `Documentation/API.md` - Endpoint patterns
+- `Documentation/Deployment.md` - Infrastructure
+- `Documentation/Pricing.md` - Business model
 
 ## Project Structure
 

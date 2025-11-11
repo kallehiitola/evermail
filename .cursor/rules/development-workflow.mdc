@@ -1,0 +1,504 @@
+---
+description: Development workflow, git practices, and general standards
+alwaysApply: false
+---
+
+# Development Workflow & Standards
+
+## Local Development Setup
+
+### Starting the Application
+
+```bash
+# Start Aspire AppHost (runs all services locally)
+cd Evermail.AppHost
+dotnet run
+
+# Access Aspire dashboard
+open http://localhost:15000
+
+# Access applications
+# - User App: http://localhost:5000
+# - Admin Dashboard: http://localhost:5001
+# - API: http://localhost:5000/api/v1
+```
+
+### Environment Variables
+
+```bash
+# Store in user secrets (NEVER in .env or appsettings)
+cd Evermail.AppHost
+
+# Azure Storage (local: Azurite)
+dotnet user-secrets set "ConnectionStrings:storage" "UseDevelopmentStorage=true"
+
+# SQL Server
+dotnet user-secrets set "ConnectionStrings:evermaildb" "Server=localhost,1433;Database=Evermail;User=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=true"
+
+# Stripe (test keys)
+dotnet user-secrets set "Stripe:SecretKey" "sk_test_..."
+dotnet user-secrets set "Stripe:WebhookSecret" "whsec_..."
+
+# Azure OpenAI (Phase 2)
+dotnet user-secrets set "AzureOpenAI:Endpoint" "https://your-resource.openai.azure.com/"
+dotnet user-secrets set "AzureOpenAI:ApiKey" "..."
+```
+
+### Database Migrations
+
+```bash
+# Add migration
+dotnet ef migrations add MigrationName \
+    -p Evermail.Infrastructure \
+    -s Evermail.WebApp
+
+# Update database
+dotnet ef database update \
+    -p Evermail.Infrastructure \
+    -s Evermail.WebApp
+
+# Generate SQL script (for review)
+dotnet ef migrations script \
+    -p Evermail.Infrastructure \
+    -o migration.sql
+```
+
+## Git Workflow
+
+### Branch Strategy
+
+- `main` (or `master`) - Production-ready code
+- `develop` - Integration branch for features
+- `feature/*` - Feature branches (e.g., `feature/email-search`)
+- `hotfix/*` - Urgent production fixes
+
+### Commit Message Conventions
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+type(scope): subject
+
+body (optional)
+
+footer (optional)
+```
+
+**Types**:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation changes
+- `style`: Code style (formatting, no logic change)
+- `refactor`: Code refactoring
+- `test`: Adding or updating tests
+- `chore`: Build process, tooling changes
+
+**Examples**:
+```
+feat(search): add semantic search with Azure AI
+fix(auth): resolve 2FA token validation issue
+docs(api): update endpoint documentation
+refactor(parser): improve mbox parsing performance
+test(integration): add tests for mailbox upload
+chore(deps): upgrade to .NET 9
+```
+
+### Pull Requests
+
+Before merging to `develop`:
+- ✅ Code review required
+- ✅ All tests passing
+- ✅ Documentation updated in same PR
+- ✅ Linting passed (`dotnet format`)
+- ✅ No merge conflicts
+
+### Committing Best Practices
+
+```bash
+# Stage specific changes
+git add -p
+
+# Commit with detailed message
+git commit -m "feat(api): add email search endpoint
+
+- Implement full-text search with SQL Server FTS
+- Add pagination support (max 100 results)
+- Include tenant isolation filtering
+- Update Documentation/API.md with new endpoint
+
+Closes #123"
+
+# Push to feature branch
+git push origin feature/email-search
+```
+
+## Code Quality
+
+### Before Committing
+
+```bash
+# Format code
+dotnet format
+
+# Run tests
+dotnet test
+
+# Check for warnings
+dotnet build --no-incremental /warnaserror
+
+# Run linter (if configured)
+dotnet tool run dotnet-format --verify-no-changes
+```
+
+### Code Review Checklist
+
+Reviewer should check:
+- [ ] Follows .cursor/rules/ conventions
+- [ ] Multi-tenancy enforced (TenantId filtering)
+- [ ] Security best practices followed
+- [ ] Tests included for new functionality
+- [ ] Documentation updated
+- [ ] No hardcoded secrets
+- [ ] Error handling implemented
+- [ ] Logging added for important operations
+- [ ] Performance considerations addressed
+
+## Error Handling
+
+### Global Exception Handler
+
+```csharp
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var error = context.Features.Get<IExceptionHandlerFeature>();
+        _logger.LogError(error.Error, "Unhandled exception");
+        
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new ApiResponse<object>(
+            Success: false,
+            Error: "An error occurred. Please try again."
+        ));
+    });
+});
+```
+
+### Domain-Specific Exceptions
+
+```csharp
+public class NotFoundException : Exception
+{
+    public NotFoundException(string message) : base(message) { }
+}
+
+public class MailboxProcessingException : Exception
+{
+    public MailboxProcessingException(string message, Exception? innerException = null) 
+        : base(message, innerException) { }
+}
+
+public class UnauthorizedException : Exception
+{
+    public UnauthorizedException(string message) : base(message) { }
+}
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+```csharp
+public class EmailServiceTests
+{
+    [Fact]
+    public async Task GetEmailAsync_WithValidId_ReturnsEmail()
+    {
+        // Arrange
+        var email = new EmailMessage { /* ... */ };
+        var mockRepo = new Mock<IEmailRepository>();
+        mockRepo.Setup(r => r.GetByIdAsync(It.IsAny<Guid>(), It.IsAny<string>()))
+            .ReturnsAsync(email);
+        var service = new EmailService(mockRepo.Object);
+        
+        // Act
+        var result = await service.GetEmailAsync(email.Id);
+        
+        // Assert
+        Assert.NotNull(result);
+        Assert.Equal(email.Id, result.Id);
+    }
+}
+```
+
+### Integration Tests
+
+```csharp
+public class MailboxEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly HttpClient _client;
+    
+    public MailboxEndpointsTests(WebApplicationFactory<Program> factory)
+    {
+        _client = factory.CreateClient();
+    }
+    
+    [Fact]
+    public async Task GetMailboxes_WithValidToken_ReturnsOk()
+    {
+        // Arrange
+        _client.DefaultRequestHeaders.Authorization = 
+            new AuthenticationHeaderValue("Bearer", TestJwtToken);
+        
+        // Act
+        var response = await _client.GetAsync("/api/v1/mailboxes");
+        
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<MailboxDto>>>();
+        Assert.NotNull(result);
+        Assert.True(result.Success);
+    }
+}
+```
+
+## Cost Optimization
+
+### Azure Resources
+
+- Use **SQL Serverless** (auto-pause when idle)
+- Use **consumption-based pricing** for Container Apps
+- Implement **blob lifecycle policies** (move to cool tier after 90 days)
+- Monitor costs with **Azure Cost Management**
+- Set **budget alerts** at €100, €200, €300
+
+### Data Retention
+
+- **Free tier**: 30-day auto-delete
+- **Pro tier**: 1-year retention
+- **Team tier**: 2-year retention
+- **Compliance tier**: Configurable retention (1-10 years)
+
+### Blob Storage Lifecycle Policy
+
+```json
+{
+  "rules": [
+    {
+      "name": "moveToCool",
+      "enabled": true,
+      "type": "Lifecycle",
+      "definition": {
+        "filters": {
+          "blobTypes": ["blockBlob"],
+          "prefixMatch": ["mbox-archives/"]
+        },
+        "actions": {
+          "baseBlob": {
+            "tierToCool": {
+              "daysAfterModificationGreaterThan": 90
+            }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+## Deployment Checklist
+
+### Pre-Production
+
+Before deploying to production:
+- [ ] All tests passing
+- [ ] Documentation updated
+- [ ] Security scan completed
+- [ ] Performance testing done
+- [ ] Stripe webhooks tested in test mode
+- [ ] Database migrations reviewed
+- [ ] Secrets migrated to Key Vault
+- [ ] Infrastructure-as-Code reviewed
+- [ ] Monitoring and alerts configured
+- [ ] Backup strategy verified
+
+### Production Deployment
+
+```bash
+# Deploy via Aspire CLI
+azd deploy
+
+# Verify health endpoints
+curl https://evermail-webapp.azurecontainerapps.io/health
+
+# Check Application Insights for errors
+# Monitor for 24 hours after deployment
+```
+
+### Post-Deployment
+
+- [ ] Health endpoints returning 200 OK
+- [ ] Database migrations applied successfully
+- [ ] Blob storage accessible
+- [ ] Queue processing working
+- [ ] Stripe webhooks receiving events
+- [ ] No errors in Application Insights
+- [ ] Critical user flows tested
+- [ ] Performance metrics normal
+
+## Monitoring & Observability
+
+### Structured Logging
+
+```csharp
+_logger.LogInformation(
+    "Processing mbox for tenant {TenantId}, user {UserId}, size {SizeBytes}",
+    tenantId, userId, fileSize
+);
+
+_logger.LogWarning(
+    "Failed to parse message #{MessageNumber} in mailbox {MailboxId}",
+    messageNumber, mailboxId
+);
+
+_logger.LogError(
+    ex,
+    "Failed to save batch of {Count} emails for tenant {TenantId}",
+    batch.Count, tenantId
+);
+```
+
+### Application Insights Tracking
+
+```csharp
+// Track custom events
+_telemetryClient.TrackEvent("MailboxProcessingCompleted", new Dictionary<string, string>
+{
+    ["TenantId"] = tenantId,
+    ["MailboxId"] = mailboxId.ToString(),
+    ["TotalEmails"] = totalEmails.ToString(),
+    ["ProcessingTimeSeconds"] = processingTime.TotalSeconds.ToString()
+});
+
+// Track custom metrics
+_telemetryClient.TrackMetric("MailboxProcessingTime", processingTime.TotalSeconds);
+_telemetryClient.TrackMetric("EmailsProcessedPerSecond", totalEmails / processingTime.TotalSeconds);
+```
+
+## Performance Optimization
+
+### Database Queries
+
+```csharp
+// Use AsNoTracking for read-only queries
+var emails = await _context.EmailMessages
+    .AsNoTracking()
+    .Where(e => e.TenantId == tenantId)
+    .ToListAsync();
+
+// Use compiled queries for frequently-used queries
+private static readonly Func<EmailDbContext, Guid, string, Task<EmailMessage?>> 
+    GetEmailByIdQuery = EF.CompileAsyncQuery(
+        (EmailDbContext context, Guid id, string tenantId) =>
+            context.EmailMessages
+                .AsNoTracking()
+                .FirstOrDefault(e => e.Id == id && e.TenantId == tenantId)
+    );
+
+// Implement pagination (NEVER return unbounded results)
+var results = await query
+    .OrderByDescending(e => e.Date)
+    .Skip((page - 1) * pageSize)
+    .Take(pageSize)
+    .ToListAsync();
+```
+
+### Caching Strategy
+
+```csharp
+// Cache user permissions and roles (1 hour)
+var cacheKey = $"user:permissions:{userId}";
+var permissions = await _cache.GetOrCreateAsync(cacheKey, async entry =>
+{
+    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1);
+    return await _userRepository.GetPermissionsAsync(userId);
+});
+
+// Cache search results (5 minutes)
+var searchCacheKey = $"search:{tenantId}:{query}:{page}";
+var results = await _cache.GetOrCreateAsync(searchCacheKey, async entry =>
+{
+    entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+    return await _emailRepository.SearchAsync(query, page);
+});
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Database connection fails**:
+```bash
+# Check connection string
+dotnet ef database update --connection "..."
+
+# Verify SQL Server is running
+docker ps | grep sql
+
+# Check firewall rules (Azure SQL)
+az sql server firewall-rule list --resource-group ... --server ...
+```
+
+**Blob storage errors**:
+```bash
+# Verify connection string
+az storage account show-connection-string --name evermailstorage
+
+# Check container exists
+az storage container list --connection-string "..."
+
+# Verify permissions
+az storage account keys list --account-name evermailstorage
+```
+
+**Queue not processing**:
+```bash
+# Check queue depth
+az storage message peek --queue-name mailbox-ingestion --num-messages 10
+
+# Check worker logs
+az containerapp logs show --name evermail-worker --follow
+
+# Manually trigger job (for testing)
+az storage message put --queue-name mailbox-ingestion --content "{...}"
+```
+
+## Development Best Practices
+
+### Keep It Simple
+
+This is a **side-hustle SaaS**:
+- ✅ Ship fast, iterate based on feedback
+- ✅ Solve real problems
+- ✅ Don't over-engineer
+- ✅ Get to paying customers quickly
+- ✅ Break-even at 7-20 users
+- ✅ 90%+ gross margins target
+
+### Technical KPIs
+
+- Mailbox processing time: <1 minute per 100MB
+- Search latency: <500ms for p95
+- API availability: >99.5%
+- Zero data loss incidents
+
+### Business KPIs
+
+- Break-even: 20 paying users
+- Target: 100 users by month 6
+- Gross margin: >85%
+- Churn rate: <5% monthly
+
+---
+
+**Remember**: This is a side hustle. Keep scope manageable, ship fast, and focus on delivering value to users.

@@ -1,0 +1,338 @@
+---
+description: Document-driven development - ALWAYS update Documentation folder first
+alwaysApply: true
+---
+
+# Documentation Standards - CRITICAL
+
+## Document-Driven Development
+
+**ALWAYS follow this workflow**:
+
+1. ✅ **Check Documentation folder FIRST** before implementing features
+2. ✅ **Update existing documentation** rather than creating new files
+3. ✅ **Never create duplicate documentation**
+4. ✅ **Update docs BEFORE writing code**
+
+## Required Documentation Files
+
+The `/Documentation` folder contains authoritative design documents:
+
+```
+Documentation/
+├── Architecture.md      # System architecture diagrams and decisions
+├── API.md              # API endpoint specifications
+├── DatabaseSchema.md   # EF entities and relationships
+├── Deployment.md       # Azure Aspire deployment guide
+├── Security.md         # Authentication, authorization, data protection
+└── Pricing.md          # Business model and cost calculations
+```
+
+## Workflow: Before Implementing a Feature
+
+### 1. Read Relevant Documentation
+
+```bash
+# Example: Implementing email search
+# Read these FIRST:
+Documentation/Architecture.md    # Understand system design
+Documentation/DatabaseSchema.md  # Check entity models
+Documentation/API.md            # Check existing endpoints
+Documentation/Security.md       # Check auth patterns
+```
+
+### 2. Check for Existing Documentation
+
+**BEFORE creating new documentation**:
+- ❌ DON'T create `Documentation/EmailSearch.md`
+- ✅ DO update `Documentation/API.md` with new search endpoints
+- ✅ DO update `Documentation/Architecture.md` if architecture changes
+
+**Ask yourself**:
+- Does this fit in an existing document?
+- Would this duplicate information already documented?
+- Is this a new major component that deserves its own doc?
+
+### 3. Update Documentation FIRST
+
+Update the relevant document(s) with:
+- New API endpoints
+- Database schema changes
+- Architecture decisions
+- Security considerations
+- Deployment changes
+
+### 4. Implement Code
+
+Now implement following the updated documentation.
+
+## Documentation Rules
+
+### ✅ DO Update Existing Docs
+
+```markdown
+# Good ✅ - Update Documentation/API.md
+
+## Email Search Endpoints
+
+### POST /api/v1/emails/search
+Added semantic search support with AI...
+```
+
+### ❌ DON'T Create Duplicate Docs
+
+```markdown
+# Bad ❌ - Creating Documentation/SemanticSearch.md
+# when it should be in API.md or Architecture.md
+```
+
+### ✅ DO Create New Docs When Justified
+
+Create a new document ONLY when:
+- It's a major new component (e.g., `Documentation/AIFeatures.md`)
+- Existing docs would become too large (>2000 lines)
+- It's a distinct architectural layer
+
+### ❌ DON'T Create Unnecessary Docs
+
+**Bad examples** (add to existing docs instead):
+- `Documentation/EmailSearchImplementation.md` → Add to `API.md`
+- `Documentation/UserAuthentication.md` → Already in `Security.md`
+- `Documentation/StripeIntegration.md` → Add to `Pricing.md` or `Security.md`
+
+## When Creating Code
+
+### Check Documentation First
+
+```csharp
+// Before creating EmailSearchService.cs:
+// 1. Read Documentation/Architecture.md - Is there a search service pattern?
+// 2. Read Documentation/API.md - What endpoints are documented?
+// 3. Read Documentation/DatabaseSchema.md - What entities are involved?
+// 4. Implement following documented patterns
+```
+
+### Update Documentation After Implementation
+
+If implementation differs from design:
+1. Update the documentation to reflect actual implementation
+2. Document the reason for deviation
+3. Update architecture decisions if needed
+
+## Documentation Quality Standards
+
+### Complete Information
+
+Each document should include:
+- ✅ Purpose and scope
+- ✅ Code examples
+- ✅ Configuration details
+- ✅ Decision rationale
+- ✅ Last updated date
+
+### Avoid Duplication
+
+If information exists in multiple places:
+1. Choose the most authoritative location
+2. Reference other documents instead of copying
+3. Remove duplicates
+
+Example:
+```markdown
+# Good ✅
+For authentication details, see [Security.md](Security.md#authentication).
+
+# Bad ❌
+Copying the entire authentication section into API.md
+```
+
+### Keep Up-to-Date
+
+When code changes:
+1. Update affected documentation IMMEDIATELY
+2. Mark sections as deprecated if needed
+3. Add migration notes for breaking changes
+
+## Project Structure Documentation
+
+Always document in `Documentation/Architecture.md`:
+- New projects added to solution
+- New dependencies
+- Service communication patterns
+- Data flow diagrams
+
+## API Documentation
+
+Always document in `Documentation/API.md`:
+- New endpoints
+- Request/response formats
+- Authentication requirements
+- Rate limiting changes
+- Versioning decisions
+
+## Database Changes
+
+Always document in `Documentation/DatabaseSchema.md`:
+- New entities
+- Schema changes
+- Index additions
+- Migration notes
+- Data retention policies
+
+## Security Changes
+
+Always document in `Documentation/Security.md`:
+- New auth mechanisms
+- Permission changes
+- Encryption updates
+- Compliance requirements
+- Audit log changes
+
+## Deployment Changes
+
+Always document in `Documentation/Deployment.md`:
+- Infrastructure changes
+- Configuration updates
+- Environment variables
+- Scaling decisions
+- Monitoring updates
+
+## Business Model Changes
+
+Always document in `Documentation/Pricing.md`:
+- Pricing tier changes
+- Feature gating updates
+- Cost model updates
+- Revenue projections
+
+## Code Documentation
+
+### XML Comments
+
+Document public APIs with XML comments:
+
+```csharp
+/// <summary>
+/// Searches emails using full-text search with optional filters.
+/// See Documentation/API.md for endpoint specification.
+/// </summary>
+/// <param name="query">Search query with filters</param>
+/// <param name="cancellationToken">Cancellation token</param>
+/// <returns>Paginated search results</returns>
+public async Task<PagedResult<EmailDto>> SearchAsync(
+    SearchEmailsQuery query,
+    CancellationToken cancellationToken)
+{
+    // Implementation
+}
+```
+
+### Inline Comments
+
+Use inline comments for:
+- Complex algorithms
+- Business logic decisions
+- Security considerations
+- Performance optimizations
+
+Reference documentation:
+```csharp
+// Multi-tenancy filtering (see Documentation/Security.md#multi-tenancy)
+var emails = await _context.EmailMessages
+    .Where(e => e.TenantId == _tenantContext.TenantId)
+    .ToListAsync();
+```
+
+## Documentation Checklist
+
+Before marking a feature as complete:
+
+- [ ] Checked `/Documentation` folder for existing docs
+- [ ] Updated relevant existing documentation
+- [ ] Did NOT create duplicate documentation
+- [ ] Added code examples to documentation
+- [ ] Updated architecture diagrams if needed
+- [ ] Documented API changes
+- [ ] Documented database changes
+- [ ] Documented security implications
+- [ ] Documented deployment changes
+- [ ] Added XML comments to public APIs
+- [ ] Referenced documentation in code comments
+
+## Documentation-First Development Flow
+
+```
+1. Check Documentation/ ✅
+   ↓
+2. Update relevant docs ✅
+   ↓
+3. Review with team/AI ✅
+   ↓
+4. Implement code following docs ✅
+   ↓
+5. Update docs if implementation differs ✅
+   ↓
+6. Commit docs + code together ✅
+```
+
+## AI Assistant Instructions
+
+When asked to implement a feature, **ALWAYS**:
+
+1. **Check existing documentation FIRST**
+   - Read relevant files in `/Documentation`
+   - Identify where new content should go
+
+2. **Update existing docs, don't create new ones**
+   - Add to appropriate existing document
+   - Only create new doc if truly necessary
+
+3. **Ask before creating new documentation**
+   - Suggest which existing doc to update
+   - Explain why if new doc is needed
+
+4. **Keep documentation current**
+   - Update docs in same commit as code
+   - Ensure consistency
+
+## Example: Adding New Feature
+
+**Feature**: AI-powered email summarization
+
+**Wrong Approach** ❌:
+```
+1. Create Documentation/AISummarization.md
+2. Implement code
+3. Document API in new file
+```
+
+**Correct Approach** ✅:
+```
+1. Check Documentation/Architecture.md - Add AI service component
+2. Update Documentation/API.md - Add summarization endpoints
+3. Update Documentation/Pricing.md - Document AI usage costs
+4. Update AGENTS.md - Add AI context
+5. Implement code following updated docs
+6. Commit docs + code together
+```
+
+## Maintenance
+
+### Regular Documentation Review
+
+- Review docs monthly for accuracy
+- Remove outdated content
+- Consolidate duplicate information
+- Update examples with latest code
+
+### Documentation Standards
+
+- Use markdown format
+- Include code examples
+- Add diagrams where helpful
+- Keep language clear and concise
+- Update "Last Updated" date
+
+---
+
+**Remember**: Documentation is the source of truth. Code implements the documentation, not the other way around.
