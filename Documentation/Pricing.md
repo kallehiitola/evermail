@@ -16,7 +16,7 @@ Evermail is a **Freemium SaaS** with tiered subscriptions. Users can start free 
 | **Price** | €0/month | €9/month | €29/month | €99/month |
 | **Max Storage** | 1 GB | 5 GB | 50 GB | 500 GB |
 | **Max Users** | 1 | 1 | 5 | 50 |
-| **Max Mailboxes** | 1 | Unlimited | Unlimited | Unlimited |
+| **Max Mailboxes** ⭐ | **1 only** | **Unlimited** | **Unlimited** | **Unlimited** |
 | **Data Retention** | 30 days | 1 year | 2 years | Configurable (1-10 years) |
 | **Full-Text Search** | ✅ Basic | ✅ Advanced | ✅ Advanced | ✅ Advanced |
 | **AI-Powered Search** | ❌ | ✅ | ✅ | ✅ |
@@ -52,12 +52,17 @@ Evermail is a **Freemium SaaS** with tiered subscriptions. Users can start free 
 
 **Limits**:
 - 5 GB storage (~25,000-50,000 emails)
-- Unlimited mailbox uploads
+- **Unlimited mailbox uploads** ⭐ **KEY FEATURE**
 - 1-year data retention
 - 50 AI summaries per month
 - Gmail/Outlook direct import
 
-**Value Proposition**: "Your personal email archive with AI-powered search"
+**Value Proposition**: "Your personal email archive with AI-powered search - **import all your work history**"
+
+**Use Cases**:
+- ✅ **Multiple job history** - Import Gmail from each company you've worked for
+- ✅ **Multiple email accounts** - Personal + work + side projects
+- ✅ **Comprehensive archive** - All your correspondence in one searchable place
 
 **Pricing Rationale**:
 - Comparable to basic Dropbox/Google One plans
@@ -65,17 +70,24 @@ Evermail is a **Freemium SaaS** with tiered subscriptions. Users can start free 
 - 10-month equivalent if paid annually (2 months free)
 
 ### Team Tier (€29/month or €290/year)
-**Target**: Small businesses, shared team archives, compliance needs
+**Target**: Small businesses, shared team archives, HR departments, compliance needs
 
 **Limits**:
 - 50 GB storage (~250,000+ emails)
 - 5 user seats
+- **Unlimited mailboxes per user** ⭐
 - 2-year data retention
 - 500 AI summaries per month (shared across team)
 - Shared workspaces for team collaboration
 - API access (limited to 10,000 requests/month)
 
-**Value Proposition**: "Centralized email archive for your team"
+**Value Proposition**: "Centralized email archive for your team - **import entire departments**"
+
+**Use Cases**:
+- ✅ **HR offboarding** - Import all exiting employees' mailboxes
+- ✅ **Department archives** - support@, sales@, info@ all in one place
+- ✅ **Legal discovery** - Import multiple custodian mailboxes for eDiscovery
+- ✅ **Company history** - Archive all important correspondence
 
 **Pricing Rationale**:
 - €5.80 per user (if 5 seats used)

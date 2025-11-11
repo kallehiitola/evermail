@@ -192,6 +192,7 @@ Evermail development uses **Model Context Protocol (MCP)** servers for accessing
 - **Context7 MCP** - Up-to-date library docs (MudBlazor, MimeKit, Azure SDKs)
 - **Stripe MCP** - Payment processing operations
 - **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+- **Framer MCP** - Marketing website design (NOT the Blazor application)
 
 ### Setup Azure Pricing MCP
 
@@ -208,6 +209,7 @@ See [MCP Setup Guide](MCP_SETUP.md) for detailed configuration instructions.
 - "What's the cost of Azure SQL Serverless in West Europe?"
 - "Compare App Service pricing between P1v3 and P2v3"
 - "Estimate storage costs for 500GB with 100K transactions/month"
+- "Create a hero section for Evermail marketing website" (Framer - marketing site only)
 
 ## 📖 Documentation
 

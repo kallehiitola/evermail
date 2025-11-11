@@ -2,12 +2,13 @@
 
 ## Overview
 
-Evermail uses **four Model Context Protocol (MCP)** servers to access official, up-to-date documentation and tools directly in Cursor AI:
+Evermail uses **five Model Context Protocol (MCP)** servers to access official, up-to-date documentation and tools directly in Cursor AI:
 
 1. **Microsoft Learn MCP** - Official Microsoft/Azure documentation
 2. **Context7 MCP** - Up-to-date library documentation (MudBlazor, MimeKit, etc.)
 3. **Stripe MCP** - Stripe payment processing tools
 4. **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+5. **Framer MCP** - Marketing website design (NOT the Blazor application)
 
 ## ✅ Current Configuration
 
@@ -35,6 +36,10 @@ Your MCP configuration is located at: `~/.cursor/mcp.json`
       "command": "python",
       "args": ["-m", "azure_pricing_server"],
       "cwd": "/Users/kallehiitola/azure-pricing-mcp"
+    },
+    "framer": {
+      "type": "sse",
+      "url": "https://mcp.unframer.co/sse?id=xxx&secret=xxx"
     }
   }
 }
@@ -61,6 +66,27 @@ Your MCP configuration is located at: `~/.cursor/mcp.json`
 
 5. **Test it**:
    Ask Cursor: `"What's the price of Azure SQL Serverless in West Europe?"`
+
+### Setting Up Framer MCP
+
+⚠️ **IMPORTANT**: Framer MCP is ONLY for the marketing website (evermail.com), NOT the Blazor application!
+
+1. **Install Framer MCP plugin** in your Framer app:
+   - Visit: https://unframer.co/guides/connect-framer-mcp
+   - Follow setup instructions
+
+2. **Get your MCP credentials** from the Framer plugin
+
+3. **Update `~/.cursor/mcp.json`** with the correct URL (see config above)
+
+4. **Keep Framer MCP plugin open** in Framer app when using
+
+5. **Test it**:
+   Ask Cursor: `"Create a hero section for Evermail marketing website"`
+
+**Remember**: 
+- Framer = Marketing website (evermail.com)
+- Blazor = Actual application (app.evermail.com)
 
 ## 🎯 When to Use Each MCP
 
@@ -171,6 +197,61 @@ Your MCP configuration is located at: `~/.cursor/mcp.json`
 - ✅ Compare alternatives before committing to infrastructure
 - ✅ Ensure break-even at 7-20 paying customers is achievable
 - ✅ Optimize region selection for cost vs latency
+
+### Framer MCP
+
+**Use for**: Marketing website design ONLY (NOT the Blazor application)
+
+⚠️ **CRITICAL DISTINCTION**:
+- **Framer** = Public marketing website (evermail.com - landing pages, pricing, features)
+- **Blazor** = Actual SaaS application (app.evermail.com - email viewer, search, admin)
+
+**Example Prompts**:
+```
+"Create a modern landing page hero section for Evermail marketing site"
+
+"Design a pricing comparison table for the marketing website showing all tiers"
+
+"Update the marketing website CTA button to emphasize free trial"
+
+"Publish the marketing website homepage to production"
+
+"Rewrite the hero headline to focus on AI-powered search"
+```
+
+**Tools Available**:
+- Design and create page components
+- Update text and styling
+- Manage layouts and sections
+- Publish to production
+- Export designs
+
+**Architecture Separation**:
+```
+Marketing Website (Framer)          SaaS Application (Blazor)
+├── evermail.com                    ├── app.evermail.com
+│   ├── Landing page                │   ├── Email viewer
+│   ├── Pricing page                │   ├── Search interface
+│   ├── Features page               │   ├── Account settings
+│   └── About/Contact               │   └── Admin dashboard
+```
+
+**Why Use Framer for Marketing**:
+- ✅ Rapid iteration on marketing messaging
+- ✅ Focus on customer acquisition and conversion
+- ✅ No context switching for marketing content
+- ✅ AI-assisted design decisions
+- ✅ Quick A/B testing variations
+
+**NOT for**:
+- ❌ Building the Blazor application UI
+- ❌ Creating the email viewer interface
+- ❌ Designing the admin dashboard
+- ❌ Application-level components (use MudBlazor for those)
+
+**Setup**: https://unframer.co/guides/connect-framer-mcp
+
+**Note**: The Framer MCP plugin must be **open inside the Framer app** for the MCP to work.
 
 ## 📚 Key Resources for Evermail
 
@@ -306,14 +387,24 @@ Expected: AI uses `list_customers` tool and returns actual Stripe data.
 
 Expected: AI uses `azure_price_search` and provides current Azure pricing.
 
+### Test Framer MCP
+```
+"Create a hero section for Evermail marketing website"
+```
+
+Expected: AI uses Framer MCP tools and creates/updates the marketing website.
+
+**Note**: Framer MCP plugin must be open in Framer app.
+
 ## 📊 MCP Usage Summary
 
 | MCP Server | Type | Primary Use | Status |
 |------------|------|-------------|--------|
 | **Microsoft Learn** | HTTP | Azure, .NET, Microsoft tech | ✅ Active |
-| **Context7** | Local | Libraries, NuGet packages | ✅ Active |
-| **Stripe** | Local | Payment operations | ✅ Active |
+| **Context7** | Local (NPM) | Libraries, NuGet packages | ✅ Active |
+| **Stripe** | Local (NPM) | Payment operations | ✅ Active |
 | **Azure Pricing** | Local (Python) | Azure cost estimation | ⚙️ Setup Required |
+| **Framer** | SSE | Marketing website design | ✅ Active |
 
 ## 🎯 Benefits
 
@@ -368,5 +459,5 @@ For production, use live keys (`sk_live_...`) and store in environment variables
 **Last Updated**: 2025-11-11  
 **Configuration File**: `~/.cursor/mcp.json`  
 **Project Rules**: `.cursor/rules/mcp-tools.mdc`  
-**MCPs Configured**: 4 (Microsoft Learn, Context7, Stripe, Azure Pricing)
+**MCPs Configured**: 5 (Microsoft Learn, Context7, Stripe, Azure Pricing, Framer)
 

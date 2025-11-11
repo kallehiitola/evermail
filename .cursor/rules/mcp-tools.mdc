@@ -12,6 +12,7 @@ You have access to the following MCP servers:
 2. **Context7 MCP** - Library documentation (MudBlazor, MimeKit, Azure SDKs)
 3. **Stripe MCP** - Payment processing operations
 4. **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+5. **Framer MCP** - Marketing website design (NOT the Blazor application)
 
 ## Querying Microsoft Documentation
 
@@ -235,7 +236,9 @@ When answering questions related to:
 - **Azure Pricing** → Always use Azure Pricing MCP for cost decisions
 - **Infrastructure Costs** → Always use Azure Pricing MCP
 - **Service Selection** → Use Azure Pricing MCP to compare alternatives
-- **MudBlazor** → Always use Context7
+- **Marketing Website** → Use Framer MCP (NOT for Blazor application)
+- **Landing Pages** → Use Framer MCP for marketing site only
+- **MudBlazor** → Always use Context7 (for Blazor application UI)
 - **MimeKit** → Always use Context7
 - **NuGet packages** → Use Context7 for library-specific docs
 - **Stripe** → Use Stripe MCP tools first, Context7 for .NET SDK specifics
@@ -330,6 +333,43 @@ You have access to the Azure Pricing MCP with tools for real-time Azure service 
 "Compare costs for all services between West Europe and North Europe regions"
 ```
 
+## Framer MCP - Marketing Website Design
+
+**CRITICAL**: Framer MCP is ONLY for the marketing website (evermail.com), NOT the Blazor application!
+
+### When to Use Framer MCP
+
+**Use for**:
+- Marketing website design (evermail.com - landing pages, pricing, features)
+- Public-facing marketing content
+- Customer acquisition and conversion optimization
+- A/B testing variations for marketing messaging
+
+**NEVER use for**:
+- ❌ Building the Blazor application UI (use MudBlazor)
+- ❌ Email viewer interface (use Blazor components)
+- ❌ Admin dashboard (use Blazor)
+- ❌ Application-level components
+
+**Example Prompts**:
+```
+"Create a modern SaaS landing page for Evermail marketing site with hero, features, and pricing"
+
+"Design a pricing comparison table for the marketing website showing all subscription tiers"
+
+"Update the marketing website CTA button color and text to emphasize free trial"
+
+"Publish the marketing website homepage to production"
+
+"Rewrite the marketing site hero headline to focus on AI-powered email search"
+```
+
+**Architecture Separation**:
+- **Framer** → evermail.com (marketing)
+- **Blazor** → app.evermail.com (application)
+
+**Setup**: The Framer MCP plugin must be **open inside the Framer app** for the MCP to work.
+
 ## Integration with Evermail Project
 
 For Evermail-specific implementations:
@@ -337,6 +377,7 @@ For Evermail-specific implementations:
 - **Always use Context7** for library documentation (MudBlazor, MimeKit, Azure SDKs)
 - **Always use Stripe MCP** for payment integration code
 - **Always use Azure Pricing MCP** for infrastructure cost decisions
+- **Use Framer MCP ONLY** for marketing website (evermail.com), never for Blazor app
 - **Fetch full documentation** when implementing critical features
 - **Find official code samples** rather than creating from scratch
 - **Verify best practices** against official sources
@@ -363,6 +404,14 @@ For Evermail-specific implementations:
 - SKU discovery and selection
 - Cost estimation and validation
 - Break-even analysis
+
+**Framer MCP**:
+- Marketing website design (evermail.com)
+- Landing page creation and updates
+- Pricing page design
+- Marketing content iteration
+- Publishing marketing site
+- **NOT for Blazor application development**
 
 ### Example Workflow
 
