@@ -18,14 +18,14 @@ Go to [GitHub](https://github.com/new) and create a new repository:
 Once you've created the GitHub repository, run these commands:
 
 ```bash
-# Add GitHub as remote origin (replace YOUR_USERNAME with your GitHub username)
-git remote add origin https://github.com/YOUR_USERNAME/evermail.git
+# Repository already set up at: https://github.com/kallehiitola/evermail
+# Remote origin: git@github.com:kallehiitola/evermail.git
 
-# Or if you prefer SSH:
-git remote add origin git@github.com:YOUR_USERNAME/evermail.git
+# To clone on another machine:
+git clone git@github.com:kallehiitola/evermail.git
 
-# Push to GitHub
-git push -u origin master
+# To push future changes:
+git push origin master
 
 # If you want to rename master to main (GitHub's default):
 git branch -M main

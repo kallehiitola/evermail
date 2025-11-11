@@ -55,7 +55,7 @@ See [Architecture Documentation](Documentation/Architecture.md) for detailed sys
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/evermail.git
+   git clone git@github.com:kallehiitola/evermail.git
    cd evermail
    ```
 
