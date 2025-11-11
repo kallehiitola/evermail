@@ -11,6 +11,7 @@ Evermail uses Cursor's modern `.cursor/rules/` directory with focused, composabl
 ├── documentation.mdc          # CRITICAL - Always applied (Doc-driven dev)
 ├── multi-tenancy.mdc         # CRITICAL - Always applied
 ├── security.mdc               # CRITICAL - Always applied
+├── mcp-tools.mdc              # CRITICAL - Always applied (Microsoft Learn & Stripe MCPs)
 ├── csharp-standards.mdc       # C# 12+ conventions
 ├── database-patterns.mdc      # EF Core patterns
 ├── azure-aspire.mdc           # Aspire integration
@@ -28,6 +29,7 @@ Plus `AGENTS.md` in project root for high-level project context.
 - **documentation.mdc** - Document-driven development (check docs FIRST)
 - **multi-tenancy.mdc** - Multi-tenant patterns (TenantId enforcement)
 - **security.mdc** - Security patterns (auth, encryption, GDPR)
+- **mcp-tools.mdc** - MCP server usage (Microsoft Learn & Stripe official docs)
 
 ### 2. File-Scoped Rules
 Automatically applied when working with matching files:
@@ -73,6 +75,7 @@ Ask Cursor to create something:
 | `documentation.mdc` | ~380 | Document-driven development | ✅ Yes |
 | `multi-tenancy.mdc` | ~180 | Multi-tenant patterns (CRITICAL) | ✅ Yes |
 | `security.mdc` | ~350 | Auth, encryption, GDPR | ✅ Yes |
+| `mcp-tools.mdc` | ~230 | Microsoft Learn & Stripe MCP usage | ✅ Yes |
 | `csharp-standards.mdc` | ~220 | C# 12+ conventions | ❌ `**/*.cs` |
 | `database-patterns.mdc` | ~270 | EF Core patterns | ❌ Data files |
 | `azure-aspire.mdc` | ~200 | Aspire integration | ❌ AppHost files |
@@ -81,7 +84,7 @@ Ask Cursor to create something:
 | `blazor-frontend.mdc` | ~260 | Blazor components | ❌ `.razor` files |
 | `development-workflow.mdc` | ~350 | Dev standards & practices | ❌ General |
 
-**Total**: ~2,790 lines across 10 focused files (each under 400 lines)
+**Total**: ~3,020 lines across 11 focused files (each under 400 lines)
 
 ## 🆚 Old vs New Format
 
@@ -93,6 +96,43 @@ Ask Cursor to create something:
 | Metadata | None | Description, globs, alwaysApply |
 | Composability | No | Yes |
 | Performance | Load everything | Load what's needed |
+
+## 🔌 MCP Servers Configuration
+
+Evermail uses **Model Context Protocol (MCP)** servers to access official documentation:
+
+### Configured MCP Servers
+
+**Microsoft Learn MCP** (`~/.cursor/mcp.json`):
+- **URL**: `https://learn.microsoft.com/api/mcp`
+- **Type**: HTTP (streamable)
+- **Tools**:
+  - `microsoft_docs_search` - Search Microsoft documentation
+  - `microsoft_docs_fetch` - Fetch full doc pages as markdown
+  - `microsoft_code_sample_search` - Find official code samples
+- **Use for**: Azure, .NET, C#, Blazor, EF Core, Aspire, Azure CLI
+
+**Stripe MCP** (`~/.cursor/mcp.json`):
+- **Command**: `npx -y @stripe/mcp --tools=all`
+- **Type**: Local process
+- **Tools**: Customer, payment, subscription, invoice management
+- **Use for**: All Stripe payment integration questions
+
+### Using MCP Tools
+
+Simply ask questions and the AI will automatically use MCP tools:
+
+```
+"How do I configure Azure Blob Storage in Aspire? search Microsoft Learn"
+
+"Show me the official EF Core migration best practices. fetch full doc"
+
+"Create a Stripe subscription for the Pro tier"
+
+"List my Stripe test customers"
+```
+
+The `mcp-tools.mdc` rule ensures AI **always** consults official documentation instead of relying on training data.
 
 ## 🔧 Forcing Cursor to Reload Rules
 
