@@ -1,0 +1,122 @@
+---
+description: Multi-tenancy patterns - CRITICAL for data isolation
+alwaysApply: true
+---
+
+# Multi-Tenancy - CRITICAL
+
+**Every entity MUST have a `TenantId` property for data isolation.**
+
+## Entity Design Pattern
+
+```csharp
+public class EmailMessage
+{
+    public Guid Id { get; set; }
+    
+    [Required, MaxLength(64)]
+    public string TenantId { get; set; } = string.Empty;
+    
+    [Required, MaxLength(64)]
+    public string UserId { get; set; } = string.Empty;
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime? ModifiedAt { get; set; }
+    
+    // ... other properties
+}
+```
+
+## EF Core Global Query Filters
+
+**ALWAYS apply global query filters** to prevent cross-tenant data leakage:
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    // Apply to all tenant-scoped entities
+    modelBuilder.Entity<EmailMessage>()
+        .HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+    
+    modelBuilder.Entity<Mailbox>()
+        .HasQueryFilter(m => m.TenantId == _tenantContext.TenantId);
+}
+```
+
+## Tenant Context Resolution
+
+Resolve from JWT claims:
+
+```csharp
+public class TenantContext
+{
+    public string TenantId { get; set; }
+    public string UserId { get; set; }
+}
+
+services.AddScoped<TenantContext>(sp =>
+{
+    var httpContext = sp.GetRequiredService<IHttpContextAccessor>().HttpContext;
+    if (httpContext?.User?.Identity?.IsAuthenticated != true)
+        throw new UnauthorizedException("User not authenticated");
+    
+    var tenantId = httpContext.User.FindFirstValue("tenant_id");
+    var userId = httpContext.User.FindFirstValue("sub");
+    
+    if (string.IsNullOrEmpty(tenantId))
+        throw new SecurityException("TenantId claim missing");
+    
+    return new TenantContext { TenantId = tenantId, UserId = userId };
+});
+```
+
+## Blob Storage Isolation
+
+Structure: `{container}/{tenantId}/{resource}/`
+
+```csharp
+// Example paths
+mbox-archives/{tenantId}/{mailboxId}/original.mbox
+attachments/{tenantId}/{mailboxId}/{messageId}/{filename}
+```
+
+**ALWAYS verify tenant ownership before generating SAS tokens:**
+
+```csharp
+public async Task<string> GetAttachmentUrlAsync(Guid attachmentId)
+{
+    // 1. Verify belongs to current tenant
+    var attachment = await _context.Attachments
+        .FirstOrDefaultAsync(a => a.Id == attachmentId);
+    
+    if (attachment == null || attachment.TenantId != _tenantContext.TenantId)
+        throw new NotFoundException("Attachment not found");
+    
+    // 2. Generate short-lived SAS token (15 minutes)
+    var sasToken = GenerateSasToken(attachment.BlobPath, TimeSpan.FromMinutes(15));
+    return sasToken;
+}
+```
+
+## Indexing Strategy
+
+Composite indexes for tenant queries:
+
+```csharp
+modelBuilder.Entity<EmailMessage>()
+    .HasIndex(e => new { e.TenantId, e.UserId })
+    .HasDatabaseName("IX_EmailMessages_Tenant_User");
+
+modelBuilder.Entity<EmailMessage>()
+    .HasIndex(e => new { e.TenantId, e.Date })
+    .HasDatabaseName("IX_EmailMessages_Tenant_Date");
+```
+
+## Security Checklist
+
+- [ ] Entity has `TenantId` property
+- [ ] Global query filter applied in `OnModelCreating`
+- [ ] Controller/API validates tenant ownership
+- [ ] Blob paths include tenant prefix
+- [ ] Indexes include `TenantId` for query performance
+- [ ] Unit tests verify tenant isolation

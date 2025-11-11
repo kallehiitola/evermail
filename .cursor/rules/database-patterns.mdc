@@ -1,0 +1,249 @@
+---
+description: EF Core patterns, entity design, and database conventions
+globs: ["**/Data/**/*.cs", "**/Entities/**/*.cs", "**/Migrations/**/*.cs"]
+alwaysApply: false
+---
+
+# Database Patterns with EF Core
+
+## Entity Design
+
+```csharp
+public class EmailMessage
+{
+    public Guid Id { get; set; }
+    
+    [Required, MaxLength(64)]
+    public string TenantId { get; set; } = string.Empty;
+    
+    [Required, MaxLength(64)]
+    public string UserId { get; set; } = string.Empty;
+    
+    [Required, MaxLength(512)]
+    public string FromAddress { get; set; } = string.Empty;
+    
+    public DateTime Date { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ModifiedAt { get; set; }
+    
+    // Navigation properties
+    public Guid MailboxId { get; set; }
+    public Mailbox Mailbox { get; set; } = null!;
+    
+    public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
+}
+```
+
+## OnModelCreating Configuration
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    base.OnModelCreating(modelBuilder);
+    
+    // Global query filters for multi-tenancy
+    modelBuilder.Entity<EmailMessage>()
+        .HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+    
+    // Indexes
+    modelBuilder.Entity<EmailMessage>()
+        .HasIndex(e => new { e.TenantId, e.UserId });
+    
+    modelBuilder.Entity<EmailMessage>()
+        .HasIndex(e => e.Date);
+    
+    modelBuilder.Entity<EmailMessage>()
+        .HasIndex(e => e.FromAddress);
+    
+    // Relationships
+    modelBuilder.Entity<EmailMessage>()
+        .HasOne(e => e.Mailbox)
+        .WithMany(m => m.Emails)
+        .HasForeignKey(e => e.MailboxId)
+        .OnDelete(DeleteBehavior.Cascade);
+}
+```
+
+## Full-Text Search Setup
+
+```csharp
+// Enable after migration
+// SQL Server Full-Text Catalog
+migrationBuilder.Sql(@"
+    CREATE FULLTEXT CATALOG EmailSearchCatalog AS DEFAULT;
+    
+    CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName, FromAddress)
+        KEY INDEX PK__EmailMessages
+        ON EmailSearchCatalog
+        WITH STOPLIST = SYSTEM;
+");
+
+// Query with full-text search
+var results = await _context.EmailMessages
+    .FromSqlInterpolated($@"
+        SELECT * FROM EmailMessages
+        WHERE TenantId = {tenantId}
+        AND CONTAINS((Subject, TextBody), {searchTerm})
+        ORDER BY Date DESC")
+    .AsNoTracking()
+    .ToListAsync();
+```
+
+## Migrations
+
+### Creating Migrations
+
+```bash
+dotnet ef migrations add MigrationName \
+    --project Evermail.Infrastructure \
+    --startup-project Evermail.WebApp
+```
+
+### Best Practices
+
+- **Descriptive names**: `AddEmailMessageTable`, `AddFullTextIndexToEmails`
+- **Never modify** existing migrations in production
+- **Test** on development database first
+- **Include** data seeding in separate migrations
+
+## Repository Pattern
+
+```csharp
+public interface IEmailRepository
+{
+    Task<EmailMessage?> GetByIdAsync(Guid id, string tenantId);
+    Task<PagedResult<EmailMessage>> SearchAsync(SearchCriteria criteria);
+    Task AddRangeAsync(IEnumerable<EmailMessage> emails);
+    Task SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+public class EmailRepository : IEmailRepository
+{
+    private readonly EmailDbContext _context;
+    
+    public EmailRepository(EmailDbContext context)
+    {
+        _context = context;
+    }
+    
+    public async Task<EmailMessage?> GetByIdAsync(Guid id, string tenantId)
+    {
+        return await _context.EmailMessages
+            .Where(e => e.Id == id && e.TenantId == tenantId)
+            .AsNoTracking()
+            .FirstOrDefaultAsync();
+    }
+    
+    public async Task AddRangeAsync(IEnumerable<EmailMessage> emails)
+    {
+        await _context.EmailMessages.AddRangeAsync(emails);
+    }
+    
+    public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+## Performance Optimizations
+
+### Compiled Queries
+
+```csharp
+private static readonly Func<EmailDbContext, Guid, string, Task<EmailMessage?>> 
+    GetEmailByIdQuery = EF.CompileAsyncQuery(
+        (EmailDbContext context, Guid id, string tenantId) =>
+            context.EmailMessages
+                .AsNoTracking()
+                .FirstOrDefault(e => e.Id == id && e.TenantId == tenantId)
+    );
+
+public async Task<EmailMessage?> GetByIdAsync(Guid id, string tenantId)
+{
+    return await GetEmailByIdQuery(_context, id, tenantId);
+}
+```
+
+### Batch Operations
+
+```csharp
+// Process in batches
+const int batchSize = 500;
+var batch = new List<EmailMessage>();
+
+foreach (var emailData in emailDataList)
+{
+    batch.Add(emailData);
+    
+    if (batch.Count >= batchSize)
+    {
+        await _context.EmailMessages.AddRangeAsync(batch);
+        await _context.SaveChangesAsync();
+        batch.Clear();
+    }
+}
+
+// Save remaining
+if (batch.Count > 0)
+{
+    await _context.EmailMessages.AddRangeAsync(batch);
+    await _context.SaveChangesAsync();
+}
+```
+
+### Pagination
+
+```csharp
+public async Task<PagedResult<EmailDto>> GetPagedAsync(
+    int page,
+    int pageSize,
+    CancellationToken cancellationToken)
+{
+    var query = _context.EmailMessages.AsQueryable();
+    
+    var totalCount = await query.CountAsync(cancellationToken);
+    
+    var items = await query
+        .OrderByDescending(e => e.Date)
+        .Skip((page - 1) * pageSize)
+        .Take(pageSize)
+        .AsNoTracking()
+        .Select(e => new EmailDto
+        {
+            Id = e.Id,
+            Subject = e.Subject,
+            From = e.FromAddress,
+            Date = e.Date
+        })
+        .ToListAsync(cancellationToken);
+    
+    return new PagedResult<EmailDto>
+    {
+        Items = items,
+        TotalCount = totalCount,
+        Page = page,
+        PageSize = pageSize
+    };
+}
+```
+
+## Connection String Management
+
+```csharp
+// Use connection strings from configuration
+services.AddDbContext<EmailDbContext>(options =>
+    options.UseSqlServer(
+        configuration.GetConnectionString("evermaildb"),
+        sqlOptions =>
+        {
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorNumbersToAdd: null
+            );
+            sqlOptions.CommandTimeout(30);
+        }
+    )
+);
+```

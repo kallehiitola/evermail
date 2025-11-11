@@ -1,0 +1,253 @@
+---
+description: C# coding conventions and file organization
+globs: ["**/*.cs"]
+alwaysApply: false
+---
+
+# C# Coding Standards
+
+## Modern C# Features (C# 12+)
+
+### File-Scoped Namespaces
+
+```csharp
+// Good ✅
+namespace Evermail.Domain.Entities;
+
+public class EmailMessage
+{
+    // ...
+}
+
+// Bad ❌
+namespace Evermail.Domain.Entities
+{
+    public class EmailMessage
+    {
+        // ...
+    }
+}
+```
+
+### Nullable Reference Types
+
+Enable in all files:
+
+```csharp
+#nullable enable
+
+public class EmailService
+{
+    private readonly IEmailRepository _repository;
+    
+    public async Task<EmailMessage?> GetByIdAsync(Guid id)
+    {
+        return await _repository.FindAsync(id);
+    }
+}
+```
+
+### Records for DTOs
+
+```csharp
+public record EmailSearchRequest(
+    string Query,
+    DateTime? DateFrom,
+    DateTime? DateTo,
+    int Page = 1,
+    int PageSize = 50
+);
+
+public record ApiResponse<T>(
+    bool Success,
+    T? Data = default,
+    string? Error = null,
+    Dictionary<string, string[]>? ValidationErrors = null
+);
+```
+
+## Naming Conventions
+
+- **PascalCase**: Classes, methods, properties, public fields
+- **camelCase**: Local variables, parameters
+- **_camelCase**: Private fields (underscore prefix)
+
+```csharp
+public class EmailService
+{
+    private readonly IEmailRepository _repository;
+    private readonly ILogger<EmailService> _logger;
+    
+    public async Task<EmailMessage?> GetEmailAsync(Guid emailId)
+    {
+        var tenantId = _tenantContext.TenantId;
+        return await _repository.GetByIdAsync(emailId, tenantId);
+    }
+}
+```
+
+## Async/Await
+
+- **ALWAYS** use async/await for I/O operations
+- **ALWAYS** suffix async methods with `Async`
+- Pass `CancellationToken` for long-running operations
+
+```csharp
+public async Task<IActionResult> SearchEmailsAsync(
+    SearchEmailsQuery query,
+    CancellationToken cancellationToken)
+{
+    var results = await _mediator.Send(query, cancellationToken);
+    return Ok(results);
+}
+```
+
+## Dependency Injection
+
+### Constructor Injection (Preferred)
+
+```csharp
+public class EmailService
+{
+    private readonly IEmailRepository _repository;
+    private readonly ILogger<EmailService> _logger;
+    private readonly TenantContext _tenantContext;
+    
+    public EmailService(
+        IEmailRepository repository,
+        ILogger<EmailService> logger,
+        TenantContext tenantContext)
+    {
+        _repository = repository;
+        _logger = logger;
+        _tenantContext = tenantContext;
+    }
+}
+```
+
+### Registration
+
+```csharp
+// Program.cs
+services.AddScoped<IEmailRepository, EmailRepository>();
+services.AddScoped<IEmailService, EmailService>();
+services.AddSingleton<IEmailParser, MimeKitEmailParser>();
+```
+
+## File Organization
+
+```
+Services/
+├── IEmailService.cs          # Interface
+└── EmailService.cs            # Implementation
+
+Models/
+├── Entities/                  # EF Core entities
+├── DTOs/                      # Data transfer objects
+└── ViewModels/                # UI-specific models
+
+Controllers/
+└── EmailsController.cs        # API controllers
+
+Data/
+├── DbContexts/
+│   └── EmailDbContext.cs
+└── Migrations/
+```
+
+## LINQ Best Practices
+
+### Prefer Query Syntax for Complex Queries
+
+```csharp
+// Good ✅
+var results = await _context.EmailMessages
+    .Where(e => e.Date >= query.DateFrom)
+    .OrderByDescending(e => e.Date)
+    .Select(e => new EmailListItemDto
+    {
+        Id = e.Id,
+        Subject = e.Subject,
+        From = e.FromAddress,
+        Date = e.Date
+    })
+    .AsNoTracking()
+    .ToListAsync(cancellationToken);
+```
+
+### Use AsNoTracking for Read-Only Queries
+
+```csharp
+// Good ✅
+var email = await _context.EmailMessages
+    .AsNoTracking()
+    .FirstOrDefaultAsync(e => e.Id == id);
+```
+
+## Error Handling
+
+### Custom Exceptions
+
+```csharp
+public class NotFoundException : Exception
+{
+    public NotFoundException(string message) : base(message) { }
+}
+
+public class MailboxProcessingException : Exception
+{
+    public MailboxProcessingException(string message, Exception? innerException = null) 
+        : base(message, innerException) { }
+}
+```
+
+### Global Exception Handler
+
+```csharp
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var error = context.Features.Get<IExceptionHandlerFeature>();
+        _logger.LogError(error.Error, "Unhandled exception");
+        
+        context.Response.StatusCode = 500;
+        await context.Response.WriteAsJsonAsync(new ApiResponse<object>(
+            Success: false,
+            Error: "An error occurred. Please try again."
+        ));
+    });
+});
+```
+
+## Immutability
+
+Prefer `readonly` and `const`:
+
+```csharp
+public class EmailParser
+{
+    private const int BatchSize = 500;
+    private readonly ILogger<EmailParser> _logger;
+    private readonly TenantContext _tenantContext;
+}
+```
+
+## XML Documentation
+
+Document public APIs:
+
+```csharp
+/// <summary>
+/// Searches emails with full-text search and filters.
+/// </summary>
+/// <param name="query">Search query with filters</param>
+/// <param name="cancellationToken">Cancellation token</param>
+/// <returns>Paginated search results</returns>
+public async Task<PagedResult<EmailDto>> SearchAsync(
+    SearchEmailsQuery query,
+    CancellationToken cancellationToken)
+{
+    // ...
+}
+```

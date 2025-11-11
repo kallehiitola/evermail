@@ -1,0 +1,318 @@
+---
+description: Security patterns - authentication, authorization, encryption
+alwaysApply: true
+---
+
+# Security Best Practices
+
+## Authentication
+
+### ASP.NET Core Identity
+
+```csharp
+// Configure Identity
+services.AddIdentity<ApplicationUser, IdentityRole>(options =>
+{
+    // Password requirements
+    options.Password.RequiredLength = 12;
+    options.Password.RequireDigit = true;
+    options.Password.RequireUppercase = true;
+    options.Password.RequireLowercase = true;
+    options.Password.RequireNonAlphanumeric = true;
+    
+    // Lockout
+    options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+    options.Lockout.MaxFailedAccessAttempts = 5;
+    options.Lockout.AllowedForNewUsers = true;
+    
+    // User
+    options.User.RequireUniqueEmail = true;
+})
+.AddEntityFrameworkStores<EmailDbContext>()
+.AddDefaultTokenProviders();
+```
+
+### JWT Configuration
+
+```csharp
+var tokenHandler = new JsonWebTokenHandler();
+var tokenDescriptor = new SecurityTokenDescriptor
+{
+    Subject = new ClaimsIdentity(new[]
+    {
+        new Claim("sub", user.Id.ToString()),
+        new Claim("tenant_id", user.TenantId.ToString()),
+        new Claim("email", user.Email),
+        new Claim("role", string.Join(",", user.Roles))
+    }),
+    Expires = DateTime.UtcNow.AddMinutes(15),
+    Issuer = "https://api.evermail.com",
+    Audience = "evermail-webapp",
+    SigningCredentials = new SigningCredentials(
+        new ECDsaSecurityKey(ecdsaKey), 
+        SecurityAlgorithms.EcdsaSha256
+    )
+};
+```
+
+### 2FA Implementation
+
+```csharp
+// Enable 2FA
+var secret = await _userManager.GenerateTwoFactorTokenAsync(user, "Authenticator");
+var qrCodeUrl = GenerateQrCodeUrl(user.Email, secret);
+
+// Verify 2FA code
+var isValid = await _userManager.VerifyTwoFactorTokenAsync(
+    user, 
+    "Authenticator", 
+    code
+);
+```
+
+## Authorization
+
+### Role-Based Access Control
+
+```csharp
+[Authorize(Roles = "Admin")]
+public class TenantManagementController : ControllerBase
+{
+    [HttpPost("users")]
+    public async Task<IActionResult> InviteUser([FromBody] InviteUserRequest request)
+    {
+        // Admin can only invite to their own tenant
+        if (request.TenantId != _tenantContext.TenantId)
+            return Forbid();
+        
+        // ... invite logic
+    }
+}
+
+[Authorize(Roles = "SuperAdmin")]
+public class PlatformAdminController : ControllerBase
+{
+    // SuperAdmin-only endpoints
+}
+```
+
+## Input Validation & Sanitization
+
+### API Validation
+
+```csharp
+public record CreateMailboxRequest
+{
+    [Required]
+    [MaxFileSize(5 * 1024 * 1024 * 1024)] // 5 GB
+    [AllowedExtensions(".mbox")]
+    public IFormFile File { get; init; }
+}
+
+public class MaxFileSizeAttribute : ValidationAttribute
+{
+    private readonly long _maxFileSize;
+    
+    public MaxFileSizeAttribute(long maxFileSize)
+    {
+        _maxFileSize = maxFileSize;
+    }
+    
+    protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
+    {
+        if (value is IFormFile file && file.Length > _maxFileSize)
+        {
+            return new ValidationResult($"File size exceeds {_maxFileSize / 1024 / 1024} MB");
+        }
+        return ValidationResult.Success;
+    }
+}
+```
+
+### SQL Injection Prevention
+
+**ALWAYS use parameterized queries** (EF Core handles this):
+
+```csharp
+// Good ✅
+var emails = await _context.EmailMessages
+    .Where(e => e.Subject.Contains(searchTerm))
+    .ToListAsync();
+
+// Or with raw SQL (parameterized)
+var emails = await _context.EmailMessages
+    .FromSqlInterpolated($"SELECT * FROM EmailMessages WHERE Subject LIKE {$"%{searchTerm}%"}")
+    .ToListAsync();
+
+// Bad ❌ - NEVER DO THIS
+var emails = await _context.EmailMessages
+    .FromSqlRaw($"SELECT * FROM EmailMessages WHERE Subject LIKE '%{searchTerm}%'")
+    .ToListAsync();
+```
+
+### XSS Prevention
+
+```csharp
+// Use HtmlSanitizer for user-generated HTML
+public string SanitizeHtmlBody(string html)
+{
+    var sanitizer = new HtmlSanitizer();
+    
+    sanitizer.AllowedTags.Clear();
+    sanitizer.AllowedTags.Add("p");
+    sanitizer.AllowedTags.Add("br");
+    sanitizer.AllowedTags.Add("strong");
+    sanitizer.AllowedTags.Add("em");
+    sanitizer.AllowedTags.Add("a");
+    
+    sanitizer.AllowedAttributes.Clear();
+    sanitizer.AllowedAttributes.Add("href");
+    
+    return sanitizer.Sanitize(html);
+}
+```
+
+## Secrets Management
+
+### Azure Key Vault
+
+```csharp
+// Add Key Vault to configuration
+builder.Configuration.AddAzureKeyVault(
+    new Uri($"https://{keyVaultName}.vault.azure.net/"),
+    new DefaultAzureCredential()
+);
+
+// Access secrets
+var stripeKey = builder.Configuration["Stripe:SecretKey"];
+var connectionString = builder.Configuration["ConnectionStrings:evermaildb"];
+```
+
+## Encryption
+
+### Data at Rest
+- **Azure SQL**: TDE (Transparent Data Encryption) enabled by default
+- **Blob Storage**: SSE (Storage Service Encryption) enabled by default
+
+### Data in Transit
+
+```csharp
+// TLS 1.2+ only
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ConfigureHttpsDefaults(httpsOptions =>
+    {
+        httpsOptions.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
+    });
+});
+
+// HSTS header
+app.UseHsts();
+app.UseHttpsRedirection();
+
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("Strict-Transport-Security", 
+        "max-age=31536000; includeSubDomains");
+    await next();
+});
+```
+
+## Audit Logging
+
+```csharp
+public async Task LogAuditAsync(
+    string action,
+    string resourceType,
+    Guid? resourceId = null)
+{
+    var auditLog = new AuditLog
+    {
+        Id = Guid.NewGuid(),
+        TenantId = _tenantContext.TenantId,
+        UserId = _tenantContext.UserId,
+        Action = action,
+        ResourceType = resourceType,
+        ResourceId = resourceId,
+        IpAddress = _httpContext.Connection.RemoteIpAddress?.ToString(),
+        UserAgent = _httpContext.Request.Headers["User-Agent"].ToString(),
+        Timestamp = DateTime.UtcNow
+    };
+    
+    await _context.AuditLogs.AddAsync(auditLog);
+    await _context.SaveChangesAsync();
+}
+```
+
+## GDPR Compliance
+
+### Right to Access (Export Data)
+
+```csharp
+public async Task<string> ExportUserDataAsync(string userId)
+{
+    var emails = await _context.EmailMessages
+        .Where(e => e.UserId == userId)
+        .ToListAsync();
+    
+    var auditLogs = await _context.AuditLogs
+        .Where(a => a.UserId == userId)
+        .ToListAsync();
+    
+    // Package as ZIP
+    var exportPath = await CreateExportZipAsync(emails, auditLogs);
+    return exportPath;
+}
+```
+
+### Right to be Forgotten (Delete Account)
+
+```csharp
+public async Task DeleteUserAccountAsync(string userId)
+{
+    // 1. Soft-delete user
+    var user = await _userManager.FindByIdAsync(userId);
+    user.IsDeleted = true;
+    await _userManager.UpdateAsync(user);
+    
+    // 2. Delete mailboxes (cascade to emails, attachments)
+    var mailboxes = await _context.Mailboxes
+        .Where(m => m.UserId == userId)
+        .ToListAsync();
+    _context.Mailboxes.RemoveRange(mailboxes);
+    
+    // 3. Delete blobs
+    foreach (var mailbox in mailboxes)
+    {
+        await _blobService.DeleteContainerAsync($"mailbox-{mailbox.Id}");
+    }
+    
+    // 4. Anonymize audit logs
+    await _context.AuditLogs
+        .Where(a => a.UserId == userId)
+        .ExecuteUpdateAsync(a => a.SetProperty(x => x.UserId, "[deleted]"));
+    
+    // 5. Cancel Stripe subscription
+    if (!string.IsNullOrEmpty(user.StripeCustomerId))
+    {
+        await _stripeService.CancelSubscriptionAsync(user.StripeCustomerId);
+    }
+    
+    await _context.SaveChangesAsync();
+}
+```
+
+## Security Headers
+
+```csharp
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Add("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Add("X-Frame-Options", "DENY");
+    context.Response.Headers.Add("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Add("Referrer-Policy", "no-referrer");
+    context.Response.Headers.Add("Content-Security-Policy", 
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';");
+    await next();
+});
+```

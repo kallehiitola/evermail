@@ -1,6 +1,6 @@
 # Cursor AI Rules Verification Checklist
 
-This document helps you verify that Cursor is properly using the `.cursorrules` file.
+This document helps you verify that Cursor is properly using the modern `.cursor/rules/` format.
 
 ## ✅ Setup Verification
 
@@ -10,14 +10,32 @@ Run this command to verify all files are in place:
 
 ```bash
 cd /Users/kallehiitola/Work/evermail
-ls -la | grep -E "cursor|vscode"
+ls -la | grep -E "cursor|vscode|AGENTS"
 ```
 
 **Expected output**:
-- `.cursorrules` (16,908 bytes)
+- `AGENTS.md` (high-level project instructions)
 - `.cursorignore`
-- `.cursor/` directory
+- `.cursor/` directory with:
+  - `rules/` subdirectory containing 8 `.mdc` files
+  - `README.md` documentation
 - `.vscode/` directory
+
+### 2. Verify Rule Files
+
+```bash
+ls -la .cursor/rules/
+```
+
+**Expected output** (8 MDC files):
+- `multi-tenancy.mdc` (~180 lines)
+- `csharp-standards.mdc` (~220 lines)
+- `database-patterns.mdc` (~270 lines)
+- `security.mdc` (~350 lines)
+- `azure-aspire.mdc` (~200 lines)
+- `email-processing.mdc` (~280 lines)
+- `api-design.mdc` (~300 lines)
+- `blazor-frontend.mdc` (~260 lines)
 
 ### 2. Workspace Verification
 
@@ -33,9 +51,10 @@ ls -la | grep -E "cursor|vscode"
 2. Press `Cmd + ,` (macOS) or `Ctrl + ,` (Windows/Linux)
 3. Navigate to: **Features → Cursor Rules** or search "rules"
 4. You should see:
-   - **Project Rules** section
-   - Path showing: `.cursorrules`
-   - Preview of the rules content
+   - **Project Rules** section listing all 8 `.mdc` files
+   - **AGENTS.md** showing in project context
+   - Each rule showing its description and scope (globs)
+   - "Always Apply" badge on `multi-tenancy.mdc` and `security.mdc`
 
 ## 🧪 Testing the Rules
 
@@ -158,24 +177,19 @@ Try explicitly referencing them in your prompts:
 
 ## 📚 Rules Content Summary
 
-Your `.cursorrules` file contains (564 lines):
+Your rules are now organized in **8 focused MDC files** (~2,060 total lines):
 
-### Key Sections:
-1. **Project Overview** - Tech stack (Azure, .NET 8, Aspire)
-2. **Architecture** - Clean Architecture, DDD, CQRS
-3. **Multi-Tenancy** - Every entity must have TenantId
-4. **Code Style** - C# 12+, naming conventions
-5. **Database** - Entity design, indexing, migrations
-6. **Azure Aspire** - Service discovery, component usage
-7. **Email Processing** - MimeKit patterns
-8. **Security** - Auth, encryption, GDPR
-9. **Blazor** - Component design, state management
-10. **API Design** - REST conventions, versioning
-11. **Stripe** - Payment integration patterns
-12. **Testing** - Unit, integration, E2E
-13. **Performance** - Caching, optimization
-14. **AI Features** - OpenAI integration (Phase 2)
-15. **Deployment** - Azure deployment, monitoring
+### Rule Files:
+1. **multi-tenancy.mdc** (Always Apply) - TenantId enforcement, isolation
+2. **csharp-standards.mdc** (C# files) - C# 12+, naming, async patterns
+3. **database-patterns.mdc** (Data files) - EF Core, migrations, FTS
+4. **security.mdc** (Always Apply) - Auth, encryption, GDPR
+5. **azure-aspire.mdc** (AppHost files) - Service discovery, deployment
+6. **email-processing.mdc** (Email services) - MimeKit, mbox parsing
+7. **api-design.mdc** (API files) - REST, versioning, OpenAPI
+8. **blazor-frontend.mdc** (Razor files) - Components, state, MudBlazor
+
+Plus **AGENTS.md** with high-level project context (architecture, tech stack, business model)
 
 ## ✨ Success Indicators
 
@@ -198,9 +212,12 @@ If you continue having issues:
 ---
 
 **File Locations**:
-- Rules: `/Users/kallehiitola/Work/evermail/.cursorrules`
+- Rules: `/Users/kallehiitola/Work/evermail/.cursor/rules/*.mdc`
+- Agents: `/Users/kallehiitola/Work/evermail/AGENTS.md`
 - Config: `/Users/kallehiitola/Work/evermail/.cursor/`
 - Ignore: `/Users/kallehiitola/Work/evermail/.cursorignore`
 
+**Format**: Modern Cursor MDC rules (v2024+)  
+**Old Format**: `.cursorrules` has been deprecated and renamed to `.cursorrules.deprecated`  
 **Last Updated**: 2025-11-11
 

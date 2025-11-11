@@ -1,0 +1,393 @@
+---
+description: REST API design patterns and conventions
+globs: ["**/Controllers/**/*.cs", "**/Endpoints/**/*.cs"]
+alwaysApply: false
+---
+
+# API Design Patterns
+
+## RESTful Conventions
+
+```
+GET    /api/v1/mailboxes                 # List user's mailboxes
+POST   /api/v1/mailboxes                 # Upload new mbox
+GET    /api/v1/mailboxes/{id}            # Get mailbox details
+DELETE /api/v1/mailboxes/{id}            # Delete mailbox
+
+GET    /api/v1/emails/search?q=keyword   # Search emails
+GET    /api/v1/emails/{id}               # Get email details
+GET    /api/v1/emails/{id}/attachments   # List attachments
+```
+
+## Minimal API Pattern
+
+```csharp
+// Evermail.WebApp/Endpoints/MailboxEndpoints.cs
+public static class MailboxEndpoints
+{
+    public static RouteGroupBuilder MapMailboxEndpoints(this RouteGroupBuilder group)
+    {
+        group.MapGet("/", GetMailboxesAsync)
+            .WithName("GetMailboxes")
+            .WithTags("Mailboxes")
+            .RequireAuthorization();
+
+        group.MapPost("/", UploadMailboxAsync)
+            .WithName("UploadMailbox")
+            .WithTags("Mailboxes")
+            .RequireAuthorization()
+            .Accepts<IFormFile>("multipart/form-data")
+            .DisableAntiforgery();
+
+        group.MapGet("/{id:guid}", GetMailboxByIdAsync)
+            .WithName("GetMailboxById")
+            .WithTags("Mailboxes")
+            .RequireAuthorization();
+
+        group.MapDelete("/{id:guid}", DeleteMailboxAsync)
+            .WithName("DeleteMailbox")
+            .WithTags("Mailboxes")
+            .RequireAuthorization();
+
+        return group;
+    }
+
+    private static async Task<IResult> GetMailboxesAsync(
+        IMailboxService mailboxService,
+        TenantContext tenantContext,
+        [FromQuery] string? status = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await mailboxService.GetMailboxesAsync(
+            tenantContext.TenantId,
+            tenantContext.UserId,
+            status,
+            page,
+            pageSize,
+            cancellationToken
+        );
+
+        return Results.Ok(new ApiResponse<PagedResult<MailboxDto>>(
+            Success: true,
+            Data: result
+        ));
+    }
+
+    private static async Task<IResult> UploadMailboxAsync(
+        IFormFile file,
+        IMailboxService mailboxService,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (file.Length == 0)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "File is empty"
+            ));
+        }
+
+        using var stream = file.OpenReadStream();
+        var result = await mailboxService.UploadMailboxAsync(
+            stream,
+            file.FileName,
+            file.Length,
+            tenantContext.TenantId,
+            tenantContext.UserId,
+            cancellationToken
+        );
+
+        return Results.Accepted(
+            $"/api/v1/mailboxes/{result.MailboxId}",
+            new ApiResponse<MailboxUploadResult>(Success: true, Data: result)
+        );
+    }
+
+    private static async Task<IResult> DeleteMailboxAsync(
+        Guid id,
+        IMailboxService mailboxService,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        await mailboxService.DeleteMailboxAsync(
+            id,
+            tenantContext.TenantId,
+            tenantContext.UserId,
+            cancellationToken
+        );
+
+        return Results.NoContent();
+    }
+}
+```
+
+## Response Format
+
+```csharp
+public record ApiResponse<T>(
+    bool Success,
+    T? Data = default,
+    string? Error = null,
+    Dictionary<string, string[]>? ValidationErrors = null
+);
+
+// Success response
+return Results.Ok(new ApiResponse<EmailDto>(
+    Success: true,
+    Data: emailDto
+));
+
+// Error response
+return Results.BadRequest(new ApiResponse<object>(
+    Success: false,
+    Error: "Invalid email ID"
+));
+
+// Validation error response
+return Results.BadRequest(new ApiResponse<object>(
+    Success: false,
+    Error: "Validation failed",
+    ValidationErrors: new Dictionary<string, string[]>
+    {
+        ["Email"] = new[] { "Email is required", "Email format is invalid" }
+    }
+));
+```
+
+## Pagination
+
+```csharp
+public record PagedResult<T>
+{
+    public IReadOnlyList<T> Items { get; init; } = Array.Empty<T>();
+    public int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+    public bool HasNextPage => Page < TotalPages;
+    public bool HasPreviousPage => Page > 1;
+}
+
+// Usage
+var pagedResult = new PagedResult<EmailDto>
+{
+    Items = emails,
+    TotalCount = totalCount,
+    Page = page,
+    PageSize = pageSize
+};
+```
+
+## Versioning
+
+Use URL versioning:
+
+```csharp
+// Program.cs
+var v1 = app.MapGroup("/api/v1")
+    .WithOpenApi();
+
+v1.MapGroup("/mailboxes").MapMailboxEndpoints();
+v1.MapGroup("/emails").MapEmailEndpoints();
+v1.MapGroup("/users").MapUserEndpoints();
+
+// Future: v2 with breaking changes
+var v2 = app.MapGroup("/api/v2")
+    .WithOpenApi();
+```
+
+## Error Handling Middleware
+
+```csharp
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exceptionFeature = context.Features.Get<IExceptionHandlerFeature>();
+        var exception = exceptionFeature?.Error;
+
+        var (statusCode, error) = exception switch
+        {
+            NotFoundException => (404, "Resource not found"),
+            UnauthorizedException => (401, "Unauthorized"),
+            ForbiddenException => (403, "Forbidden"),
+            ValidationException => (400, "Validation failed"),
+            _ => (500, "An error occurred. Please try again.")
+        };
+
+        _logger.LogError(exception, "Unhandled exception");
+
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType = "application/json";
+
+        await context.Response.WriteAsJsonAsync(new ApiResponse<object>(
+            Success: false,
+            Error: error
+        ));
+    });
+});
+```
+
+## OpenAPI/Swagger Configuration
+
+```csharp
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Evermail API",
+        Version = "v1",
+        Description = "Email archive management API"
+    });
+
+    // Add JWT authentication
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        Description = "JWT Authorization header using the Bearer scheme"
+    });
+
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            Array.Empty<string>()
+        }
+    });
+});
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", "Evermail API v1");
+});
+```
+
+## Rate Limiting
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+    {
+        var tenantId = httpContext.User.FindFirstValue("tenant_id") ?? "anonymous";
+        
+        return RateLimitPartition.GetFixedWindowLimiter(tenantId, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = GetLimitForTenant(tenantId),
+                Window = TimeSpan.FromHours(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            });
+    });
+});
+
+app.UseRateLimiter();
+
+private static int GetLimitForTenant(string tenantId)
+{
+    // Get subscription tier from database or cache
+    return tier switch
+    {
+        "Free" => 100,
+        "Pro" => 1000,
+        "Team" => 10000,
+        "Enterprise" => int.MaxValue,
+        _ => 100
+    };
+}
+```
+
+## CORS Configuration
+
+```csharp
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(builder =>
+    {
+        builder.WithOrigins(
+                "https://evermail.com",
+                "https://app.evermail.com"
+            )
+            .AllowAnyMethod()
+            .AllowAnyHeader()
+            .AllowCredentials();
+    });
+});
+
+app.UseCors();
+```
+
+## Health Checks
+
+```csharp
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<EmailDbContext>()
+    .AddAzureBlobStorage(
+        builder.Configuration.GetConnectionString("blobs")!,
+        name: "blob-storage",
+        tags: new[] { "ready" }
+    );
+
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var response = new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new
+            {
+                name = e.Key,
+                status = e.Value.Status.ToString(),
+                duration = e.Value.Duration.TotalMilliseconds
+            })
+        };
+        await context.Response.WriteAsJsonAsync(response);
+    }
+});
+```
+
+## Testing Endpoints
+
+```csharp
+public class MailboxEndpointsTests : IClassFixture<WebApplicationFactory<Program>>
+{
+    private readonly HttpClient _client;
+    
+    public MailboxEndpointsTests(WebApplicationFactory<Program> factory)
+    {
+        _client = factory.CreateClient();
+    }
+    
+    [Fact]
+    public async Task GetMailboxes_WithValidToken_ReturnsOk()
+    {
+        // Arrange
+        _client.DefaultRequestHeaders.Authorization = 
+            new AuthenticationHeaderValue("Bearer", TestJwtToken);
+        
+        // Act
+        var response = await _client.GetAsync("/api/v1/mailboxes");
+        
+        // Assert
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<ApiResponse<PagedResult<MailboxDto>>>();
+        Assert.NotNull(result);
+        Assert.True(result.Success);
+    }
+}
+```

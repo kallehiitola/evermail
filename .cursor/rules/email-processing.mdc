@@ -1,0 +1,307 @@
+---
+description: Email parsing with MimeKit and mbox processing patterns
+globs: ["**/Services/*Email*.cs", "**/Services/*Mbox*.cs", "**/Workers/*Ingestion*.cs"]
+alwaysApply: false
+---
+
+# Email Processing with MimeKit
+
+## Core Principles
+
+- **ALWAYS stream** - Never load entire mbox into memory
+- **Batch processing** - Process 500 messages before committing to DB
+- **Graceful error handling** - Skip corrupt messages, continue processing
+- **Extract key data**: MessageId, Subject, From, To, Date, Bodies, Attachments
+
+## Mbox Parsing Pattern
+
+```csharp
+public async Task ProcessMboxFileAsync(
+    string blobPath,
+    Guid mailboxId,
+    string tenantId,
+    string userId,
+    CancellationToken cancellationToken)
+{
+    using var fileStream = await _blobClient.OpenReadAsync(blobPath, cancellationToken);
+    using var parser = new MimeParser(fileStream, MimeFormat.Mbox);
+
+    var batch = new List<EmailMessage>();
+    const int batchSize = 500;
+    int totalProcessed = 0;
+    int failedCount = 0;
+
+    while (!parser.IsEndOfStream)
+    {
+        try
+        {
+            var message = await parser.ParseMessageAsync(cancellationToken);
+            var entity = MapToEntity(message, tenantId, userId, mailboxId);
+            batch.Add(entity);
+
+            totalProcessed++;
+
+            if (batch.Count >= batchSize)
+            {
+                await SaveBatchAsync(batch, cancellationToken);
+                batch.Clear();
+                
+                _logger.LogInformation(
+                    "Processed {Count} messages for mailbox {MailboxId}",
+                    totalProcessed,
+                    mailboxId
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            failedCount++;
+            _logger.LogWarning(
+                ex,
+                "Failed to parse message #{MessageNumber} in mailbox {MailboxId}",
+                totalProcessed + 1,
+                mailboxId
+            );
+        }
+    }
+
+    // Save remaining batch
+    if (batch.Count > 0)
+    {
+        await SaveBatchAsync(batch, cancellationToken);
+    }
+
+    _logger.LogInformation(
+        "Completed mailbox {MailboxId}: {Total} processed, {Failed} failed",
+        mailboxId,
+        totalProcessed,
+        failedCount
+    );
+}
+```
+
+## Message Mapping
+
+```csharp
+private EmailMessage MapToEntity(
+    MimeMessage mimeMessage,
+    string tenantId,
+    string userId,
+    Guid mailboxId)
+{
+    var textBody = mimeMessage.TextBody ?? string.Empty;
+    var htmlBody = mimeMessage.HtmlBody ?? string.Empty;
+    var snippet = textBody.Length > 200 ? textBody[..200] : textBody;
+
+    // Extract addresses
+    var fromAddress = mimeMessage.From.Mailboxes.FirstOrDefault();
+    var toAddresses = mimeMessage.To.Mailboxes.Select(m => m.Address).ToList();
+    var ccAddresses = mimeMessage.Cc.Mailboxes.Select(m => m.Address).ToList();
+
+    return new EmailMessage
+    {
+        Id = Guid.NewGuid(),
+        TenantId = tenantId,
+        UserId = userId,
+        MailboxId = mailboxId,
+        
+        // SMTP Headers
+        MessageId = mimeMessage.MessageId ?? Guid.NewGuid().ToString(),
+        InReplyTo = mimeMessage.InReplyTo,
+        References = mimeMessage.References?.ToString(),
+        
+        // Basic fields
+        Subject = mimeMessage.Subject ?? string.Empty,
+        Date = mimeMessage.Date.UtcDateTime,
+        
+        // Sender
+        FromAddress = fromAddress?.Address ?? string.Empty,
+        FromName = fromAddress?.Name ?? string.Empty,
+        
+        // Recipients
+        ToAddresses = JsonSerializer.Serialize(toAddresses),
+        ToNames = JsonSerializer.Serialize(
+            mimeMessage.To.Mailboxes.Select(m => m.Name ?? m.Address).ToList()
+        ),
+        CcAddresses = JsonSerializer.Serialize(ccAddresses),
+        
+        // Content
+        Snippet = snippet,
+        TextBody = textBody,
+        HtmlBody = htmlBody,
+        
+        // Metadata
+        HasAttachments = mimeMessage.Attachments.Any(),
+        AttachmentCount = mimeMessage.Attachments.Count(),
+        
+        CreatedAt = DateTime.UtcNow
+    };
+}
+```
+
+## Attachment Processing
+
+```csharp
+private async Task ProcessAttachmentsAsync(
+    MimeMessage mimeMessage,
+    Guid emailMessageId,
+    string tenantId,
+    Guid mailboxId,
+    CancellationToken cancellationToken)
+{
+    var attachments = new List<Attachment>();
+    
+    foreach (var attachment in mimeMessage.Attachments)
+    {
+        if (attachment is MimePart mimePart)
+        {
+            var fileName = mimePart.FileName ?? $"attachment_{Guid.NewGuid()}";
+            var blobPath = $"attachments/{tenantId}/{mailboxId}/{emailMessageId}/{fileName}";
+            
+            // Upload to blob storage
+            using var stream = new MemoryStream();
+            await mimePart.Content.DecodeToAsync(stream, cancellationToken);
+            stream.Position = 0;
+            
+            await _blobClient.UploadAsync(blobPath, stream, cancellationToken);
+            
+            attachments.Add(new Attachment
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantId,
+                EmailMessageId = emailMessageId,
+                FileName = fileName,
+                ContentType = mimePart.ContentType.MimeType,
+                SizeBytes = stream.Length,
+                BlobPath = blobPath,
+                IsInline = mimePart.IsAttachment == false,
+                ContentId = mimePart.ContentId,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+    }
+    
+    if (attachments.Any())
+    {
+        await _context.Attachments.AddRangeAsync(attachments, cancellationToken);
+    }
+}
+```
+
+## Batch Saving
+
+```csharp
+private async Task SaveBatchAsync(
+    List<EmailMessage> batch,
+    CancellationToken cancellationToken)
+{
+    try
+    {
+        await _context.EmailMessages.AddRangeAsync(batch, cancellationToken);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+    catch (DbUpdateException ex)
+    {
+        _logger.LogError(ex, "Failed to save batch of {Count} emails", batch.Count);
+        
+        // Try saving one by one to identify problematic records
+        foreach (var email in batch)
+        {
+            try
+            {
+                _context.EmailMessages.Add(email);
+                await _context.SaveChangesAsync(cancellationToken);
+            }
+            catch (Exception innerEx)
+            {
+                _logger.LogError(
+                    innerEx,
+                    "Failed to save email {MessageId}",
+                    email.MessageId
+                );
+            }
+        }
+    }
+}
+```
+
+## Mailbox Status Tracking
+
+```csharp
+public async Task UpdateMailboxStatusAsync(
+    Guid mailboxId,
+    MailboxStatus status,
+    int? totalEmails = null,
+    int? processedEmails = null,
+    string? errorMessage = null,
+    CancellationToken cancellationToken = default)
+{
+    var mailbox = await _context.Mailboxes.FindAsync(
+        new object[] { mailboxId },
+        cancellationToken
+    );
+    
+    if (mailbox == null) return;
+    
+    mailbox.Status = status.ToString();
+    mailbox.UpdatedAt = DateTime.UtcNow;
+    
+    if (totalEmails.HasValue)
+        mailbox.TotalEmails = totalEmails.Value;
+    
+    if (processedEmails.HasValue)
+        mailbox.ProcessedEmails = processedEmails.Value;
+    
+    if (errorMessage != null)
+        mailbox.ErrorMessage = errorMessage;
+    
+    if (status == MailboxStatus.Processing && mailbox.ProcessingStartedAt == null)
+        mailbox.ProcessingStartedAt = DateTime.UtcNow;
+    
+    if (status == MailboxStatus.Completed || status == MailboxStatus.Failed)
+        mailbox.ProcessingCompletedAt = DateTime.UtcNow;
+    
+    await _context.SaveChangesAsync(cancellationToken);
+}
+
+public enum MailboxStatus
+{
+    Pending,
+    Processing,
+    Completed,
+    Failed
+}
+```
+
+## Error Handling Best Practices
+
+```csharp
+// Wrap parsing in try-catch per message
+try
+{
+    var message = await parser.ParseMessageAsync(cancellationToken);
+    // Process message
+}
+catch (FormatException ex)
+{
+    _logger.LogWarning(ex, "Invalid email format, skipping message");
+}
+catch (IOException ex)
+{
+    _logger.LogError(ex, "I/O error reading message");
+    throw; // Fail entire job on I/O errors
+}
+catch (Exception ex)
+{
+    _logger.LogWarning(ex, "Unexpected error parsing message, skipping");
+}
+```
+
+## Performance Considerations
+
+- Use `StreamReader` for large mbox files
+- Process in batches (500 messages recommended)
+- Use `AddRangeAsync` for bulk inserts
+- Store attachments > 1MB in Blob Storage (not DB)
+- Generate snippet in memory (don't store full body twice)
+- Use compiled queries for frequent operations

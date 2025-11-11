@@ -1,0 +1,258 @@
+---
+description: Azure Aspire integration patterns and service discovery
+globs: ["**/AppHost/**/*.cs", "**/*Program.cs"]
+alwaysApply: false
+---
+
+# Azure Aspire Integration
+
+## AppHost Configuration
+
+```csharp
+// Evermail.AppHost/Program.cs
+var builder = DistributedApplication.CreateBuilder(args);
+
+// Add SQL Server
+var sql = builder.AddSqlServer("sql")
+    .WithLifetime(ContainerLifetime.Persistent)
+    .AddDatabase("evermaildb");
+
+// Add Azure Storage (local: Azurite, cloud: Azure Storage)
+var storage = builder.AddAzureStorage("storage");
+var blobs = storage.AddBlobs("blobs");
+var queues = storage.AddQueues("queues");
+
+// Add services with dependencies
+var webapp = builder.AddProject<Projects.Evermail_WebApp>("webapp")
+    .WithReference(sql)
+    .WithReference(blobs)
+    .WithReference(queues)
+    .WithExternalHttpEndpoints();
+
+builder.AddProject<Projects.Evermail_IngestionWorker>("worker")
+    .WithReference(sql)
+    .WithReference(blobs)
+    .WithReference(queues);
+
+builder.AddProject<Projects.Evermail_AdminApp>("admin")
+    .WithReference(sql)
+    .WithReference(blobs)
+    .WithReference(webapp); // Can call webapp APIs
+
+builder.Build().Run();
+```
+
+## Service Discovery
+
+Use named references instead of hardcoded URLs:
+
+```csharp
+// WebApp - Configure services
+builder.AddServiceDefaults();
+
+// Add SQL Server from Aspire
+builder.AddSqlServerDbContext<EmailDbContext>("evermaildb");
+
+// Add Azure Blob Storage
+builder.AddAzureBlobClient("blobs");
+
+// Add Azure Queue Storage
+builder.AddAzureQueueClient("queues");
+```
+
+## Connection String Management
+
+Aspire manages connection strings via configuration:
+
+```csharp
+// Local development: uses Docker containers
+// Production: uses Azure resources
+
+// Access via configuration (Aspire handles this)
+services.AddDbContext<EmailDbContext>(options =>
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("evermaildb")
+    )
+);
+```
+
+## Telemetry & Observability
+
+Aspire provides built-in telemetry:
+
+```csharp
+// Configure OpenTelemetry (automatic with Aspire)
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        metrics.AddAspNetCoreInstrumentation();
+        metrics.AddHttpClientInstrumentation();
+        metrics.AddRuntimeInstrumentation();
+    })
+    .WithTracing(tracing =>
+    {
+        tracing.AddAspNetCoreInstrumentation();
+        tracing.AddHttpClientInstrumentation();
+        tracing.AddSqlClientInstrumentation();
+    });
+```
+
+## Health Checks
+
+```csharp
+// Add health checks
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<EmailDbContext>()
+    .AddAzureBlobStorage(
+        builder.Configuration.GetConnectionString("blobs")!,
+        name: "blob-storage"
+    )
+    .AddAzureQueueStorage(
+        builder.Configuration.GetConnectionString("queues")!,
+        name: "queue-storage"
+    );
+
+// Expose health endpoints
+app.MapHealthChecks("/health");
+app.MapHealthChecks("/health/ready", new HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
+```
+
+## Worker Service Pattern
+
+```csharp
+// Evermail.IngestionWorker/Program.cs
+var builder = Host.CreateApplicationBuilder(args);
+
+builder.AddServiceDefaults();
+
+// Add dependencies
+builder.AddSqlServerDbContext<EmailDbContext>("evermaildb");
+builder.AddAzureBlobClient("blobs");
+builder.AddAzureQueueClient("queues");
+
+// Add background service
+builder.Services.AddHostedService<MailboxIngestionWorker>();
+
+var host = builder.Build();
+host.Run();
+```
+
+## Background Worker Implementation
+
+```csharp
+public class MailboxIngestionWorker : BackgroundService
+{
+    private readonly ILogger<MailboxIngestionWorker> _logger;
+    private readonly IServiceProvider _serviceProvider;
+    private readonly QueueClient _queueClient;
+
+    public MailboxIngestionWorker(
+        ILogger<MailboxIngestionWorker> logger,
+        IServiceProvider serviceProvider,
+        QueueClient queueClient)
+    {
+        _logger = logger;
+        _serviceProvider = serviceProvider;
+        _queueClient = queueClient;
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                var messages = await _queueClient.ReceiveMessagesAsync(
+                    maxMessages: 10,
+                    visibilityTimeout: TimeSpan.FromMinutes(5),
+                    cancellationToken: stoppingToken
+                );
+
+                foreach (var message in messages.Value)
+                {
+                    await ProcessMessageAsync(message, stoppingToken);
+                }
+
+                if (messages.Value.Length == 0)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error processing queue messages");
+                await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
+            }
+        }
+    }
+
+    private async Task ProcessMessageAsync(QueueMessage message, CancellationToken cancellationToken)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var ingestionService = scope.ServiceProvider.GetRequiredService<IMailboxIngestionService>();
+
+        try
+        {
+            var jobData = JsonSerializer.Deserialize<MailboxIngestionJob>(message.MessageText);
+            await ingestionService.ProcessMailboxAsync(jobData!, cancellationToken);
+
+            // Delete message after successful processing
+            await _queueClient.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process mailbox ingestion job");
+
+            // Message will become visible again after visibility timeout
+            // Azure Queue automatically handles retries
+        }
+    }
+}
+```
+
+## Environment-Specific Configuration
+
+```csharp
+// appsettings.Development.json (local)
+{
+  "ConnectionStrings": {
+    "evermaildb": "Server=localhost,1433;Database=Evermail;User=sa;Password=...;TrustServerCertificate=true",
+    "storage": "UseDevelopmentStorage=true"
+  }
+}
+
+// appsettings.Production.json (Azure)
+{
+  "ConnectionStrings": {
+    "evermaildb": "", // Provided by Aspire/Key Vault
+    "storage": "" // Provided by Aspire/Key Vault
+  }
+}
+```
+
+## Deployment with Aspire
+
+```bash
+# Deploy to Azure
+azd init
+azd provision  # Creates Azure resources
+azd deploy     # Deploys applications
+
+# Or use azd up (provision + deploy)
+azd up
+```
+
+## Resource Naming Convention
+
+```
+evermail-{env}-{resource}
+
+Examples:
+- evermail-prod-sql
+- evermail-prod-storage
+- evermail-prod-webapp
+- evermail-prod-worker
+```
