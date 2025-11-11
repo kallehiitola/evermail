@@ -5,16 +5,16 @@
 ### Verified Azure Tools
 
 1. **Azure CLI** ✅
-   - **Status**: Installed and authenticated
-   - **Version**: 2.56.0 (needs minor update)
+   - **Status**: Installed, authenticated, and **UPGRADED**
+   - **Version**: **2.79.0** (latest)
    - **Subscription**: "Triviai" (ea32cc6b-3647-4f47-b218-aabb0aeef3b6)
    - **Tenant**: 96ebf722-1be3-4aba-96e3-b423f43dcd7d
-   - **Update**: `az upgrade`
+   - **Updated**: 2025-11-11
 
 2. **Azure Developer CLI (azd)** ✅
-   - **Status**: Installed
-   - **Version**: 1.6.1 (outdated, latest is 1.21.0)
-   - **Update**: `brew upgrade azd` or download from [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
+   - **Status**: Installed and **UPGRADED**
+   - **Version**: **1.21.1** (latest)
+   - **Updated**: 2025-11-11
 
 3. **Terminal Access** ✅
    - **Status**: AI agent can run Azure CLI commands
