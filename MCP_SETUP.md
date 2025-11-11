@@ -2,11 +2,12 @@
 
 ## Overview
 
-Evermail uses **three Model Context Protocol (MCP)** servers to access official, up-to-date documentation directly in Cursor AI:
+Evermail uses **four Model Context Protocol (MCP)** servers to access official, up-to-date documentation and tools directly in Cursor AI:
 
 1. **Microsoft Learn MCP** - Official Microsoft/Azure documentation
 2. **Context7 MCP** - Up-to-date library documentation (MudBlazor, MimeKit, etc.)
 3. **Stripe MCP** - Stripe payment processing tools
+4. **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
 
 ## ✅ Current Configuration
 
@@ -29,10 +30,37 @@ Your MCP configuration is located at: `~/.cursor/mcp.json`
         "STRIPE_SECRET_KEY": "sk_test_..."
       },
       "args": []
+    },
+    "azure-pricing": {
+      "command": "python",
+      "args": ["-m", "azure_pricing_server"],
+      "cwd": "/Users/kallehiitola/azure-pricing-mcp"
     }
   }
 }
 ```
+
+### Setting Up Azure Pricing MCP
+
+1. **Clone the repository**:
+   ```bash
+   cd ~
+   git clone https://github.com/charris-msft/azure-pricing-mcp.git azure-pricing-mcp
+   cd azure-pricing-mcp
+   ```
+
+2. **Run setup**:
+   ```bash
+   # Automated setup (creates venv, installs dependencies)
+   python setup.py
+   ```
+
+3. **Update `~/.cursor/mcp.json`** with the correct path (see config above)
+
+4. **Restart Cursor** completely (Cmd+Q on macOS)
+
+5. **Test it**:
+   Ask Cursor: `"What's the price of Azure SQL Serverless in West Europe?"`
 
 ## 🎯 When to Use Each MCP
 
@@ -109,7 +137,44 @@ Your MCP configuration is located at: `~/.cursor/mcp.json`
 - `create_invoice`, `list_invoices`
 - And many more...
 
-## 📚 Key Libraries for Evermail
+### Azure Pricing MCP
+
+**Use for**: Azure service pricing, cost estimation, region comparisons, service selection
+
+**Example Prompts**:
+```
+"What's the cost of Azure SQL Serverless for a 10GB database in West Europe?"
+
+"Compare App Service pricing between P1v3 and P2v3 in North Europe"
+
+"Estimate storage costs for 500GB of email attachments with 100K reads per month"
+
+"Find the cheapest Azure Container Apps plan for our ingestion worker"
+
+"Compare costs for blob storage between West Europe and North Europe"
+
+"What are the savings with reserved instances for B1ms App Service?"
+
+"Find all VM SKUs suitable for running background workers under $100/month"
+```
+
+**Tools Available**:
+- `azure_price_search` - Search Azure retail prices with flexible filters
+- `azure_price_compare` - Compare prices across different regions and SKUs
+- `azure_cost_estimate` - Calculate estimated costs based on usage patterns
+- `azure_discover_skus` - Discover available SKUs for a service
+- `azure_sku_discovery` - Intelligent SKU discovery with fuzzy matching
+
+**Why Essential for Evermail**:
+- ✅ Make cost-informed decisions about Azure services
+- ✅ Validate business model (90%+ gross margin target)
+- ✅ Compare alternatives before committing to infrastructure
+- ✅ Ensure break-even at 7-20 paying customers is achievable
+- ✅ Optimize region selection for cost vs latency
+
+## 📚 Key Resources for Evermail
+
+### Context7 Libraries
 
 Use **Context7** for these libraries in your Evermail project:
 
@@ -121,6 +186,18 @@ Use **Context7** for these libraries in your Evermail project:
 | **Azure.Storage.Queues** | Auto-resolve | Background job queues |
 | **Stripe.NET** | `/stripe/stripe-dotnet` | Payment SDK |
 | **Entity Framework Core** | Auto-resolve | Database ORM |
+
+### Azure Cost Planning
+
+Use **Azure Pricing MCP** for cost-related decisions:
+
+| Decision | Example Query |
+|----------|---------------|
+| **Database Choice** | "Compare Azure SQL Serverless vs PostgreSQL for 10GB database" |
+| **Region Selection** | "Compare all Azure costs between West Europe and North Europe" |
+| **Storage Planning** | "Estimate costs for 1TB blob storage with 1M transactions/month" |
+| **Worker Tier** | "Find cheapest Container Apps plan for 24/7 worker processing 100GB/month" |
+| **Cost Validation** | "Calculate total monthly infrastructure cost for 100 users" |
 
 ## 🚀 Usage Examples
 
@@ -222,6 +299,13 @@ Expected: AI uses `resolve-library-id` → `get-library-docs` and provides curre
 
 Expected: AI uses `list_customers` tool and returns actual Stripe data.
 
+### Test Azure Pricing MCP
+```
+"What's the price of Azure SQL Serverless in West Europe?"
+```
+
+Expected: AI uses `azure_price_search` and provides current Azure pricing.
+
 ## 📊 MCP Usage Summary
 
 | MCP Server | Type | Primary Use | Status |
@@ -229,6 +313,7 @@ Expected: AI uses `list_customers` tool and returns actual Stripe data.
 | **Microsoft Learn** | HTTP | Azure, .NET, Microsoft tech | ✅ Active |
 | **Context7** | Local | Libraries, NuGet packages | ✅ Active |
 | **Stripe** | Local | Payment operations | ✅ Active |
+| **Azure Pricing** | Local (Python) | Azure cost estimation | ⚙️ Setup Required |
 
 ## 🎯 Benefits
 
@@ -237,6 +322,7 @@ Expected: AI uses `list_customers` tool and returns actual Stripe data.
 3. **Accurate Code**: Uses official code examples
 4. **Version-Specific**: Documentation matches current versions
 5. **Integrated**: Works seamlessly in Cursor AI chat
+6. **Cost-Informed Decisions**: Real Azure pricing for architecture choices
 
 ## 🚨 Troubleshooting
 
@@ -274,11 +360,13 @@ For production, use live keys (`sk_live_...`) and store in environment variables
 - [Microsoft Learn MCP Docs](https://github.com/MicrosoftDocs/mcp)
 - [Context7 Documentation](https://context7.com)
 - [Stripe MCP GitHub](https://github.com/stripe/agent-toolkit)
+- [Azure Pricing MCP GitHub](https://github.com/charris-msft/azure-pricing-mcp)
 - [MCP Specification](https://modelcontextprotocol.io)
 
 ---
 
 **Last Updated**: 2025-11-11  
 **Configuration File**: `~/.cursor/mcp.json`  
-**Project Rules**: `.cursor/rules/mcp-tools.mdc`
+**Project Rules**: `.cursor/rules/mcp-tools.mdc`  
+**MCPs Configured**: 4 (Microsoft Learn, Context7, Stripe, Azure Pricing)
 

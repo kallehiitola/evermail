@@ -5,12 +5,13 @@
 Evermail is a **SaaS platform** for viewing, searching, and managing email archives from .mbox files. Built with:
 
 - **Platform**: Microsoft Azure
-- **Language**: C# (.NET 8+)
-- **Deployment**: Azure Aspire
-- **Database**: Azure SQL Serverless
+- **Language**: C# **.NET 9**
+- **Deployment**: Azure Aspire 9.4
+- **Database**: Azure SQL Serverless (+ Elastic Pools for scale)
 - **Storage**: Azure Blob Storage
 - **Payment**: Stripe
-- **Frontend**: Blazor WebAssembly + MudBlazor
+- **Frontend (Web)**: Blazor Web App (hybrid SSR + Interactive WASM)
+- **Frontend (Mobile)**: .NET MAUI Blazor Hybrid (Phase 2)
 
 ## Core Principles
 
@@ -31,10 +32,11 @@ Evermail is a **SaaS platform** for viewing, searching, and managing email archi
 - Audit all sensitive operations
 
 ### 4. Modern C# Conventions
-- Use C# 12+ features (file-scoped namespaces, records)
+- Use C# 13 features (.NET 9 - file-scoped namespaces, records, params collections)
 - Async/await consistently with `Async` suffix
 - Nullable reference types enabled
 - Follow Microsoft naming conventions
+- Leverage .NET 9 performance improvements
 
 ## Development Standards
 

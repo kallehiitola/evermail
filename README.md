@@ -2,11 +2,13 @@
 
 > Modern email archive viewer and search platform powered by AI
 
-[![.NET](https://img.shields.io/badge/.NET-8.0-purple)](https://dotnet.microsoft.com/)
-[![Azure Aspire](https://img.shields.io/badge/Azure-Aspire-blue)](https://learn.microsoft.com/en-us/dotnet/aspire/)
+[![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
+[![Azure Aspire](https://img.shields.io/badge/Azure-Aspire%209.4-blue)](https://learn.microsoft.com/en-us/dotnet/aspire/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Evermail is a cloud-based SaaS platform that enables users to upload, view, search, and analyze email archives from `.mbox` files. Built for individuals, small businesses, and enterprises needing powerful email archiving with AI-powered search capabilities.
+
+> Built with .NET 9, Azure Aspire 9.4, and architected for web + future mobile apps
 
 ## ✨ Features
 
@@ -30,11 +32,14 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
 
 Evermail is built with modern .NET and Azure technologies:
 
-- **Frontend**: Blazor WebAssembly with MudBlazor
-- **Backend**: ASP.NET Core 8 with Minimal APIs
+- **Runtime**: .NET 9
+- **Frontend (Web)**: Blazor Web App (hybrid SSR + Interactive WASM) with MudBlazor
+- **Frontend (Mobile)**: .NET MAUI Blazor Hybrid (Phase 2 - iOS, Android, Windows, Mac)
+- **Backend**: ASP.NET Core 9 with Minimal APIs
 - **Database**: Azure SQL Serverless with Full-Text Search
+- **Scale Strategy**: Elastic Pools (Phase 2) + Sharding (Phase 3)
 - **Storage**: Azure Blob Storage + Azure Storage Queues
-- **Orchestration**: Azure Aspire
+- **Orchestration**: Azure Aspire 9.4
 - **Deployment**: Azure Container Apps
 - **Email Parsing**: MimeKit
 - **Payment**: Stripe
@@ -46,10 +51,10 @@ See [Architecture Documentation](Documentation/Architecture.md) for detailed sys
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) or later
+- [**.NET 9 SDK**](https://dotnet.microsoft.com/download/dotnet/9.0) **(Required)**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop)
 - [Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli) (for deployment)
-- Visual Studio 2022 17.9+ or VS Code with C# Dev Kit
+- Visual Studio 2022 17.12+ or VS Code with C# Dev Kit
 
 ### Local Development Setup
 
@@ -177,6 +182,31 @@ See [Deployment Guide](Documentation/Deployment.md) for Bicep templates and CI/C
 
 See [Pricing Documentation](Documentation/Pricing.md) for detailed breakdown and business model.
 
+## 🤖 AI-Powered Development Tools
+
+Evermail development uses **Model Context Protocol (MCP)** servers for accessing real-time documentation and cost information:
+
+- **Microsoft Learn MCP** - Official Azure and .NET documentation
+- **Context7 MCP** - Up-to-date library docs (MudBlazor, MimeKit, Azure SDKs)
+- **Stripe MCP** - Payment processing operations
+- **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+
+### Setup Azure Pricing MCP
+
+Make cost-informed infrastructure decisions with real-time Azure pricing:
+
+```bash
+# Quick setup
+./scripts/setup-azure-pricing-mcp.sh
+```
+
+See [MCP Setup Guide](MCP_SETUP.md) for detailed configuration instructions.
+
+**Example queries:**
+- "What's the cost of Azure SQL Serverless in West Europe?"
+- "Compare App Service pricing between P1v3 and P2v3"
+- "Estimate storage costs for 500GB with 100K transactions/month"
+
 ## 📖 Documentation
 
 - [Architecture Overview](Documentation/Architecture.md) - System design and component architecture
@@ -185,6 +215,7 @@ See [Pricing Documentation](Documentation/Pricing.md) for detailed breakdown and
 - [Deployment Guide](Documentation/Deployment.md) - Local development and Azure deployment
 - [Security](Documentation/Security.md) - Authentication, authorization, and compliance
 - [Pricing & Business Model](Documentation/Pricing.md) - Subscription tiers and unit economics
+- [MCP Setup Guide](MCP_SETUP.md) - AI development tools configuration
 
 ## 🔐 Security
 

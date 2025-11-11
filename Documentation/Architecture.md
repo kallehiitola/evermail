@@ -41,9 +41,14 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
 
 ### 1. Frontend Layer
 
-#### User Web App (Blazor WebAssembly)
-- **Purpose**: User-facing SPA for mailbox management and search
-- **Technology**: Blazor WebAssembly with MudBlazor UI components
+#### User Web App (Blazor Web App)
+- **Purpose**: User-facing web application for mailbox management and search
+- **Technology**: Blazor Web App (hybrid SSR + Interactive WebAssembly) with MudBlazor UI components
+- **Rendering Strategy**:
+  - **Static SSR**: Landing pages, marketing (fast load, SEO-friendly)
+  - **Interactive Server**: Search, real-time features
+  - **Interactive WASM**: Email viewer, rich interactions
+- **Future**: Share Razor components with .NET MAUI mobile app (Phase 2)
 - **Key Features**:
   - User registration and authentication
   - .mbox file upload (up to 5GB)
@@ -62,6 +67,22 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
   - Payment and subscription management
   - Error logs and job queue monitoring
 - **Access Control**: Admin-only, protected by role-based claims
+
+#### Mobile App (.NET MAUI Blazor Hybrid - Phase 2)
+- **Purpose**: Native mobile experience for iOS and Android
+- **Technology**: .NET MAUI Blazor Hybrid with shared Razor components
+- **Architecture**:
+  - Shared Razor Component Library (RCL) between web and mobile
+  - 80-90% code reuse from web app
+  - Native platform features (camera, offline, push notifications)
+- **Key Features**:
+  - All web app features
+  - Offline email viewing
+  - Push notifications for new emails
+  - Native file picker for mbox upload
+  - Biometric authentication
+- **Distribution**: iOS App Store, Google Play Store
+- **Timeline**: Phase 2 (after MVP, month 6-12)
 
 ### 2. Application Layer
 
@@ -241,7 +262,11 @@ CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName)
 ## Design Patterns
 
 ### Multi-Tenancy Pattern
-**Strategy**: Shared database with tenant isolation
+**Strategy**: Shared database with tenant isolation (MVP), Elastic pools for scale (Phase 2)
+
+#### Phase 1: Shared Database (MVP - 0-100 users)
+
+**Recommended by Microsoft Learn for SaaS startups**
 
 ```csharp
 // Global query filter in EF Core
@@ -263,6 +288,62 @@ services.AddScoped<TenantContext>(sp =>
     var userId = httpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
     return new TenantContext { TenantId = tenantId, UserId = userId };
 });
+```
+
+**Cost**: €15-30/month  
+**Capacity**: Up to 1000 tenants  
+**Benefits**: Lowest cost, simplest management
+
+#### Phase 2: Hybrid Model with Elastic Pools (100-1000 users)
+
+**Microsoft Learn recommended for growing SaaS**
+
+```
+Azure SQL Elastic Pool (€100-200/month)
+├── Shared Database
+│   ├── Free tier tenants (60%)
+│   └── Pro tier tenants (30%)
+│
+└── Dedicated Databases (in elastic pool)
+    ├── Team tenant databases (8%)
+    └── Enterprise tenant databases (2%)
+```
+
+**Benefits**:
+- ✅ **Cost optimization** - Share compute across databases
+- ✅ **Tenant isolation** - Premium tiers get dedicated databases
+- ✅ **Easy cost tracking** - Per-database metrics in Azure
+- ✅ **Noisy neighbor protection** - Elastic pool handles resource balancing
+
+**Implementation**:
+```csharp
+public class TenantDatabaseResolver
+{
+    public async Task<string> GetConnectionStringAsync(string tenantId)
+    {
+        var tenant = await _context.Tenants.FindAsync(tenantId);
+        
+        return tenant.SubscriptionTier switch
+        {
+            "Free" => _config["ConnectionStrings:SharedDatabase"],
+            "Pro" => _config["ConnectionStrings:SharedDatabase"],
+            "Team" => $"Server=...;Database=tenant_{tenantId};...",
+            "Enterprise" => $"Server=...;Database=tenant_{tenantId};...",
+            _ => _config["ConnectionStrings:SharedDatabase"]
+        };
+    }
+}
+```
+
+#### Phase 3: Sharding (1000+ users)
+
+**For massive scale**
+
+```
+Multiple Shards
+├── Shard 1 (West Europe) - Tenants 1-500
+├── Shard 2 (North Europe) - Tenants 501-1000
+└── Shard Map Database (tenant routing)
 ```
 
 ### CQRS (Command Query Responsibility Segregation)
@@ -434,10 +515,11 @@ public class AuditLog
 
 | Layer | Technology | Version | Purpose |
 |-------|------------|---------|---------|
-| **Runtime** | .NET | 8.0+ | Core platform |
-| **Orchestration** | Azure Aspire | 9.0+ | Service orchestration |
-| **Frontend** | Blazor WebAssembly | .NET 8 | User SPA |
-| **Admin** | Blazor Server | .NET 8 | Real-time dashboard |
+| **Runtime** | .NET | **9.0** | Core platform (latest) |
+| **Orchestration** | Azure Aspire | **9.4** | Service orchestration |
+| **Frontend (Web)** | **Blazor Web App** | .NET 9 | **Hybrid SSR + WASM rendering** |
+| **Frontend (Mobile)** | **.NET MAUI Blazor Hybrid** | .NET 9 | **Phase 2 - Native mobile apps** |
+| **Admin** | Blazor Server | .NET 9 | Real-time dashboard |
 | **UI Framework** | MudBlazor | 7.0+ | Component library |
 | **Database** | Azure SQL Serverless | Latest | Relational data + FTS |
 | **ORM** | Entity Framework Core | 8.0+ | Data access |
@@ -452,14 +534,19 @@ public class AuditLog
 
 ## Decision Log
 
-| Date | Decision | Rationale |
-|------|----------|-----------|
-| 2025-11-11 | Use Azure SQL Serverless over PostgreSQL | Lower cost for side-hustle, auto-pause, excellent FTS built-in |
-| 2025-11-11 | Use Blazor WASM over React | C# full-stack, faster dev for solo/small team, less context switching |
-| 2025-11-11 | Use Storage Queue over Service Bus | Simpler, cheaper for MVP; migrate to Service Bus if need advanced routing |
-| 2025-11-11 | Use MimeKit over custom parser | Battle-tested, handles corrupt mbox gracefully, actively maintained |
-| 2025-11-11 | Use Stripe over Paddle | Better .NET SDK, more flexible for metered billing, standard for SaaS |
-| 2025-11-11 | Phase AI features to v2 | Get to paying customers faster, validate core value prop first |
+| Date | Decision | Rationale | Source |
+|------|----------|-----------|--------|
+| 2025-11-11 | **Use .NET 9** (not .NET 8) | Latest version, Aspire 9.4 support, performance improvements | Microsoft Learn MCP |
+| 2025-11-11 | **Use Blazor Web App** (hybrid SSR+WASM) | Better performance, SEO, flexibility vs pure WASM | Microsoft Learn MCP |
+| 2025-11-11 | **Plan .NET MAUI Hybrid for mobile** (Phase 2) | 80-90% code reuse, native features, single codebase | Microsoft Learn MCP |
+| 2025-11-11 | **Use Azure SQL Serverless** over PostgreSQL | Auto-pause, elastic pools support, better multi-tenant features | Microsoft Learn MCP |
+| 2025-11-11 | **Shared database with TenantId** for MVP | Lowest cost, best for SaaS, validated by Microsoft docs | Microsoft Learn MCP |
+| 2025-11-11 | **Add Elastic Pools in Phase 2** | Cost optimization when 50+ databases, resource sharing | Microsoft Learn MCP |
+| 2025-11-11 | **Hybrid blob storage** (shared + dedicated) | Shared for Free/Pro, dedicated for Enterprise cost tracking | Microsoft Learn MCP |
+| 2025-11-11 | Use Storage Queue over Service Bus | Simpler, cheaper for MVP; migrate to Service Bus if need advanced routing | Architecture review |
+| 2025-11-11 | Use MimeKit over custom parser | Battle-tested, handles corrupt mbox gracefully, actively maintained | Architecture review |
+| 2025-11-11 | Use Stripe over Paddle | Better .NET SDK, more flexible for metered billing, standard for SaaS | Architecture review |
+| 2025-11-11 | Phase AI features to v2 | Get to paying customers faster, validate core value prop first | Business strategy |
 
 ## Next Steps
 
