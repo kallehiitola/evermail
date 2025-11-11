@@ -10,6 +10,8 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
 
 > Built with .NET 9, Azure Aspire 9.4, and architected for web + future mobile apps
 
+> 📖 **New here? Read [PROJECT_BRIEF.md](PROJECT_BRIEF.md) for complete overview and business case**
+
 ## ✨ Features
 
 ### Current (MVP)

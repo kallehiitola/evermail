@@ -1,5 +1,7 @@
 # Evermail - Project Instructions
 
+> 📖 **For complete project overview and business case, see [PROJECT_BRIEF.md](PROJECT_BRIEF.md)**
+
 ## Project Overview
 
 Evermail is a **SaaS platform** for viewing, searching, and managing email archives from .mbox files. Built with:
