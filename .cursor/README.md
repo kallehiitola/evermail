@@ -12,13 +12,14 @@ Evermail uses Cursor's modern `.cursor/rules/` directory with focused, composabl
 ├── multi-tenancy.mdc         # CRITICAL - Always applied
 ├── security.mdc               # CRITICAL - Always applied
 ├── mcp-tools.mdc              # CRITICAL - Always applied (Microsoft Learn & Stripe MCPs)
-├── csharp-standards.mdc       # C# 12+ conventions
+├── csharp-standards.mdc       # C# 13 conventions
 ├── database-patterns.mdc      # EF Core patterns
 ├── azure-aspire.mdc           # Aspire integration
 ├── email-processing.mdc       # MimeKit patterns
 ├── api-design.mdc             # REST conventions
 ├── blazor-frontend.mdc        # Blazor components
-└── development-workflow.mdc   # Dev standards & practices
+├── development-workflow.mdc   # Dev standards & practices
+└── tooling-updates.mdc        # Version management & updates (user approval)
 ```
 
 Plus `AGENTS.md` in project root for high-level project context.
@@ -75,16 +76,17 @@ Ask Cursor to create something:
 | `documentation.mdc` | ~380 | Document-driven development | ✅ Yes |
 | `multi-tenancy.mdc` | ~180 | Multi-tenant patterns (CRITICAL) | ✅ Yes |
 | `security.mdc` | ~350 | Auth, encryption, GDPR | ✅ Yes |
-| `mcp-tools.mdc` | ~230 | Microsoft Learn & Stripe MCP usage | ✅ Yes |
-| `csharp-standards.mdc` | ~220 | C# 12+ conventions | ❌ `**/*.cs` |
+| `mcp-tools.mdc` | ~280 | Microsoft Learn & Stripe MCP usage | ✅ Yes |
+| `csharp-standards.mdc` | ~220 | C# 13 conventions | ❌ `**/*.cs` |
 | `database-patterns.mdc` | ~270 | EF Core patterns | ❌ Data files |
 | `azure-aspire.mdc` | ~200 | Aspire integration | ❌ AppHost files |
 | `email-processing.mdc` | ~280 | MimeKit patterns | ❌ Email services |
 | `api-design.mdc` | ~300 | REST API patterns | ❌ API files |
 | `blazor-frontend.mdc` | ~260 | Blazor components | ❌ `.razor` files |
 | `development-workflow.mdc` | ~350 | Dev standards & practices | ❌ General |
+| `tooling-updates.mdc` | ~200 | Version management & updates | ❌ General |
 
-**Total**: ~3,020 lines across 11 focused files (each under 400 lines)
+**Total**: ~3,220 lines across 12 focused files (each under 400 lines)
 
 ## 🆚 Old vs New Format
 

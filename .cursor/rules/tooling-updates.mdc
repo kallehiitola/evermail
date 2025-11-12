@@ -1,0 +1,222 @@
+---
+description: Tooling updates and version management - Always check for updates with user approval
+alwaysApply: false
+---
+
+# Tooling Updates & Version Management
+
+## Critical: Always Check Tool Versions
+
+**At the start of each development session**, verify all tools are up to date:
+
+### Required Tools to Check
+
+```bash
+# .NET SDK
+dotnet --version
+# Current: 9.0.109 (as of 2025-11-11)
+
+# Azure CLI
+az version --output json | grep '"azure-cli"'
+# Current: 2.79.0 (as of 2025-11-11)
+
+# Azure Developer CLI
+azd version
+# Current: 1.21.1 (as of 2025-11-11)
+
+# Aspire workload
+dotnet workload list
+# Current templates: 13.0.0 (as of 2025-11-11)
+```
+
+## Update Commands (ALWAYS REQUIRE USER APPROVAL)
+
+### Important: Never Auto-Update
+
+**NEVER run update commands without explicit user permission.**
+
+When updates are available, **ask the user**:
+```
+"I notice [tool] has an update available. Would you like me to update it?"
+```
+
+### Update Commands (Only with User Approval)
+
+```bash
+# Update .NET workloads (including Aspire)
+dotnet workload update
+
+# Update Aspire templates
+dotnet new install Aspire.ProjectTemplates --force
+
+# Update Azure CLI
+az upgrade
+
+# Update Azure Developer CLI (macOS)
+brew upgrade azd
+
+# Update NuGet packages in solution
+dotnet list package --outdated
+# Then update specific packages with user approval
+```
+
+## Project Package Versions
+
+### Current Evermail Versions (as of 2025-11-11)
+
+**Aspire Packages**:
+- Aspire.AppHost.Sdk: **13.0.0**
+- Aspire.Hosting.AppHost: **13.0.0**
+- Aspire.Hosting.Azure.Sql: **13.0.0**
+- Aspire.Hosting.Azure.Storage: **13.0.0**
+- Microsoft.Extensions.ServiceDiscovery: **10.0.0**
+
+**When to Update**:
+- ✅ At start of development session (monthly)
+- ✅ When new Aspire minor version releases
+- ✅ When security updates announced
+- ❌ NOT during active feature development (avoid breaking changes)
+
+## Version Update Workflow
+
+### 1. Check for Updates (Weekly)
+
+Ask user first:
+```
+"Should I check if all tools are up to date?"
+```
+
+If yes, run:
+```bash
+# Check .NET
+dotnet --version
+
+# Check for .NET updates
+brew upgrade dotnet
+
+# Check workloads
+dotnet workload update
+
+# Check Azure CLI
+az upgrade
+
+# Check azd
+brew upgrade azd
+```
+
+### 2. Check NuGet Packages (Before Major Milestones)
+
+```bash
+cd /Users/kallehiitola/Work/evermail/Evermail
+
+# Check for outdated packages
+dotnet list package --outdated
+
+# Update specific package (with user approval only!)
+dotnet add package PackageName --version X.X.X
+```
+
+### 3. Test After Updates
+
+**ALWAYS test after updating**:
+```bash
+# Restore
+dotnet restore
+
+# Build
+dotnet build
+
+# Run (verify no breaking changes)
+dotnet run --project Evermail.AppHost
+```
+
+## Breaking Change Policy
+
+### Major Version Updates (e.g., Aspire 9.x → 10.x)
+
+**ALWAYS**:
+1. ✅ Read release notes first
+2. ✅ Check breaking changes documentation
+3. ✅ Create a git branch for update
+4. ✅ Test thoroughly before merging
+5. ✅ Update Documentation/
+
+### Minor Version Updates (e.g., Aspire 13.0 → 13.1)
+
+**Usually safe**, but:
+1. ✅ Check release notes
+2. ✅ Run full build and test
+3. ✅ Monitor for issues
+
+### Patch Version Updates (e.g., 13.0.0 → 13.0.1)
+
+**Safe**, but still:
+1. ✅ Test build after update
+2. ✅ Check for regressions
+
+## When NOT to Update
+
+❌ **Don't update during**:
+- Active feature development (mid-task)
+- Right before deployment
+- When under time pressure
+- When you don't have time to test
+
+✅ **Best time to update**:
+- Start of sprint/week
+- After completing a milestone
+- When you have time to test
+- After reading release notes
+
+## Documentation Updates After Tool Updates
+
+**ALWAYS update these files** when tool versions change:
+
+1. **Evermail/README.md** - Update version numbers
+2. **PHASE0_COMPLETE.md** (or current phase doc) - Note version used
+3. **AZURE_RESOURCE_MANAGEMENT.md** - Update Azure CLI/azd versions
+4. **.cursor/rules/tooling-updates.mdc** (this file) - Update "Current" versions
+
+## Monitoring for Updates
+
+### Subscribe to Release Announcements
+
+- ✅ [.NET Blog](https://devblogs.microsoft.com/dotnet/) - .NET releases
+- ✅ [Aspire GitHub Releases](https://github.com/dotnet/aspire/releases) - Aspire updates
+- ✅ [Azure CLI Release Notes](https://learn.microsoft.com/en-us/cli/azure/release-notes-azure-cli) - Azure CLI updates
+
+### Check Monthly
+
+Set a reminder to check for updates monthly:
+```
+"Check if .NET, Aspire, and Azure tools have updates available"
+```
+
+## Example: Safe Update Workflow
+
+**User**: "Check for tool updates"
+
+**AI Response**:
+```
+I'll check for updates now...
+
+[Runs version checks]
+
+Found updates available:
+- Aspire: 13.0.0 → 13.1.0 (minor update, release notes: [link])
+- Azure CLI: 2.79.0 → 2.80.0 (includes security fixes)
+
+Would you like me to:
+1. Update Aspire to 13.1.0?
+2. Update Azure CLI to 2.80.0?
+
+I'll need your approval before running any updates.
+```
+
+**User**: "Yes, update both"
+
+**AI**: [Runs updates, tests build, commits changes]
+
+---
+
+**Remember**: Updates are important for security and features, but always test and never surprise the user with automatic updates.
