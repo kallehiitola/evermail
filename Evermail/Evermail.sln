@@ -1,0 +1,78 @@
+﻿Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.0.0
+MinimumVisualStudioVersion = 17.8.0.0
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Evermail.AppHost", "Evermail.AppHost\Evermail.AppHost.csproj", "{00EFB5A1-7A07-41EB-8885-3168B91AF7DC}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Evermail.ServiceDefaults", "Evermail.ServiceDefaults\Evermail.ServiceDefaults.csproj", "{651442C6-F69A-4E99-AD56-4C800CEF939C}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Evermail.WebApp", "Evermail.WebApp", "{1A774CF0-348E-4B8E-B99B-DA3678777832}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.WebApp", "Evermail.WebApp\Evermail.WebApp\Evermail.WebApp.csproj", "{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.WebApp.Client", "Evermail.WebApp\Evermail.WebApp.Client\Evermail.WebApp.Client.csproj", "{98E4F29E-3840-4555-939C-F2DA28E7432F}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.AdminApp", "Evermail.AdminApp\Evermail.AdminApp.csproj", "{3EED105B-0616-4EC4-80E9-3C5AD2938FB5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.IngestionWorker", "Evermail.IngestionWorker\Evermail.IngestionWorker.csproj", "{595CD70B-6D15-4058-9F83-0166A0284A07}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.Domain", "Evermail.Domain\Evermail.Domain.csproj", "{1D58B8E4-9E42-4A11-9060-604A11E7CE38}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.Infrastructure", "Evermail.Infrastructure\Evermail.Infrastructure.csproj", "{8677DF19-F37D-45B3-B98D-E0CC83A0790D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Evermail.Common", "Evermail.Common\Evermail.Common.csproj", "{5FEA771A-3E61-45E5-938F-525405EB46F2}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{00EFB5A1-7A07-41EB-8885-3168B91AF7DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{00EFB5A1-7A07-41EB-8885-3168B91AF7DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{00EFB5A1-7A07-41EB-8885-3168B91AF7DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{00EFB5A1-7A07-41EB-8885-3168B91AF7DC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{651442C6-F69A-4E99-AD56-4C800CEF939C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{651442C6-F69A-4E99-AD56-4C800CEF939C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{651442C6-F69A-4E99-AD56-4C800CEF939C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{651442C6-F69A-4E99-AD56-4C800CEF939C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02}.Release|Any CPU.Build.0 = Release|Any CPU
+		{98E4F29E-3840-4555-939C-F2DA28E7432F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{98E4F29E-3840-4555-939C-F2DA28E7432F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{98E4F29E-3840-4555-939C-F2DA28E7432F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{98E4F29E-3840-4555-939C-F2DA28E7432F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3EED105B-0616-4EC4-80E9-3C5AD2938FB5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3EED105B-0616-4EC4-80E9-3C5AD2938FB5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3EED105B-0616-4EC4-80E9-3C5AD2938FB5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3EED105B-0616-4EC4-80E9-3C5AD2938FB5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{595CD70B-6D15-4058-9F83-0166A0284A07}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{595CD70B-6D15-4058-9F83-0166A0284A07}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{595CD70B-6D15-4058-9F83-0166A0284A07}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{595CD70B-6D15-4058-9F83-0166A0284A07}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1D58B8E4-9E42-4A11-9060-604A11E7CE38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1D58B8E4-9E42-4A11-9060-604A11E7CE38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1D58B8E4-9E42-4A11-9060-604A11E7CE38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1D58B8E4-9E42-4A11-9060-604A11E7CE38}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8677DF19-F37D-45B3-B98D-E0CC83A0790D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8677DF19-F37D-45B3-B98D-E0CC83A0790D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8677DF19-F37D-45B3-B98D-E0CC83A0790D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8677DF19-F37D-45B3-B98D-E0CC83A0790D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5FEA771A-3E61-45E5-938F-525405EB46F2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5FEA771A-3E61-45E5-938F-525405EB46F2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5FEA771A-3E61-45E5-938F-525405EB46F2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5FEA771A-3E61-45E5-938F-525405EB46F2}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {A3F07307-65DD-4AAB-B1AB-E327D92DD261}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A91D8958-6BA1-4D03-85F1-AEC1BA62DC02} = {1A774CF0-348E-4B8E-B99B-DA3678777832}
+		{98E4F29E-3840-4555-939C-F2DA28E7432F} = {1A774CF0-348E-4B8E-B99B-DA3678777832}
+	EndGlobalSection
+EndGlobal
