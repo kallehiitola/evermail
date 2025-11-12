@@ -109,14 +109,17 @@ See [Architecture Documentation](Documentation/Architecture.md) for detailed sys
 
 ```
 evermail/
-├── Evermail.AppHost/              # Aspire orchestrator
-├── Evermail.WebApp/               # User-facing Blazor WASM + APIs
-├── Evermail.AdminApp/             # Admin dashboard (Blazor Server)
-├── Evermail.IngestionWorker/      # Background mbox parser
-├── Evermail.SearchIndexer/        # Azure AI Search sync (Phase 2)
-├── Evermail.Domain/               # Domain entities and interfaces
-├── Evermail.Infrastructure/       # EF Core, Blob, Queue implementations
-├── Evermail.Common/               # Shared DTOs and utilities
+├── Evermail/                      # ✅ Aspire Solution (.NET 9)
+│   ├── Evermail.AppHost/             # Aspire orchestrator
+│   ├── Evermail.ServiceDefaults/     # Shared Aspire configs
+│   ├── Evermail.WebApp/              # Blazor Web App (SSR + WASM)
+│   ├── Evermail.AdminApp/            # Admin dashboard (Blazor Server)
+│   ├── Evermail.IngestionWorker/     # Background mbox parser
+│   ├── Evermail.Domain/              # Domain entities
+│   ├── Evermail.Infrastructure/      # EF Core, Blob, Queue implementations
+│   ├── Evermail.Common/              # DTOs, utilities
+│   └── README.md                     # Solution guide
+│
 ├── Documentation/                 # Architecture and design docs
 │   ├── Architecture.md
 │   ├── API.md
@@ -124,9 +127,16 @@ evermail/
 │   ├── Deployment.md
 │   ├── Security.md
 │   └── Pricing.md
-└── tests/
-    ├── Evermail.UnitTests/
-    └── Evermail.IntegrationTests/
+│
+├── .cursor/rules/                 # Cursor AI rules (11 MDC files)
+│
+└── Setup Guides                   # Project setup documentation
+    ├── PROJECT_BRIEF.md
+    ├── MVP_TODOLIST.md
+    ├── PHASE0_COMPLETE.md
+    └── Various other guides
+
+> **🚀 Solution created!** Run from `Evermail/Evermail.AppHost`
 ```
 
 ## 🧪 Testing
