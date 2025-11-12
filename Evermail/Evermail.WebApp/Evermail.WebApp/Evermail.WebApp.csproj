@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Evermail.Infrastructure\Evermail.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Evermail.Common\Evermail.Common.csproj" />
+    <ProjectReference Include="..\..\Evermail.ServiceDefaults\Evermail.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
