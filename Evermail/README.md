@@ -270,6 +270,6 @@ open -a Docker
 
 **Created**: 2025-11-11  
 **Framework**: .NET 9.0.109  
-**Aspire**: 9.1.0  
+**Aspire**: **13.0.0** (latest)  
 **Status**: ✅ Build successful - Ready for Phase 0 development
 
