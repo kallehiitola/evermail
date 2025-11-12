@@ -34,6 +34,6 @@ public class AuditLog
     
     // Navigation properties
     public Tenant Tenant { get; set; } = null!;
-    public User? User { get; set; }
+    public ApplicationUser? User { get; set; }
 }
 

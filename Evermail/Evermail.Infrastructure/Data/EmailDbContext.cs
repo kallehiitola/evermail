@@ -1,9 +1,11 @@
 using Evermail.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.Infrastructure.Data;
 
-public class EmailDbContext : DbContext
+public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
 {
     private readonly TenantContext? _tenantContext;
 
@@ -14,8 +16,7 @@ public class EmailDbContext : DbContext
     }
 
     public DbSet<Tenant> Tenants => Set<Tenant>();
-    public DbSet<User> Users => Set<User>();
-    public DbSet<UserRole> UserRoles => Set<UserRole>();
+    // ApplicationUser is accessed via Users property from IdentityDbContext
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
@@ -51,28 +52,14 @@ public class EmailDbContext : DbContext
             entity.HasIndex(t => t.StripeCustomerId);
         });
 
-        // User
-        modelBuilder.Entity<User>(entity =>
+        // ApplicationUser (extends IdentityUser)
+        modelBuilder.Entity<ApplicationUser>(entity =>
         {
-            entity.HasKey(u => u.Id);
             entity.HasIndex(u => u.TenantId);
-            entity.HasIndex(u => u.Email);
-
+            
             entity.HasOne(u => u.Tenant)
-                .WithMany(t => t.Users)
+                .WithMany()
                 .HasForeignKey(u => u.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
-        });
-
-        // UserRole
-        modelBuilder.Entity<UserRole>(entity =>
-        {
-            entity.HasKey(ur => ur.Id);
-            entity.HasIndex(ur => ur.UserId);
-
-            entity.HasOne(ur => ur.User)
-                .WithMany(u => u.UserRoles)
-                .HasForeignKey(ur => ur.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -88,7 +75,7 @@ public class EmailDbContext : DbContext
                 .HasForeignKey(m => m.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne(m => m.User)
+            entity.HasOne<ApplicationUser>()
                 .WithMany(u => u.Mailboxes)
                 .HasForeignKey(m => m.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
@@ -108,7 +95,7 @@ public class EmailDbContext : DbContext
                 .HasForeignKey(e => e.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne(e => e.User)
+            entity.HasOne<ApplicationUser>()
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
@@ -177,7 +164,7 @@ public class EmailDbContext : DbContext
                 .HasForeignKey(al => al.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne(al => al.User)
+            entity.HasOne<ApplicationUser>()
                 .WithMany()
                 .HasForeignKey(al => al.UserId)
                 .OnDelete(DeleteBehavior.NoAction);

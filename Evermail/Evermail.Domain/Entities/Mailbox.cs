@@ -41,7 +41,7 @@ public class Mailbox
     
     // Navigation properties
     public Tenant Tenant { get; set; } = null!;
-    public User User { get; set; } = null!;
+    public ApplicationUser User { get; set; } = null!;
     public ICollection<EmailMessage> EmailMessages { get; set; } = new List<EmailMessage>();
 }
 

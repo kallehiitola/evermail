@@ -62,7 +62,7 @@ public class EmailMessage
     
     // Navigation properties
     public Tenant Tenant { get; set; } = null!;
-    public User User { get; set; } = null!;
+    public ApplicationUser User { get; set; } = null!;
     public Mailbox Mailbox { get; set; } = null!;
     public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
 }

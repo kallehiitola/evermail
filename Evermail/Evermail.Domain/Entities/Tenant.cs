@@ -33,7 +33,7 @@ public class Tenant
     public string? SuspensionReason { get; set; }
     
     // Navigation properties
-    public ICollection<User> Users { get; set; } = new List<User>();
+    public ICollection<ApplicationUser> Users { get; set; } = new List<ApplicationUser>();
     public ICollection<Mailbox> Mailboxes { get; set; } = new List<Mailbox>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
 }
