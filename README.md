@@ -109,34 +109,38 @@ See [Architecture Documentation](Documentation/Architecture.md) for detailed sys
 
 ```
 evermail/
-├── Evermail/                      # ✅ Aspire Solution (.NET 9)
+├── Evermail/                      # ✅ Aspire Solution (.NET 9 + Aspire 13.0)
 │   ├── Evermail.AppHost/             # Aspire orchestrator
 │   ├── Evermail.ServiceDefaults/     # Shared Aspire configs
-│   ├── Evermail.WebApp/              # Blazor Web App (SSR + WASM)
+│   ├── Evermail.WebApp/              # Blazor Web App + API (SSR + WASM)
 │   ├── Evermail.AdminApp/            # Admin dashboard (Blazor Server)
 │   ├── Evermail.IngestionWorker/     # Background mbox parser
-│   ├── Evermail.Domain/              # Domain entities
-│   ├── Evermail.Infrastructure/      # EF Core, Blob, Queue implementations
-│   ├── Evermail.Common/              # DTOs, utilities
-│   └── README.md                     # Solution guide
+│   ├── Evermail.Domain/              # Domain entities (9 entities) ✅
+│   ├── Evermail.Infrastructure/      # EF Core, Services (Auth, JWT, 2FA) ✅
+│   ├── Evermail.Common/              # DTOs, API models ✅
+│   └── README.md                     # Solution documentation
 │
-├── Documentation/                 # Architecture and design docs
-│   ├── Architecture.md
-│   ├── API.md
-│   ├── DatabaseSchema.md
-│   ├── Deployment.md
-│   ├── Security.md
-│   └── Pricing.md
+├── Documentation/                 # Core architecture docs
+│   ├── Architecture.md               System architecture
+│   ├── API.md                        API endpoint specs
+│   ├── DatabaseSchema.md             Entity models and database
+│   ├── Deployment.md                 Azure deployment guide
+│   ├── Security.md                   Auth, encryption, GDPR
+│   ├── Pricing.md                    Business model
+│   ├── Progress.md                   ✅ Development progress tracker
+│   ├── Development/                  Development docs (MVP plan, phase status)
+│   └── Setup/                        Setup guides (Azure, MCP, Cursor, etc.)
 │
-├── .cursor/rules/                 # Cursor AI rules (11 MDC files)
-│
-└── Setup Guides                   # Project setup documentation
-    ├── PROJECT_BRIEF.md
-    ├── MVP_TODOLIST.md
-    ├── PHASE0_COMPLETE.md
-    └── Various other guides
+├── .cursor/rules/                 # Cursor AI rules (12 MDC files)
+├── PROJECT_BRIEF.md               # ⭐ Complete overview & business case
+├── AGENTS.md                      # AI agent instructions
+├── TESTING.md                     # ⭐ How to test what's built
+├── README.md                      # This file
+└── CONTRIBUTING.md                # Contribution guide
 
-> **🚀 Solution created!** Run from `Evermail/Evermail.AppHost`
+> **📖 New here? Start with [PROJECT_BRIEF.md](PROJECT_BRIEF.md)**  
+> **🧪 Want to test? See [TESTING.md](TESTING.md)**  
+> **📊 Check progress: [Documentation/Progress.md](Documentation/Progress.md)**
 ```
 
 ## 🧪 Testing
