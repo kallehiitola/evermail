@@ -1,0 +1,187 @@
+using Evermail.Domain.Entities;
+using Microsoft.EntityFrameworkCore;
+
+namespace Evermail.Infrastructure.Data;
+
+public class EmailDbContext : DbContext
+{
+    private readonly TenantContext? _tenantContext;
+
+    public EmailDbContext(DbContextOptions<EmailDbContext> options, TenantContext? tenantContext = null)
+        : base(options)
+    {
+        _tenantContext = tenantContext;
+    }
+
+    public DbSet<Tenant> Tenants => Set<Tenant>();
+    public DbSet<User> Users => Set<User>();
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
+    public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+    public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        // Apply global query filters for multi-tenancy (if TenantContext is available)
+        if (_tenantContext != null)
+        {
+            modelBuilder.Entity<Mailbox>()
+                .HasQueryFilter(m => m.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<EmailMessage>()
+                .HasQueryFilter(e => e.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<Attachment>()
+                .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<AuditLog>()
+                .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
+        }
+
+        // Tenant
+        modelBuilder.Entity<Tenant>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => t.Slug).IsUnique();
+            entity.HasIndex(t => t.StripeCustomerId);
+        });
+
+        // User
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+            entity.HasIndex(u => u.TenantId);
+            entity.HasIndex(u => u.Email);
+
+            entity.HasOne(u => u.Tenant)
+                .WithMany(t => t.Users)
+                .HasForeignKey(u => u.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserRole
+        modelBuilder.Entity<UserRole>(entity =>
+        {
+            entity.HasKey(ur => ur.Id);
+            entity.HasIndex(ur => ur.UserId);
+
+            entity.HasOne(ur => ur.User)
+                .WithMany(u => u.UserRoles)
+                .HasForeignKey(ur => ur.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Mailbox
+        modelBuilder.Entity<Mailbox>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.HasIndex(m => new { m.TenantId, m.UserId });
+            entity.HasIndex(m => m.Status);
+
+            entity.HasOne(m => m.Tenant)
+                .WithMany(t => t.Mailboxes)
+                .HasForeignKey(m => m.TenantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(m => m.User)
+                .WithMany(u => u.Mailboxes)
+                .HasForeignKey(m => m.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // EmailMessage
+        modelBuilder.Entity<EmailMessage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.TenantId, e.UserId });
+            entity.HasIndex(e => e.MailboxId);
+            entity.HasIndex(e => e.Date);
+            entity.HasIndex(e => e.FromAddress);
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.Mailbox)
+                .WithMany(m => m.EmailMessages)
+                .HasForeignKey(e => e.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Attachment
+        modelBuilder.Entity<Attachment>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.HasIndex(a => a.EmailMessageId);
+            entity.HasIndex(a => a.TenantId);
+
+            entity.HasOne(a => a.Tenant)
+                .WithMany()
+                .HasForeignKey(a => a.TenantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(a => a.EmailMessage)
+                .WithMany(e => e.Attachments)
+                .HasForeignKey(a => a.EmailMessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // SubscriptionPlan
+        modelBuilder.Entity<SubscriptionPlan>(entity =>
+        {
+            entity.HasKey(sp => sp.Id);
+            entity.HasIndex(sp => sp.Name).IsUnique();
+        });
+
+        // Subscription
+        modelBuilder.Entity<Subscription>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => s.TenantId);
+            entity.HasIndex(s => s.StripeSubscriptionId).IsUnique();
+            entity.HasIndex(s => s.Status);
+
+            entity.HasOne(s => s.Tenant)
+                .WithMany(t => t.Subscriptions)
+                .HasForeignKey(s => s.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(s => s.SubscriptionPlan)
+                .WithMany(sp => sp.Subscriptions)
+                .HasForeignKey(s => s.SubscriptionPlanId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // AuditLog
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.HasKey(al => al.Id);
+            entity.HasIndex(al => al.TenantId);
+            entity.HasIndex(al => al.UserId);
+            entity.HasIndex(al => al.Timestamp);
+            entity.HasIndex(al => al.Action);
+
+            entity.HasOne(al => al.Tenant)
+                .WithMany()
+                .HasForeignKey(al => al.TenantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(al => al.User)
+                .WithMany()
+                .HasForeignKey(al => al.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+    }
+}
+
