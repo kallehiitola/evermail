@@ -19,31 +19,45 @@ Your `.vscode/launch.json` is configured correctly for Aspire debugging!
 
 ---
 
-## 🚀 How to Debug
+## 🚀 How to Debug (Two Official Methods)
 
-### Method 1: Press F5 (Recommended)
+### Method 1: Use Aspire CLI (Works Immediately) ⭐
 
-1. **Open Cursor** (make sure you're in the evermail workspace)
-2. **Press F5** (or Run → Start Debugging)
-3. **Aspire will**:
-   - Build all projects
-   - Start SQL Server container
-   - Start Azurite storage emulator
-   - Launch all services (WebApp, AdminApp, Worker)
-   - **Open dashboard automatically** in your browser
-   - Attach debugger to all .NET projects
+**From Microsoft Learn - Works without any extension**:
 
-### Method 2: Debug Menu
+```bash
+cd /Users/kallehiitola/Work/evermail/Evermail/Evermail.AppHost
+aspire run --start-debug-session
+```
 
-1. Click **Run and Debug** in the sidebar (or Cmd+Shift+D)
-2. Select **"Aspire: Launch Evermail AppHost"** from dropdown
-3. Click the green **Start Debugging** button
+**What happens**:
+- Builds all projects
+- Starts containers (SQL, Azurite)
+- Launches all services
+- Opens dashboard automatically
+- Enables debugging in VS Code/Cursor
+- You can set breakpoints!
 
-### Method 3: From AppHost File
+**Alternative**: Just `aspire run` (without debug session, still works)
 
-1. Open `Evermail/Evermail.AppHost/Program.cs`
-2. You should see **Run** and **Debug** buttons at the top
-3. Click **Debug** button
+---
+
+### Method 2: Press F5 (Requires Extension)
+
+**Requires**: Aspire VS Code extension
+
+**Install extension**:
+```bash
+code --install-extension microsoft-aspire.aspire-vscode
+```
+
+**Then**:
+1. Open Cursor
+2. Press **F5** (or Run → Start Debugging)
+3. Dashboard opens automatically
+4. All services start with debugging
+
+**Current status**: ✅ launch.json configured correctly (will work once extension installed)
 
 ---
 
