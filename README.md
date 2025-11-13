@@ -2,13 +2,14 @@
 
 > Modern email archive viewer and search platform powered by AI
 
-[![.NET](https://img.shields.io/badge/.NET-9.0-purple)](https://dotnet.microsoft.com/)
-[![Azure Aspire](https://img.shields.io/badge/Azure-Aspire%209.4-blue)](https://learn.microsoft.com/en-us/dotnet/aspire/)
+[![.NET](https://img.shields.io/badge/.NET-10.0%20LTS-purple)](https://dotnet.microsoft.com/)
+[![C#](https://img.shields.io/badge/C%23-14-blue)](https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14)
+[![Azure Aspire](https://img.shields.io/badge/Azure-Aspire%2013.0-blue)](https://learn.microsoft.com/en-us/dotnet/aspire/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 Evermail is a cloud-based SaaS platform that enables users to upload, view, search, and analyze email archives from `.mbox` files. Built for individuals, small businesses, and enterprises needing powerful email archiving with AI-powered search capabilities.
 
-> Built with .NET 9, Azure Aspire 9.4, and architected for web + future mobile apps
+> Built with **.NET 10 LTS** (3-year support), **C# 14**, **Azure Aspire 13.0**, and architected for web + future mobile apps
 
 > 📖 **New here? Read [PROJECT_BRIEF.md](PROJECT_BRIEF.md) for complete overview and business case**
 
@@ -34,14 +35,16 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
 
 Evermail is built with modern .NET and Azure technologies:
 
-- **Runtime**: .NET 9
+- **Runtime**: .NET 10 LTS (3-year support until November 2028)
+- **C# Version**: C# 14 (field-backed properties, extension blocks, null-conditional assignment)
 - **Frontend (Web)**: Blazor Web App (hybrid SSR + Interactive WASM) with MudBlazor
 - **Frontend (Mobile)**: .NET MAUI Blazor Hybrid (Phase 2 - iOS, Android, Windows, Mac)
-- **Backend**: ASP.NET Core 9 with Minimal APIs
+- **Backend**: ASP.NET Core 10 with Minimal APIs
 - **Database**: Azure SQL Serverless with Full-Text Search
+- **ORM**: Entity Framework Core 10 (named query filters, vector search, improved JSON)
 - **Scale Strategy**: Elastic Pools (Phase 2) + Sharding (Phase 3)
 - **Storage**: Azure Blob Storage + Azure Storage Queues
-- **Orchestration**: Azure Aspire 9.4
+- **Orchestration**: Azure Aspire 13.0
 - **Deployment**: Azure Container Apps
 - **Email Parsing**: MimeKit
 - **Payment**: Stripe
@@ -53,10 +56,10 @@ See [Architecture Documentation](Documentation/Architecture.md) for detailed sys
 
 ### Prerequisites
 
-- [**.NET 9 SDK**](https://dotnet.microsoft.com/download/dotnet/9.0) **(Required)**
+- [**.NET 10 SDK**](https://dotnet.microsoft.com/download/dotnet/10.0) **(Required - LTS Release)**
 - [Docker Desktop](https://www.docker.com/products/docker-desktop)
 - [Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli) (for deployment)
-- Visual Studio 2022 17.12+ or VS Code with C# Dev Kit
+- Visual Studio 2022 (latest) or VS Code with C# Dev Kit
 
 ### Local Development Setup
 

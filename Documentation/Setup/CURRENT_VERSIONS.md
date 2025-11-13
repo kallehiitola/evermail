@@ -9,7 +9,8 @@
 
 | Tool | Current Version | Status | Check Command |
 |------|----------------|--------|---------------|
-| **.NET SDK** | 9.0.109 | ✅ Latest | `dotnet --version` |
+| **.NET SDK** | **10.0.100 LTS** | ✅ Latest | `dotnet --version` |
+| **C# Language** | **C# 14** | ✅ With .NET 10 | - |
 | **Aspire Templates** | 13.0.0 | ✅ Latest | `dotnet new list aspire` |
 | **Azure CLI** | 2.79.0 | ✅ Latest | `az version` |
 | **Azure Developer CLI** | 1.21.1 | ✅ Latest | `azd version` |
@@ -106,9 +107,10 @@ Update these files when versions change:
 
 ### Version History
 
-| Date | .NET | Aspire | Azure CLI | azd |
-|------|------|--------|-----------|-----|
-| 2025-11-11 | 9.0.109 | 13.0.0 | 2.79.0 | 1.21.1 |
+| Date | .NET | C# | Aspire | Azure CLI | azd |
+|------|------|-------|--------|-----------|-----|
+| 2025-11-12 | **10.0.100 LTS** | **C# 14** | 13.0.0 | 2.79.0 | 1.21.1 |
+| 2025-11-11 | 9.0.109 | C# 13 | 13.0.0 | 2.79.0 | 1.21.1 |
 
 ---
 
