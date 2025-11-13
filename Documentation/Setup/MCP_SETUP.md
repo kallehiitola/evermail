@@ -8,6 +8,7 @@ Evermail uses **five Model Context Protocol (MCP)** servers to access official, 
 2. **Context7 MCP** - Up-to-date library documentation (MudBlazor, MimeKit, etc.)
 3. **Stripe MCP** - Stripe payment processing tools
 4. **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+5. **GitKraken MCP** - Git operations, branches, commits, PRs, issues
 5. **Framer MCP** - Marketing website design (NOT the Blazor application)
 
 ## ✅ Current Configuration
