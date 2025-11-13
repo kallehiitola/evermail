@@ -1,0 +1,11 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "aspire",
+            "request": "launch",
+            "name": "Aspire: Launch Evermail AppHost",
+            "program": "${workspaceFolder}/Evermail/Evermail.AppHost/Evermail.AppHost.csproj"
+        }
+    ]
+}
