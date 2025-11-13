@@ -1,19 +1,4 @@
 {
     "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Debug Evermail AppHost",
-            "type": "coreclr",
-            "request": "launch",
-            "program": "dotnet",
-            "args": [
-                "run",
-                "--project",
-                "${workspaceFolder}/Evermail/Evermail.AppHost/Evermail.AppHost.csproj"
-            ],
-            "cwd": "${workspaceFolder}/Evermail/Evermail.AppHost",
-            "stopAtEntry": false,
-            "console": "integratedTerminal"
-        }
-    ]
+    "configurations": []
 }
