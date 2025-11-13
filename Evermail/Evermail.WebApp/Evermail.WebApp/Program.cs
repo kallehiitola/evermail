@@ -159,7 +159,7 @@ app.UseAuthorization();
 
 // Map API endpoints
 var api = app.MapGroup("/api/v1");
-api.MapGroup("/auth").MapAuthEndpoints();
+api.MapGroup("/auth").MapAuthEndpoints().MapOAuthEndpoints();
 
 // Map Razor components
 app.MapRazorComponents<App>()
