@@ -91,9 +91,6 @@ namespace Evermail.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("TenantId1")
-                        .HasColumnType("uniqueidentifier");
-
                     b.Property<bool>("TwoFactorEnabled")
                         .HasColumnType("bit");
 
@@ -116,8 +113,6 @@ namespace Evermail.Infrastructure.Migrations
                         .HasFilter("[NormalizedUserName] IS NOT NULL");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId1");
 
                     b.ToTable("AspNetUsers", (string)null);
                 });
@@ -211,9 +206,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid?>("UserId1")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("Action");
@@ -223,8 +215,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.HasIndex("Timestamp");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("UserId1");
 
                     b.ToTable("AuditLogs");
                 });
@@ -313,9 +303,6 @@ namespace Evermail.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("UserId1")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("Date");
@@ -325,8 +312,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.HasIndex("MailboxId");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("UserId1");
 
                     b.HasIndex("TenantId", "UserId");
 
@@ -389,16 +374,11 @@ namespace Evermail.Infrastructure.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<Guid>("UserId1")
-                        .HasColumnType("uniqueidentifier");
-
                     b.HasKey("Id");
 
                     b.HasIndex("Status");
 
                     b.HasIndex("UserId");
-
-                    b.HasIndex("UserId1");
 
                     b.HasIndex("TenantId", "UserId");
 
@@ -724,14 +704,10 @@ namespace Evermail.Infrastructure.Migrations
             modelBuilder.Entity("Evermail.Domain.Entities.ApplicationUser", b =>
                 {
                     b.HasOne("Evermail.Domain.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Evermail.Domain.Entities.Tenant", null)
                         .WithMany("Users")
-                        .HasForeignKey("TenantId1");
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired();
 
                     b.Navigation("Tenant");
                 });
@@ -763,14 +739,10 @@ namespace Evermail.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", null)
+                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.NoAction);
-
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId1");
 
                     b.Navigation("Tenant");
 
@@ -791,16 +763,10 @@ namespace Evermail.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", null)
+                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
-
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId1")
-                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
                     b.Navigation("Mailbox");
@@ -818,16 +784,10 @@ namespace Evermail.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", null)
+                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
                         .WithMany("Mailboxes")
                         .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("Evermail.Domain.Entities.ApplicationUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId1")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired();
 
                     b.Navigation("Tenant");

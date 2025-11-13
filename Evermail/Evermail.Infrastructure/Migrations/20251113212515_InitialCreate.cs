@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Evermail.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreateWithIdentity : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -105,7 +105,6 @@ namespace Evermail.Infrastructure.Migrations
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
                     LastLoginAt = table.Column<DateTime>(type: "datetime2", nullable: true),
                     IsActive = table.Column<bool>(type: "bit", nullable: false),
-                    TenantId1 = table.Column<Guid>(type: "uniqueidentifier", nullable: true),
                     UserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     NormalizedUserName = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
                     Email = table.Column<string>(type: "nvarchar(256)", maxLength: 256, nullable: true),
@@ -127,12 +126,6 @@ namespace Evermail.Infrastructure.Migrations
                     table.ForeignKey(
                         name: "FK_AspNetUsers_Tenants_TenantId",
                         column: x => x.TenantId,
-                        principalTable: "Tenants",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_AspNetUsers_Tenants_TenantId1",
-                        column: x => x.TenantId1,
                         principalTable: "Tenants",
                         principalColumn: "Id");
                 });
@@ -269,8 +262,7 @@ namespace Evermail.Infrastructure.Migrations
                     IpAddress = table.Column<string>(type: "nvarchar(45)", maxLength: 45, nullable: true),
                     UserAgent = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: true),
                     Details = table.Column<string>(type: "nvarchar(max)", nullable: true),
-                    Timestamp = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    UserId1 = table.Column<Guid>(type: "uniqueidentifier", nullable: true)
+                    Timestamp = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -278,11 +270,6 @@ namespace Evermail.Infrastructure.Migrations
                     table.ForeignKey(
                         name: "FK_AuditLogs_AspNetUsers_UserId",
                         column: x => x.UserId,
-                        principalTable: "AspNetUsers",
-                        principalColumn: "Id");
-                    table.ForeignKey(
-                        name: "FK_AuditLogs_AspNetUsers_UserId1",
-                        column: x => x.UserId1,
                         principalTable: "AspNetUsers",
                         principalColumn: "Id");
                     table.ForeignKey(
@@ -310,8 +297,7 @@ namespace Evermail.Infrastructure.Migrations
                     ProcessedEmails = table.Column<int>(type: "int", nullable: false),
                     FailedEmails = table.Column<int>(type: "int", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    UserId1 = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    UpdatedAt = table.Column<DateTime>(type: "datetime2", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -320,14 +306,7 @@ namespace Evermail.Infrastructure.Migrations
                         name: "FK_Mailboxes_AspNetUsers_UserId",
                         column: x => x.UserId,
                         principalTable: "AspNetUsers",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_Mailboxes_AspNetUsers_UserId1",
-                        column: x => x.UserId1,
-                        principalTable: "AspNetUsers",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_Mailboxes_Tenants_TenantId",
                         column: x => x.TenantId,
@@ -362,8 +341,7 @@ namespace Evermail.Infrastructure.Migrations
                     HasAttachments = table.Column<bool>(type: "bit", nullable: false),
                     AttachmentCount = table.Column<int>(type: "int", nullable: false),
                     IsRead = table.Column<bool>(type: "bit", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    UserId1 = table.Column<Guid>(type: "uniqueidentifier", nullable: false)
+                    CreatedAt = table.Column<DateTime>(type: "datetime2", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -373,12 +351,6 @@ namespace Evermail.Infrastructure.Migrations
                         column: x => x.UserId,
                         principalTable: "AspNetUsers",
                         principalColumn: "Id");
-                    table.ForeignKey(
-                        name: "FK_EmailMessages_AspNetUsers_UserId1",
-                        column: x => x.UserId1,
-                        principalTable: "AspNetUsers",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                     table.ForeignKey(
                         name: "FK_EmailMessages_Mailboxes_MailboxId",
                         column: x => x.MailboxId,
@@ -461,11 +433,6 @@ namespace Evermail.Infrastructure.Migrations
                 column: "TenantId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AspNetUsers_TenantId1",
-                table: "AspNetUsers",
-                column: "TenantId1");
-
-            migrationBuilder.CreateIndex(
                 name: "UserNameIndex",
                 table: "AspNetUsers",
                 column: "NormalizedUserName",
@@ -503,11 +470,6 @@ namespace Evermail.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_AuditLogs_UserId1",
-                table: "AuditLogs",
-                column: "UserId1");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_EmailMessages_Date",
                 table: "EmailMessages",
                 column: "Date");
@@ -533,11 +495,6 @@ namespace Evermail.Infrastructure.Migrations
                 column: "UserId");
 
             migrationBuilder.CreateIndex(
-                name: "IX_EmailMessages_UserId1",
-                table: "EmailMessages",
-                column: "UserId1");
-
-            migrationBuilder.CreateIndex(
                 name: "IX_Mailboxes_Status",
                 table: "Mailboxes",
                 column: "Status");
@@ -551,11 +508,6 @@ namespace Evermail.Infrastructure.Migrations
                 name: "IX_Mailboxes_UserId",
                 table: "Mailboxes",
                 column: "UserId");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_Mailboxes_UserId1",
-                table: "Mailboxes",
-                column: "UserId1");
 
             migrationBuilder.CreateIndex(
                 name: "IX_SubscriptionPlans_Name",

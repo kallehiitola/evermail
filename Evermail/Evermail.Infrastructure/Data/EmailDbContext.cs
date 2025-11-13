@@ -58,9 +58,9 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
             entity.HasIndex(u => u.TenantId);
             
             entity.HasOne(u => u.Tenant)
-                .WithMany()
+                .WithMany(t => t.Users)
                 .HasForeignKey(u => u.TenantId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction); // NO ACTION to avoid circular cascade
         });
 
         // Mailbox
@@ -75,10 +75,10 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
                 .HasForeignKey(m => m.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne<ApplicationUser>()
+            entity.HasOne(m => m.User)
                 .WithMany(u => u.Mailboxes)
                 .HasForeignKey(m => m.UserId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // EmailMessage
@@ -95,7 +95,7 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
                 .HasForeignKey(e => e.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne<ApplicationUser>()
+            entity.HasOne(e => e.User)
                 .WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
@@ -164,7 +164,7 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
                 .HasForeignKey(al => al.TenantId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            entity.HasOne<ApplicationUser>()
+            entity.HasOne(al => al.User)
                 .WithMany()
                 .HasForeignKey(al => al.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
