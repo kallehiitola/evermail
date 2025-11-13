@@ -129,6 +129,10 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
         {
             entity.HasKey(sp => sp.Id);
             entity.HasIndex(sp => sp.Name).IsUnique();
+            
+            // Specify decimal precision
+            entity.Property(sp => sp.PriceMonthly).HasPrecision(18, 2);
+            entity.Property(sp => sp.PriceYearly).HasPrecision(18, 2);
         });
 
         // Subscription

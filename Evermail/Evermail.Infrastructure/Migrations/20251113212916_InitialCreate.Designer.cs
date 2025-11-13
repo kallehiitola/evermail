@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Evermail.Infrastructure.Migrations
 {
     [DbContext(typeof(EmailDbContext))]
-    [Migration("20251113212515_InitialCreate")]
+    [Migration("20251113212916_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -498,9 +498,11 @@ namespace Evermail.Infrastructure.Migrations
                         .HasColumnType("nvarchar(100)");
 
                     b.Property<decimal>("PriceMonthly")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<decimal?>("PriceYearly")
+                        .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
                     b.Property<string>("StripePriceIdMonthly")

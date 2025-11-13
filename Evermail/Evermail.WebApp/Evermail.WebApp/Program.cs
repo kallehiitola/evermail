@@ -114,12 +114,29 @@ builder.Services.AddEndpointsApiExplorer();
 
 var app = builder.Build();
 
-// Seed database
+// Seed database (with retry for SQL container startup)
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<EmailDbContext>();
-    await context.Database.MigrateAsync();
-    await DataSeeder.SeedAsync(context);
+    
+    // Retry connecting to SQL (container might not be ready immediately)
+    var maxRetries = 10;
+    var retryDelay = TimeSpan.FromSeconds(2);
+    
+    for (int i = 0; i < maxRetries; i++)
+    {
+        try
+        {
+            await context.Database.MigrateAsync();
+            await DataSeeder.SeedAsync(context);
+            break; // Success!
+        }
+        catch (Exception ex) when (i < maxRetries - 1)
+        {
+            Console.WriteLine($"Waiting for database... (attempt {i + 1}/{maxRetries})");
+            await Task.Delay(retryDelay);
+        }
+    }
 }
 
 // Configure the HTTP request pipeline.
