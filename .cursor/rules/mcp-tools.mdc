@@ -12,6 +12,7 @@ You have access to the following MCP servers:
 2. **Context7 MCP** - Library documentation (MudBlazor, MimeKit, Azure SDKs)
 3. **Stripe MCP** - Payment processing operations
 4. **Azure Pricing MCP** - Real-time Azure service pricing and cost estimation
+5. **GitKraken MCP** - Git operations, branch management, commit history, PR management
 5. **Framer MCP** - Marketing website design (NOT the Blazor application)
 
 ## Querying Microsoft Documentation
@@ -426,6 +427,69 @@ AI: "Let me get the latest MudBlazor documentation..."
 AI: "According to the latest MudBlazor documentation, here's how to implement 
 server-side pagination..."
 [Provides up-to-date code example]
+```
+
+## Querying Git Operations with GitKraken MCP
+
+You have access to GitKraken MCP for Git and GitHub operations. **Use these tools for repository management**.
+
+### GitKraken MCP Tools
+
+**When to Use**:
+- Git status, log, diff operations
+- Branch creation and management
+- Commit history and blame
+- Pull request operations (GitHub, GitLab, Azure DevOps, Bitbucket)
+- Issue tracking integration
+- Repository operations
+
+**Available Tools**:
+- `git_status` - Show working tree status
+- `git_log_or_diff` - Show commit logs or changes
+- `git_branch` - List or create branches
+- `git_checkout` - Switch branches
+- `git_add_or_commit` - Stage and commit changes
+- `git_push` - Push to remote
+- `git_blame` - Show who changed what
+- `git_stash` - Stash changes
+- `pull_request_*` - Create, view, manage PRs
+- `issues_*` - View and manage issues
+
+**Example Prompts**:
+```
+"Show me recent commits"
+
+"Create a new branch for email-parsing feature"
+
+"What files have changed since last commit?"
+
+"Show me open pull requests"
+
+"Get details for issue #123"
+
+"Commit all changes with message 'feat: add email parsing'"
+```
+
+### Usage Pattern for Evermail
+
+**Git Workflow**:
+```
+"Show git status for Evermail repository"
+
+"Create a feature branch for Phase 1 email parsing"
+
+"Commit the current changes with proper semantic commit message"
+
+"Push to GitHub and show me the status"
+```
+
+**GitHub Integration**:
+```
+"Show me issues assigned to me"
+
+"Create a pull request for the authentication feature"
+
+"Get details on PR #5"
 ```
 
 ---
