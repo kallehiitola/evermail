@@ -1,0 +1,125 @@
+@page "/login"
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Auth
+@using System.Net.Http.Json
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<PageTitle>Login - Evermail</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Login to Evermail</h2>
+
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger">@_errorMessage</div>
+                    }
+
+                    <EditForm Model="@_model" OnValidSubmit="@HandleLogin">
+                        <DataAnnotationsValidator />
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Email</label>
+                            <InputText @bind-Value="_model.Email" class="form-control" placeholder="your@email.com" />
+                            <ValidationMessage For="@(() => _model.Email)" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <InputText @bind-Value="_model.Password" type="password" class="form-control" />
+                            <ValidationMessage For="@(() => _model.Password)" />
+                        </div>
+
+                        @if (_needs2FA)
+                        {
+                            <div class="mb-3">
+                                <label class="form-label">Two-Factor Code</label>
+                                <InputText @bind-Value="_model.TwoFactorCode" class="form-control" placeholder="6-digit code" />
+                            </div>
+                        }
+
+                        <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">
+                            @if (_isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Login
+                        </button>
+                    </EditForm>
+
+                    <div class="text-center mt-3">
+                        <p>Don't have an account? <a href="/register">Register here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private LoginModel _model = new();
+    private bool _isLoading;
+    private bool _needs2FA;
+    private string? _errorMessage;
+
+    private async Task HandleLogin()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        try
+        {
+            var request = new LoginRequest(_model.Email, _model.Password, _model.TwoFactorCode);
+            var response = await Http.PostAsJsonAsync("/api/v1/auth/login", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+                
+                if (result?.Success == true && result.Data != null)
+                {
+                    // Store token in localStorage (will implement properly later)
+                    // For now, just navigate to home
+                    Navigation.NavigateTo("/");
+                }
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+                if (error?.Error?.Contains("Two-factor") == true)
+                {
+                    _needs2FA = true;
+                    _errorMessage = "Please enter your 2FA code";
+                }
+                else
+                {
+                    _errorMessage = error?.Error ?? "Login failed";
+                }
+            }
+            else
+            {
+                _errorMessage = "Invalid email or password";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    public class LoginModel
+    {
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string? TwoFactorCode { get; set; }
+    }
+}
+

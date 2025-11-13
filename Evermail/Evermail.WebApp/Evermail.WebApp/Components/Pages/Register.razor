@@ -1,0 +1,150 @@
+@page "/register"
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Auth
+@using System.Net.Http.Json
+@inject NavigationManager Navigation
+@inject HttpClient Http
+
+<PageTitle>Register - Evermail</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="card-title text-center mb-4">Create Evermail Account</h2>
+
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger">@_errorMessage</div>
+                    }
+
+                    @if (_success)
+                    {
+                        <div class="alert alert-success">
+                            <h4>Account Created!</h4>
+                            <p>Redirecting to login...</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <EditForm Model="@_model" OnValidSubmit="@HandleRegister">
+                            <DataAnnotationsValidator />
+
+                            <div class="mb-3">
+                                <label class="form-label">First Name</label>
+                                <InputText @bind-Value="_model.FirstName" class="form-control" />
+                                <ValidationMessage For="@(() => _model.FirstName)" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Last Name</label>
+                                <InputText @bind-Value="_model.LastName" class="form-control" />
+                                <ValidationMessage For="@(() => _model.LastName)" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Email</label>
+                                <InputText @bind-Value="_model.Email" class="form-control" type="email" />
+                                <ValidationMessage For="@(() => _model.Email)" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Password</label>
+                                <InputText @bind-Value="_model.Password" type="password" class="form-control" />
+                                <small class="form-text text-muted">
+                                    Must be at least 12 characters with uppercase, lowercase, number, and special character
+                                </small>
+                                <ValidationMessage For="@(() => _model.Password)" />
+                            </div>
+
+                            <div class="mb-3">
+                                <label class="form-label">Company/Organization Name</label>
+                                <InputText @bind-Value="_model.TenantName" class="form-control" />
+                                <ValidationMessage For="@(() => _model.TenantName)" />
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">
+                                @if (_isLoading)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                }
+                                Create Account
+                            </button>
+                        </EditForm>
+
+                        <div class="text-center mt-3">
+                            <p>Already have an account? <a href="/login">Login here</a></p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private RegisterModel _model = new();
+    private bool _isLoading;
+    private bool _success;
+    private string? _errorMessage;
+
+    private async Task HandleRegister()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        try
+        {
+            var request = new RegisterRequest(
+                _model.Email,
+                _model.Password,
+                _model.FirstName,
+                _model.LastName,
+                _model.TenantName
+            );
+
+            var response = await Http.PostAsJsonAsync("/api/v1/auth/register", request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
+                
+                if (result?.Success == true)
+                {
+                    _success = true;
+                    await Task.Delay(2000);
+                    Navigation.NavigateTo("/login");
+                }
+            }
+            else
+            {
+                var error = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+                _errorMessage = error?.Error ?? "Registration failed";
+                
+                if (error?.ValidationErrors != null)
+                {
+                    _errorMessage += ": " + string.Join(", ", error.ValidationErrors.SelectMany(kv => kv.Value));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    public class RegisterModel
+    {
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string Email { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string TenantName { get; set; } = "";
+    }
+}
+
