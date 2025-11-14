@@ -169,6 +169,11 @@
                 Logger.LogInformation("🔄 Redirecting to clean URL");
                 Navigation.NavigateTo("/", forceLoad: true);
             }
+            catch (Microsoft.AspNetCore.Components.NavigationException)
+            {
+                // Expected exception when navigating with forceLoad during initialization
+                // Navigation will complete successfully, no action needed
+            }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "❌ Error handling tokens");
