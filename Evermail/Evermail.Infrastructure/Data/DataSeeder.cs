@@ -1,14 +1,31 @@
 using Evermail.Domain.Entities;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.Infrastructure.Data;
 
 public static class DataSeeder
 {
-    public static async Task SeedAsync(EmailDbContext context)
+    public static async Task SeedAsync(EmailDbContext context, RoleManager<IdentityRole<Guid>> roleManager)
     {
         // Ensure database is created
         await context.Database.MigrateAsync();
+
+        // Seed Roles
+        var roles = new[] { "User", "Admin", "SuperAdmin" };
+        foreach (var roleName in roles)
+        {
+            if (!await roleManager.RoleExistsAsync(roleName))
+            {
+                var role = new IdentityRole<Guid>
+                {
+                    Id = Guid.NewGuid(),
+                    Name = roleName,
+                    NormalizedName = roleName.ToUpper()
+                };
+                await roleManager.CreateAsync(role);
+            }
+        }
 
         // Seed Subscription Plans
         if (!await context.SubscriptionPlans.AnyAsync())

@@ -135,6 +135,7 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var context = scope.ServiceProvider.GetRequiredService<EmailDbContext>();
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
     
     // Retry connecting to SQL (container might not be ready immediately)
     var maxRetries = 10;
@@ -145,7 +146,7 @@ using (var scope = app.Services.CreateScope())
         try
         {
             await context.Database.MigrateAsync();
-            await DataSeeder.SeedAsync(context);
+            await DataSeeder.SeedAsync(context, roleManager);
             break; // Success!
         }
         catch (Exception ex) when (i < maxRetries - 1)
