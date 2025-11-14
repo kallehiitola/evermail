@@ -23,6 +23,7 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -42,6 +43,9 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
 
             modelBuilder.Entity<AuditLog>()
                 .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<RefreshToken>()
+                .HasQueryFilter(r => r.TenantId == _tenantContext.TenantId);
         }
 
         // Tenant
@@ -152,6 +156,26 @@ public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Gu
                 .WithMany(sp => sp.Subscriptions)
                 .HasForeignKey(s => s.SubscriptionPlanId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // RefreshToken
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(rt => rt.Id);
+            entity.HasIndex(rt => rt.TokenHash);
+            entity.HasIndex(rt => rt.UserId);
+            entity.HasIndex(rt => rt.TenantId);
+            entity.HasIndex(rt => rt.ExpiresAt);
+            entity.HasIndex(rt => new { rt.UserId, rt.IsActive });
+
+            entity.HasOne(rt => rt.User)
+                .WithMany()
+                .HasForeignKey(rt => rt.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+                
+            // Computed column for IsActive can't be persisted, it's calculated in code
+            entity.Ignore(rt => rt.IsActive);
+            entity.Ignore(rt => rt.IsExpired);
         });
 
         // AuditLog

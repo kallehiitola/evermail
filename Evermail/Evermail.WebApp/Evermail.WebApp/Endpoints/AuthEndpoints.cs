@@ -14,6 +14,8 @@ public static class AuthEndpoints
     {
         group.MapPost("/register", RegisterAsync);
         group.MapPost("/login", LoginAsync);
+        group.MapPost("/refresh", RefreshTokenAsync);
+        group.MapPost("/logout", LogoutAsync).RequireAuthorization();
         group.MapPost("/enable-2fa", Enable2FAAsync).RequireAuthorization();
         group.MapPost("/verify-2fa", Verify2FAAsync).RequireAuthorization();
 
@@ -24,7 +26,8 @@ public static class AuthEndpoints
         RegisterRequest request,
         UserManager<ApplicationUser> userManager,
         EmailDbContext context,
-        IJwtTokenService jwtService)
+        IJwtTokenService jwtService,
+        HttpContext httpContext)
     {
         // Create tenant
         var tenant = new Tenant
@@ -70,15 +73,18 @@ public static class AuthEndpoints
         // Add to User role
         await userManager.AddToRoleAsync(user, "User");
 
-        // Generate token
+        // Generate token pair (access token + refresh token)
         var roles = await userManager.GetRolesAsync(user);
-        var token = await jwtService.GenerateTokenAsync(user, roles);
+        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtService.GenerateTokenPairAsync(user, roles, ipAddress);
 
         return Results.Ok(new ApiResponse<AuthResponse>(
             Success: true,
             Data: new AuthResponse(
-                Token: token,
-                ExpiresAt: DateTime.UtcNow.AddMinutes(15),
+                Token: tokenPair.AccessToken,
+                RefreshToken: tokenPair.RefreshToken,
+                TokenExpires: tokenPair.AccessTokenExpires,
+                RefreshTokenExpires: tokenPair.RefreshTokenExpires,
                 User: new UserDto(user.Id, user.TenantId, user.Email!, user.FirstName, user.LastName, user.TwoFactorEnabled)
             )
         ));
@@ -88,7 +94,8 @@ public static class AuthEndpoints
         LoginRequest request,
         UserManager<ApplicationUser> userManager,
         SignInManager<ApplicationUser> signInManager,
-        IJwtTokenService jwtService)
+        IJwtTokenService jwtService,
+        HttpContext httpContext)
     {
         var user = await userManager.FindByEmailAsync(request.Email);
         
@@ -124,15 +131,18 @@ public static class AuthEndpoints
         user.LastLoginAt = DateTime.UtcNow;
         await userManager.UpdateAsync(user);
 
-        // Generate token
+        // Generate token pair (access token + refresh token)
         var roles = await userManager.GetRolesAsync(user);
-        var token = await jwtService.GenerateTokenAsync(user, roles);
+        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtService.GenerateTokenPairAsync(user, roles, ipAddress);
 
         return Results.Ok(new ApiResponse<AuthResponse>(
             Success: true,
             Data: new AuthResponse(
-                Token: token,
-                ExpiresAt: DateTime.UtcNow.AddMinutes(15),
+                Token: tokenPair.AccessToken,
+                RefreshToken: tokenPair.RefreshToken,
+                TokenExpires: tokenPair.AccessTokenExpires,
+                RefreshTokenExpires: tokenPair.RefreshTokenExpires,
                 User: new UserDto(user.Id, user.TenantId, user.Email!, user.FirstName, user.LastName, user.TwoFactorEnabled)
             )
         ));
@@ -195,6 +205,61 @@ public static class AuthEndpoints
         return Results.Ok(new ApiResponse<object>(
             Success: true,
             Data: new { TwoFactorEnabled = true, BackupCodes = backupCodes }
+        ));
+    }
+
+    private static async Task<IResult> RefreshTokenAsync(
+        RefreshTokenRequest request,
+        IJwtTokenService jwtService,
+        HttpContext httpContext)
+    {
+        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtService.RefreshTokenAsync(request.RefreshToken, ipAddress);
+
+        if (tokenPair == null)
+        {
+            return Results.Unauthorized();
+        }
+
+        // Get user info from the new access token
+        var principal = jwtService.ValidateToken(tokenPair.AccessToken);
+        if (principal == null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var userId = Guid.Parse(principal.FindFirst("sub")?.Value!);
+        var tenantId = Guid.Parse(principal.FindFirst("tenant_id")?.Value!);
+        var email = principal.FindFirst("email")?.Value!;
+        var givenName = principal.FindFirst("given_name")?.Value ?? "";
+        var familyName = principal.FindFirst("family_name")?.Value ?? "";
+
+        return Results.Ok(new ApiResponse<AuthResponse>(
+            Success: true,
+            Data: new AuthResponse(
+                Token: tokenPair.AccessToken,
+                RefreshToken: tokenPair.RefreshToken,
+                TokenExpires: tokenPair.AccessTokenExpires,
+                RefreshTokenExpires: tokenPair.RefreshTokenExpires,
+                User: new UserDto(userId, tenantId, email, givenName, familyName, false)
+            )
+        ));
+    }
+
+    private static async Task<IResult> LogoutAsync(
+        RefreshTokenRequest request,
+        IJwtTokenService jwtService,
+        HttpContext httpContext)
+    {
+        if (!string.IsNullOrEmpty(request.RefreshToken))
+        {
+            var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+            await jwtService.RevokeRefreshTokenAsync(request.RefreshToken, "User logout", ipAddress);
+        }
+
+        return Results.Ok(new ApiResponse<object>(
+            Success: true,
+            Data: null
         ));
     }
 

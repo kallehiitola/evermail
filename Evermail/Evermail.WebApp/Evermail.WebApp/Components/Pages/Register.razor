@@ -178,8 +178,8 @@
                 {
                     _success = true;
                     
-                    // Store token in localStorage
-                    await AuthStateService.SetTokenAsync(result.Data.Token);
+                    // Store both tokens in localStorage (access + refresh)
+                    await AuthStateService.SetTokenPairAsync(result.Data.Token, result.Data.RefreshToken);
                     
                     // Notify authentication state changed
                     if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)

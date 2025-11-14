@@ -52,11 +52,12 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 // Configure JWT Authentication
 var ecdsaKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 builder.Services.AddSingleton(ecdsaKey);
-builder.Services.AddSingleton<IJwtTokenService>(sp => 
+builder.Services.AddScoped<IJwtTokenService>(sp => 
     new JwtTokenService(
         issuer: "https://api.evermail.com",
         audience: "evermail-webapp",
-        ecdsaKey: ecdsaKey
+        ecdsaKey: ecdsaKey,
+        context: sp.GetRequiredService<EmailDbContext>()
     ));
 
 var authBuilder = builder.Services.AddAuthentication(options =>

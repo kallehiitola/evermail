@@ -2,7 +2,9 @@ namespace Evermail.Common.DTOs.Auth;
 
 public record AuthResponse(
     string Token,
-    DateTime ExpiresAt,
+    string RefreshToken,
+    DateTime TokenExpires,
+    DateTime RefreshTokenExpires,
     UserDto User
 );
 

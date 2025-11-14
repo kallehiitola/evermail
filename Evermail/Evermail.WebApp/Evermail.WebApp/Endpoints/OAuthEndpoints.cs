@@ -129,13 +129,13 @@ public static class OAuthEndpoints
         // Get user roles
         var roles = await userManager.GetRolesAsync(user);
 
-        // Generate JWT token
-        var token = await jwtService.GenerateTokenAsync(user, roles);
+        // Generate JWT token pair (access token + refresh token)
+        var ipAddress = context.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtService.GenerateTokenPairAsync(user, roles, ipAddress);
 
-        // Return token as cookie or redirect with token
-        // For now, redirect to home (TODO: implement proper token handling)
+        // Encode both tokens in URL (will be parsed by frontend)
         var returnUrl = context.Request.Query["returnUrl"].ToString() ?? "/";
-        return Results.Redirect($"{returnUrl}?token={token}");
+        return Results.Redirect($"{returnUrl}?token={tokenPair.AccessToken}&refreshToken={tokenPair.RefreshToken}");
     }
 
     private static async Task<IResult> MicrosoftCallbackAsync(
@@ -227,11 +227,13 @@ public static class OAuthEndpoints
         // Get user roles
         var roles = await userManager.GetRolesAsync(user);
 
-        // Generate JWT token
-        var token = await jwtService.GenerateTokenAsync(user, roles);
+        // Generate JWT token pair (access token + refresh token)
+        var ipAddress = context.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtService.GenerateTokenPairAsync(user, roles, ipAddress);
 
+        // Encode both tokens in URL (will be parsed by frontend)
         var returnUrl = context.Request.Query["returnUrl"].ToString() ?? "/";
-        return Results.Redirect($"{returnUrl}?token={token}");
+        return Results.Redirect($"{returnUrl}?token={tokenPair.AccessToken}&refreshToken={tokenPair.RefreshToken}");
     }
 
     private static string GenerateSlug(string name, string suffix)

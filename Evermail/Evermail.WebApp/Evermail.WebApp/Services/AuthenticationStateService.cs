@@ -6,28 +6,36 @@ namespace Evermail.WebApp.Services;
 
 /// <summary>
 /// Service for managing authentication state with JWT tokens in localStorage.
-/// Provides token storage, retrieval, and user claims management.
+/// Provides token storage, retrieval, user claims management, and automatic token refresh.
 /// </summary>
 public interface IAuthenticationStateService
 {
     Task<string?> GetTokenAsync();
     Task SetTokenAsync(string token);
+    Task<string?> GetRefreshTokenAsync();
+    Task SetRefreshTokenAsync(string refreshToken);
+    Task SetTokenPairAsync(string accessToken, string refreshToken);
     Task RemoveTokenAsync();
     Task<ClaimsPrincipal?> GetUserFromTokenAsync();
+    Task<bool> RefreshTokenIfNeededAsync();
 }
 
 public class AuthenticationStateService : IAuthenticationStateService
 {
     private readonly IJSRuntime _jsRuntime;
     private readonly Infrastructure.Services.IJwtTokenService _jwtTokenService;
+    private readonly HttpClient _httpClient;
     private const string TokenKey = "evermail_auth_token";
+    private const string RefreshTokenKey = "evermail_refresh_token";
 
     public AuthenticationStateService(
         IJSRuntime jsRuntime,
-        Infrastructure.Services.IJwtTokenService jwtTokenService)
+        Infrastructure.Services.IJwtTokenService jwtTokenService,
+        HttpClient httpClient)
     {
         _jsRuntime = jsRuntime;
         _jwtTokenService = jwtTokenService;
+        _httpClient = httpClient;
     }
 
     public async Task<string?> GetTokenAsync()
@@ -55,11 +63,42 @@ public class AuthenticationStateService : IAuthenticationStateService
         }
     }
 
+    public async Task<string?> GetRefreshTokenAsync()
+    {
+        try
+        {
+            return await _jsRuntime.InvokeAsync<string?>("localStorage.getItem", RefreshTokenKey);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    public async Task SetRefreshTokenAsync(string refreshToken)
+    {
+        try
+        {
+            await _jsRuntime.InvokeVoidAsync("localStorage.setItem", RefreshTokenKey, refreshToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // JSRuntime not available during prerendering
+        }
+    }
+
+    public async Task SetTokenPairAsync(string accessToken, string refreshToken)
+    {
+        await SetTokenAsync(accessToken);
+        await SetRefreshTokenAsync(refreshToken);
+    }
+
     public async Task RemoveTokenAsync()
     {
         try
         {
             await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", TokenKey);
+            await _jsRuntime.InvokeVoidAsync("localStorage.removeItem", RefreshTokenKey);
         }
         catch (InvalidOperationException)
         {
@@ -78,6 +117,55 @@ public class AuthenticationStateService : IAuthenticationStateService
 
         var principal = _jwtTokenService.ValidateToken(token);
         return principal;
+    }
+
+    public async Task<bool> RefreshTokenIfNeededAsync()
+    {
+        var token = await GetTokenAsync();
+        var refreshToken = await GetRefreshTokenAsync();
+
+        if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(refreshToken))
+        {
+            return false;
+        }
+
+        // Check if token is expired or will expire soon (within 2 minutes)
+        var principal = _jwtTokenService.ValidateToken(token);
+        if (principal != null)
+        {
+            var exp = principal.FindFirst("exp")?.Value;
+            if (exp != null)
+            {
+                var expiryTime = DateTimeOffset.FromUnixTimeSeconds(long.Parse(exp)).UtcDateTime;
+                if (expiryTime > DateTime.UtcNow.AddMinutes(2))
+                {
+                    return false; // Token still valid for more than 2 minutes
+                }
+            }
+        }
+
+        // Token expired or expiring soon - refresh it
+        try
+        {
+            var response = await _httpClient.PostAsJsonAsync("/api/v1/auth/refresh", 
+                new Common.DTOs.Auth.RefreshTokenRequest(refreshToken));
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<Common.DTOs.ApiResponse<Common.DTOs.Auth.AuthResponse>>();
+                if (result?.Success == true && result.Data != null)
+                {
+                    await SetTokenPairAsync(result.Data.Token, result.Data.RefreshToken);
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Refresh failed - user needs to re-authenticate
+        }
+
+        return false;
     }
 }
 

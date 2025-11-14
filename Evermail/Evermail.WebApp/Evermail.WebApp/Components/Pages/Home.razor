@@ -130,20 +130,30 @@
     {
         Logger.LogInformation("🏠 Home page loading. Current URL: {Url}", Navigation.Uri);
         
-        // Handle OAuth redirect with token in query string
+        // Handle OAuth redirect with tokens in query string
         var uri = new Uri(Navigation.Uri);
         var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
         var token = queryParams["token"];
+        var refreshToken = queryParams["refreshToken"];
 
         if (!string.IsNullOrEmpty(token))
         {
-            Logger.LogInformation("🔑 Token found in URL query string. Token length: {Length}", token.Length);
+            Logger.LogInformation("🔑 Tokens found in URL. Access token: {Length} chars, Refresh token: {HasRefresh}", 
+                token.Length, !string.IsNullOrEmpty(refreshToken));
             
             try
             {
-                // Store token in localStorage
+                // Store both tokens in localStorage
                 await AuthStateService.SetTokenAsync(token);
-                Logger.LogInformation("✅ Token stored in localStorage");
+                if (!string.IsNullOrEmpty(refreshToken))
+                {
+                    await AuthStateService.SetRefreshTokenAsync(refreshToken);
+                    Logger.LogInformation("✅ Both tokens stored (access + refresh)");
+                }
+                else
+                {
+                    Logger.LogInformation("✅ Access token stored");
+                }
                 
                 // Notify authentication state changed
                 if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
@@ -155,22 +165,33 @@
                 // Small delay to ensure state propagation
                 await Task.Delay(100);
                 
-                // Redirect to clean URL (removes token from address bar)
+                // Redirect to clean URL (removes tokens from address bar)
                 Logger.LogInformation("🔄 Redirecting to clean URL");
                 Navigation.NavigateTo("/", forceLoad: true);
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "❌ Error handling token");
+                Logger.LogError(ex, "❌ Error handling tokens");
             }
         }
         else
         {
-            // Check if we already have a token in localStorage
+            // Check if we already have tokens and maybe refresh if needed
             var existingToken = await AuthStateService.GetTokenAsync();
             if (!string.IsNullOrEmpty(existingToken))
             {
                 Logger.LogInformation("✅ Token found in localStorage. User should be authenticated.");
+                
+                // Try to refresh token if it's expiring soon
+                var refreshed = await AuthStateService.RefreshTokenIfNeededAsync();
+                if (refreshed)
+                {
+                    Logger.LogInformation("🔄 Token automatically refreshed");
+                    if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                    {
+                        customProvider.NotifyAuthenticationStateChanged();
+                    }
+                }
             }
             else
             {
