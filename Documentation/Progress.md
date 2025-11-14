@@ -90,6 +90,35 @@
 
 ---
 
+## 🎯 Latest Updates (Nov 14, 2025)
+
+### UI Pages Added ✅
+- Login.razor - Email/password + 2FA support + OAuth buttons
+- Register.razor - Full registration with tenant creation
+- NavMenu updated with Login/Register links
+
+### Google OAuth Configured ✅
+- Google Cloud project created
+- OAuth client ID created
+- Credentials stored in user secrets (secure)
+- AddGoogle() configured in Program.cs
+- OAuth endpoints implemented
+
+### Critical Fixes ✅
+- Database circular cascade paths resolved
+- Decimal precision added to prices
+- SQL startup retry logic added
+- WebAssembly.Server package updated to .NET 10 (was 8.0.0)
+- Clean build with .NET 10
+
+### Pending Testing ⏳
+- blazor.web.js loading (fixed but not verified)
+- Login/Register pages functionality
+- Google OAuth flow
+- Port mismatch in Google redirect URI
+
+---
+
 ## 🏗️ Phase 1: Core Backend (Week 2) - NOT STARTED
 
 ### Days 6-7: Email Parsing
