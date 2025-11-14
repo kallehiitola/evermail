@@ -14,24 +14,18 @@ var blobs = storage.AddBlobs("blobs");
 var queues = storage.AddQueues("queues");
 
 // Add WebApp (Blazor Web App - hybrid SSR + WASM)
-// Pin to static ports for OAuth redirect URIs (7136 HTTPS, 5264 HTTP)
+// Ports defined in Properties/launchSettings.json: 7136 HTTPS, 5264 HTTP
+// These ports are fixed in launchSettings and won't change between restarts
 var webapp = builder.AddProject<Projects.Evermail_WebApp>("webapp")
     .WithReference(sql)
     .WithReference(blobs)
-    .WithReference(queues)
-    .WithHttpsEndpoint(port: 7136)
-    .WithHttpEndpoint(port: 5264)
-    .WithExternalHttpEndpoints();
+    .WithReference(queues);
 
 // Add AdminApp (Blazor Server)
-// Pin to static ports for consistent access (7137 HTTPS, 5265 HTTP)
 var adminapp = builder.AddProject<Projects.Evermail_AdminApp>("adminapp")
     .WithReference(sql)
     .WithReference(blobs)
-    .WithReference(queues)
-    .WithHttpsEndpoint(port: 7137)
-    .WithHttpEndpoint(port: 5265)
-    .WithExternalHttpEndpoints();
+    .WithReference(queues);
 
 // Add IngestionWorker (Background Service)
 builder.AddProject<Projects.Evermail_IngestionWorker>("worker")
