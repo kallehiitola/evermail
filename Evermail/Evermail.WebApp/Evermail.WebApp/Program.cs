@@ -248,6 +248,12 @@ var api = app.MapGroup("/api/v1");
 api.MapGroup("/auth").MapAuthEndpoints().MapOAuthEndpoints();
 api.MapGroup("/upload").MapUploadEndpoints();
 
+// Development-only endpoints (disabled in production)
+if (app.Environment.IsDevelopment())
+{
+    api.MapGroup("/dev").MapDevEndpoints();
+}
+
 // Map Razor components
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()

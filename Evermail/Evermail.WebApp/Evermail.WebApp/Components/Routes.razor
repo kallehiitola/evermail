@@ -1,11 +1,57 @@
 ﻿@using Microsoft.Extensions.Logging
 @using Evermail.WebApp.Components.Pages
+@using Microsoft.AspNetCore.Components.Authorization
 @inject ILogger<Routes> Logger
 @inject NavigationManager NavigationManager
 
 <Router AppAssembly="@typeof(Program).Assembly" AdditionalAssemblies="new[] { typeof(Client._Imports).Assembly }">
     <Found Context="routeData">
-        <RouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)" />
+        <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+            <NotAuthorized>
+                @{
+                    Logger.LogWarning("⛔ 403 - Unauthorized access attempt: {Path}", NavigationManager.Uri);
+                }
+                <PageTitle>Access Denied - Evermail</PageTitle>
+                <LayoutView Layout="@typeof(Layout.MainLayout)">
+                    <div class="container mt-5">
+                        <div class="row justify-content-center">
+                            <div class="col-md-6">
+                                <div class="card border-danger">
+                                    <div class="card-header bg-danger text-white">
+                                        <h4 class="mb-0">
+                                            <i class="bi bi-shield-exclamation"></i> Access Denied
+                                        </h4>
+                                    </div>
+                                    <div class="card-body">
+                                        <p class="lead">You don't have permission to access this page.</p>
+                                        <p class="text-muted">
+                                            This page requires administrator privileges. If you believe you should have access, 
+                                            please contact your system administrator.
+                                        </p>
+                                        <div class="mt-4">
+                                            <a href="/" class="btn btn-primary">
+                                                <i class="bi bi-house"></i> Go to Home
+                                            </a>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </LayoutView>
+            </NotAuthorized>
+            <Authorizing>
+                <PageTitle>Loading - Evermail</PageTitle>
+                <LayoutView Layout="@typeof(Layout.MainLayout)">
+                    <div class="container mt-5 text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-3 text-muted">Verifying your credentials...</p>
+                    </div>
+                </LayoutView>
+            </Authorizing>
+        </AuthorizeRouteView>
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
