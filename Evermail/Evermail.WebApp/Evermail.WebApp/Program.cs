@@ -157,7 +157,11 @@ else
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+
+// .NET 10: Use MapStaticAssets instead of UseStaticFiles for Blazor Web Apps
+// MapStaticAssets replaces UseBlazorFrameworkFiles and optimizes static asset delivery
+app.MapStaticAssets();
+
 app.UseAntiforgery();
 
 app.UseAuthentication();
