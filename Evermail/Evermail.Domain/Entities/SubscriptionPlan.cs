@@ -33,6 +33,12 @@ public class SubscriptionPlan
     public int MaxUsers { get; set; }
     public int MaxMailboxes { get; set; }
     
+    /// <summary>
+    /// Maximum size of a single file upload in GB.
+    /// Free: 1GB, Pro: 5GB, Team: 10GB, Enterprise: 100GB
+    /// </summary>
+    public int MaxFileSizeGB { get; set; } = 1;
+    
     // Features (JSON)
     public string? Features { get; set; }
     

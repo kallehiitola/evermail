@@ -42,9 +42,10 @@ public static class DataSeeder
                     PriceYearly = 0,
                     Currency = "EUR",
                     MaxStorageGB = 1,
+                    MaxFileSizeGB = 1, // Max 1GB per file
                     MaxUsers = 1,
                     MaxMailboxes = 1,
-                    Features = "[\"1 GB storage\",\"1 mailbox\",\"30-day retention\",\"Basic search\"]",
+                    Features = "[\"1 GB storage\",\"1 mailbox\",\"Max 1GB file size\",\"30-day retention\",\"Basic search\"]",
                     IsActive = true,
                     DisplayOrder = 1
                 },
@@ -58,9 +59,10 @@ public static class DataSeeder
                     PriceYearly = 90,
                     Currency = "EUR",
                     MaxStorageGB = 5,
+                    MaxFileSizeGB = 5, // Max 5GB per file
                     MaxUsers = 1,
                     MaxMailboxes = int.MaxValue, // Unlimited
-                    Features = "[\"5 GB storage\",\"Unlimited mailboxes\",\"1-year retention\",\"Full-text search\",\"AI summaries (50/month)\",\"Gmail/Outlook import\"]",
+                    Features = "[\"5 GB storage\",\"Unlimited mailboxes\",\"Max 5GB file size\",\"1-year retention\",\"Full-text search\",\"AI summaries (50/month)\",\"Gmail/Outlook import\"]",
                     IsActive = true,
                     DisplayOrder = 2
                 },
@@ -73,10 +75,11 @@ public static class DataSeeder
                     PriceMonthly = 29,
                     PriceYearly = 290,
                     Currency = "EUR",
-                    MaxStorageGB = 50,
+                    MaxStorageGB = 500, // 500GB total storage
+                    MaxFileSizeGB = 10, // Max 10GB per file
                     MaxUsers = 5,
                     MaxMailboxes = int.MaxValue, // Unlimited
-                    Features = "[\"50 GB storage\",\"5 users\",\"Unlimited mailboxes\",\"2-year retention\",\"Shared workspaces\",\"AI summaries (500/month)\",\"API access\"]",
+                    Features = "[\"500 GB storage\",\"5 users\",\"Unlimited mailboxes\",\"Max 10GB file size\",\"2-year retention\",\"Shared workspaces\",\"AI summaries (500/month)\",\"API access\"]",
                     IsActive = true,
                     DisplayOrder = 3
                 },
@@ -89,10 +92,11 @@ public static class DataSeeder
                     PriceMonthly = 99,
                     PriceYearly = 990,
                     Currency = "EUR",
-                    MaxStorageGB = 500,
+                    MaxStorageGB = 2000, // 2TB total storage
+                    MaxFileSizeGB = 100, // Max 100GB per file (supports your 40GB test file!)
                     MaxUsers = 50,
                     MaxMailboxes = int.MaxValue, // Unlimited
-                    Features = "[\"500 GB storage\",\"50 users\",\"Unlimited mailboxes\",\"Configurable retention (1-10 years)\",\"GDPR Archive (immutable)\",\"Unlimited AI\",\"Full API access\",\"Priority support\",\"99.9% SLA\"]",
+                    Features = "[\"2 TB storage\",\"50 users\",\"Unlimited mailboxes\",\"Max 100GB file size\",\"Configurable retention (1-10 years)\",\"GDPR Archive (immutable)\",\"Unlimited AI\",\"Full API access\",\"Priority support\",\"99.9% SLA\"]",
                     IsActive = true,
                     DisplayOrder = 4
                 }
