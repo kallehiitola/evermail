@@ -151,9 +151,61 @@ Controllers/
 
 Data/
 ├── DbContexts/
-│   └── EmailDbContext.cs
+│   └── EvermailDbContext.cs
 └── Migrations/
 ```
+
+## Interface Separation (CRITICAL)
+
+**RULE**: Interfaces MUST be in separate files from their implementations.
+
+**✅ DO (One File Per Type):**
+
+```csharp
+// IUserService.cs
+namespace Evermail.Application.Services;
+
+public interface IUserService
+{
+    Task<User?> GetByIdAsync(Guid id);
+}
+```
+
+```csharp
+// UserService.cs
+namespace Evermail.Application.Services;
+
+public class UserService : IUserService
+{
+    public async Task<User?> GetByIdAsync(Guid id)
+    {
+        // Implementation
+    }
+}
+```
+
+**❌ DON'T (Interface and Implementation Together):**
+
+```csharp
+// UserService.cs (VIOLATES SOLID)
+namespace Evermail.Application.Services;
+
+public interface IUserService { ... }  // ❌ Wrong file!
+public class UserService : IUserService { ... }
+```
+
+**Rationale:**
+- **Single Responsibility Principle** - Each file has one purpose
+- **Interface Segregation Principle** - Interface is its own contract
+- **Testability** - Easier to mock for unit tests
+- **Clarity** - Clear dependency contracts
+- **Standard .NET Convention** - Industry best practice
+- **Reusability** - Interface can be referenced without implementation
+
+**When creating services:**
+1. Create `IServiceName.cs` first (interface with XML comments)
+2. Create `ServiceName.cs` second (implementation)
+3. Never combine them in one file
 
 ## LINQ Best Practices
 

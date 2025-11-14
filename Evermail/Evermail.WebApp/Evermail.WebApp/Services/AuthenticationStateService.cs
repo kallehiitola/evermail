@@ -4,22 +4,6 @@ using Microsoft.JSInterop;
 
 namespace Evermail.WebApp.Services;
 
-/// <summary>
-/// Service for managing authentication state with JWT tokens in localStorage.
-/// Provides token storage, retrieval, user claims management, and automatic token refresh.
-/// </summary>
-public interface IAuthenticationStateService
-{
-    Task<string?> GetTokenAsync();
-    Task SetTokenAsync(string token);
-    Task<string?> GetRefreshTokenAsync();
-    Task SetRefreshTokenAsync(string refreshToken);
-    Task SetTokenPairAsync(string accessToken, string refreshToken);
-    Task RemoveTokenAsync();
-    Task<ClaimsPrincipal?> GetUserFromTokenAsync();
-    Task<bool> RefreshTokenIfNeededAsync();
-}
-
 public class AuthenticationStateService : IAuthenticationStateService
 {
     private readonly IJSRuntime _jsRuntime;

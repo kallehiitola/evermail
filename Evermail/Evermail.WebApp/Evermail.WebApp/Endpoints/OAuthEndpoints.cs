@@ -43,7 +43,7 @@ public static class OAuthEndpoints
     private static async Task<IResult> GoogleCallbackAsync(
         HttpContext context,
         UserManager<ApplicationUser> userManager,
-        EmailDbContext dbContext,
+        EvermailDbContext dbContext,
         IJwtTokenService jwtService)
     {
         var result = await context.AuthenticateAsync(GoogleDefaults.AuthenticationScheme);
@@ -141,7 +141,7 @@ public static class OAuthEndpoints
     private static async Task<IResult> MicrosoftCallbackAsync(
         HttpContext context,
         UserManager<ApplicationUser> userManager,
-        EmailDbContext dbContext,
+        EvermailDbContext dbContext,
         IJwtTokenService jwtService)
     {
         var result = await context.AuthenticateAsync(MicrosoftAccountDefaults.AuthenticationScheme);

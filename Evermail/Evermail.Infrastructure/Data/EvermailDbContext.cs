@@ -5,11 +5,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.Infrastructure.Data;
 
-public class EmailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
+public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid>, Guid>
 {
     private readonly TenantContext? _tenantContext;
 
-    public EmailDbContext(DbContextOptions<EmailDbContext> options, TenantContext? tenantContext = null)
+    public EvermailDbContext(DbContextOptions<EvermailDbContext> options, TenantContext? tenantContext = null)
         : base(options)
     {
         _tenantContext = tenantContext;

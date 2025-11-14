@@ -8,26 +8,14 @@ using System.Security.Cryptography;
 
 namespace Evermail.Infrastructure.Services;
 
-public record TokenPair(string AccessToken, string RefreshToken, DateTime AccessTokenExpires, DateTime RefreshTokenExpires);
-
-public interface IJwtTokenService
-{
-    Task<string> GenerateTokenAsync(ApplicationUser user, IList<string> roles);
-    Task<TokenPair> GenerateTokenPairAsync(ApplicationUser user, IList<string> roles, string? ipAddress = null);
-    Task<TokenPair?> RefreshTokenAsync(string refreshToken, string? ipAddress = null);
-    Task RevokeRefreshTokenAsync(string refreshToken, string reason, string? ipAddress = null);
-    Task RevokeAllUserTokensAsync(Guid userId, string reason);
-    ClaimsPrincipal? ValidateToken(string token);
-}
-
 public class JwtTokenService : IJwtTokenService
 {
     private readonly string _issuer;
     private readonly string _audience;
     private readonly ECDsa _ecdsaKey;
-    private readonly EmailDbContext _context;
+    private readonly EvermailDbContext _context;
 
-    public JwtTokenService(string issuer, string audience, ECDsa ecdsaKey, EmailDbContext context)
+    public JwtTokenService(string issuer, string audience, ECDsa ecdsaKey, EvermailDbContext context)
     {
         _issuer = issuer;
         _audience = audience;

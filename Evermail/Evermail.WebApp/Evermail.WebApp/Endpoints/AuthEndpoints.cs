@@ -25,7 +25,7 @@ public static class AuthEndpoints
     private static async Task<IResult> RegisterAsync(
         RegisterRequest request,
         UserManager<ApplicationUser> userManager,
-        EmailDbContext context,
+        EvermailDbContext context,
         IJwtTokenService jwtService,
         HttpContext httpContext)
     {

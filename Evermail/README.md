@@ -124,7 +124,7 @@ This starts:
 **Purpose**: Infrastructure implementations
 
 **Contains**:
-- EmailDbContext (EF Core)
+- EvermailDbContext (EF Core)
 - Repository implementations
 - Blob storage service
 - Queue service
@@ -226,7 +226,7 @@ See [MVP_TODOLIST.md](../MVP_TODOLIST.md) for complete development plan.
 **Phase 0 - Remaining Tasks**:
 - [ ] Add EF Core to Infrastructure project
 - [ ] Create domain entities
-- [ ] Configure EmailDbContext
+- [ ] Configure EvermailDbContext
 - [ ] Create initial migration
 - [ ] Implement authentication (JWT, 2FA, OAuth)
 - [ ] Add project references between layers

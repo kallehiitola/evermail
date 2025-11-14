@@ -3,11 +3,11 @@ using Microsoft.EntityFrameworkCore.Design;
 
 namespace Evermail.Infrastructure.Data;
 
-public class EmailDbContextFactory : IDesignTimeDbContextFactory<EmailDbContext>
+public class EvermailDbContextFactory : IDesignTimeDbContextFactory<EvermailDbContext>
 {
-    public EmailDbContext CreateDbContext(string[] args)
+    public EvermailDbContext CreateDbContext(string[] args)
     {
-        var optionsBuilder = new DbContextOptionsBuilder<EmailDbContext>();
+        var optionsBuilder = new DbContextOptionsBuilder<EvermailDbContext>();
         
         // Use a default connection string for migrations
         // This will be replaced with actual connection string at runtime
@@ -15,7 +15,7 @@ public class EmailDbContextFactory : IDesignTimeDbContextFactory<EmailDbContext>
             "Server=(localdb)\\mssqllocaldb;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true",
             b => b.MigrationsAssembly("Evermail.Infrastructure"));
 
-        return new EmailDbContext(optionsBuilder.Options, tenantContext: null);
+        return new EvermailDbContext(optionsBuilder.Options, tenantContext: null);
     }
 }
 

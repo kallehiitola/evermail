@@ -3,14 +3,6 @@ using System.Text;
 
 namespace Evermail.Infrastructure.Services;
 
-public interface ITwoFactorService
-{
-    string GenerateSecret();
-    string GenerateQrCodeUrl(string email, string secret, string issuer = "Evermail");
-    bool ValidateCode(string secret, string code);
-    List<string> GenerateBackupCodes(int count = 10);
-}
-
 public class TwoFactorService : ITwoFactorService
 {
     public string GenerateSecret()

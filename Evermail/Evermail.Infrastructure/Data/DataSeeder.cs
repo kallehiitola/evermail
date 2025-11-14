@@ -6,7 +6,7 @@ namespace Evermail.Infrastructure.Data;
 
 public static class DataSeeder
 {
-    public static async Task SeedAsync(EmailDbContext context, RoleManager<IdentityRole<Guid>> roleManager)
+    public static async Task SeedAsync(EvermailDbContext context, RoleManager<IdentityRole<Guid>> roleManager)
     {
         // Ensure database is created
         await context.Database.MigrateAsync();

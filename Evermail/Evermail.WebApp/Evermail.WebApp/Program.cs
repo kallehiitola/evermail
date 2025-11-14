@@ -21,7 +21,7 @@ builder.AddServiceDefaults();
 var connectionString = builder.Configuration.GetConnectionString("evermaildb") 
     ?? "Server=(localdb)\\mssqllocaldb;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true";
 
-builder.Services.AddDbContext<EmailDbContext>((serviceProvider, options) =>
+builder.Services.AddDbContext<EvermailDbContext>((serviceProvider, options) =>
 {
     var tenantContext = serviceProvider.GetService<TenantContext>();
     options.UseSqlServer(connectionString);
@@ -46,7 +46,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
     options.User.RequireUniqueEmail = true;
     options.SignIn.RequireConfirmedEmail = false; // For MVP, set to true in production
 })
-.AddEntityFrameworkStores<EmailDbContext>()
+.AddEntityFrameworkStores<EvermailDbContext>()
 .AddDefaultTokenProviders();
 
 // Configure JWT Authentication
@@ -57,7 +57,7 @@ builder.Services.AddScoped<IJwtTokenService>(sp =>
         issuer: "https://api.evermail.com",
         audience: "evermail-webapp",
         ecdsaKey: ecdsaKey,
-        context: sp.GetRequiredService<EmailDbContext>()
+        context: sp.GetRequiredService<EvermailDbContext>()
     ));
 
 var authBuilder = builder.Services.AddAuthentication(options =>
@@ -174,7 +174,7 @@ var app = builder.Build();
 // Seed database (with retry for SQL container startup)
 using (var scope = app.Services.CreateScope())
 {
-    var context = scope.ServiceProvider.GetRequiredService<EmailDbContext>();
+    var context = scope.ServiceProvider.GetRequiredService<EvermailDbContext>();
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
     
     // Retry connecting to SQL (container might not be ready immediately)

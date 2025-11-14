@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Evermail.Infrastructure.Migrations
 {
-    [DbContext(typeof(EmailDbContext))]
+    [DbContext(typeof(EvermailDbContext))]
     [Migration("20251113212916_InitialCreate")]
     partial class InitialCreate
     {
