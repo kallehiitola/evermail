@@ -5,6 +5,7 @@ using Evermail.WebApp.Client.Pages;
 using Evermail.WebApp.Components;
 using Evermail.WebApp.Endpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -109,6 +110,16 @@ builder.Services.AddScoped<TenantContext>(sp =>
 });
 
 builder.Services.AddHttpContextAccessor();
+
+// Configure HttpClient for Blazor Server components to call own API
+builder.Services.AddScoped(sp =>
+{
+    var navigationManager = sp.GetRequiredService<NavigationManager>();
+    return new HttpClient
+    {
+        BaseAddress = new Uri(navigationManager.BaseUri)
+    };
+});
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
