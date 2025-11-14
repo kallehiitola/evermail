@@ -9,6 +9,7 @@ namespace Evermail.Infrastructure.Services;
 public record TokenPair(
     string AccessToken, 
     string RefreshToken, 
+    Guid RefreshTokenId,
     DateTime AccessTokenExpires, 
     DateTime RefreshTokenExpires
 );

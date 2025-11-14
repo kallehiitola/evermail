@@ -1,0 +1,275 @@
+@page "/upload"
+@rendermode InteractiveServer
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Upload
+@using Microsoft.AspNetCore.Components.Forms
+@inject HttpClient Http
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Upload Email Archive - Evermail</PageTitle>
+
+<div class="container mt-4">
+    <h1>Upload Email Archive</h1>
+    <p class="text-muted">Upload your .mbox file or email export to get started</p>
+    
+    @if (_isUploading)
+    {
+        <div class="card">
+            <div class="card-body">
+                <h5>Uploading @_fileName...</h5>
+                <div class="progress mb-3" style="height: 30px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: @(_uploadProgress)%"
+                         aria-valuenow="@_uploadProgress" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        @_uploadProgress%
+                    </div>
+                </div>
+                <p class="text-muted">
+                    @_uploadedMB.ToString("F2") MB / @_totalMB.ToString("F2") MB
+                    @if (_estimatedTimeRemaining > TimeSpan.Zero)
+                    {
+                        <text> - @_estimatedTimeRemaining.ToString(@"hh\:mm\:ss") remaining</text>
+                    }
+                </p>
+                <p class="small text-muted">Upload speed: @_uploadSpeedMBps.ToString("F2") MB/s</p>
+                <button class="btn btn-danger" @onclick="CancelUpload">Cancel Upload</button>
+            </div>
+        </div>
+    }
+    else if (_uploadComplete)
+    {
+        <div class="alert alert-success">
+            <h4 class="alert-heading">✅ Upload Complete!</h4>
+            <p>Your file has been uploaded and queued for processing. This may take a while for large files.</p>
+            <p class="mb-0">
+                <a href="/mailboxes/@_completedMailboxId" class="btn btn-primary">View Mailbox Status</a>
+            </p>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <strong>Error:</strong> @_errorMessage
+                <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+            </div>
+        }
+
+        <div class="card">
+            <div class="card-body">
+                <h5>Select File Type</h5>
+                
+                <div class="mb-4">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="fileType" id="mbox" 
+                               checked="@(_fileType == "mbox")" 
+                               @onchange="@(() => _fileType = "mbox")">
+                        <label class="form-check-label" for="mbox">
+                            <strong>.mbox File</strong> - Single mailbox export (Gmail, Thunderbird, Apple Mail)
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="fileType" id="google" 
+                               checked="@(_fileType == "google-takeout-zip")"
+                               @onchange="@(() => _fileType = "google-takeout-zip")">
+                        <label class="form-check-label" for="google">
+                            <strong>Google Takeout ZIP</strong> - Full Google account export
+                        </label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="fileType" id="microsoft" 
+                               checked="@(_fileType == "microsoft-export-zip")"
+                               @onchange="@(() => _fileType = "microsoft-export-zip")">
+                        <label class="form-check-label" for="microsoft">
+                            <strong>Microsoft Export ZIP</strong> - Outlook/Office 365 export
+                        </label>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Choose File</label>
+                    <InputFile OnChange="HandleFileSelected" class="form-control" accept=".mbox,.zip" id="fileInput" />
+                    <small class="text-muted">
+                        Your plan allows up to <strong>@_maxFileSizeGB GB</strong> per file
+                    </small>
+                </div>
+                
+                @if (_selectedFile != null)
+                {
+                    <div class="alert alert-info">
+                        <strong>Selected:</strong> @_fileName<br />
+                        <strong>Size:</strong> @_totalMB.ToString("F2") MB (@_totalGB.ToString("F2") GB)
+                    </div>
+                }
+                
+                <button class="btn btn-primary btn-lg" @onclick="StartUpload" disabled="@(_selectedFile == null || _isProcessing)">
+                    @if (_isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-cloud-upload"></i>
+                    }
+                    Start Upload
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private IBrowserFile? _selectedFile;
+    private string _fileName = "";
+    private string _fileType = "mbox";
+    private long _totalBytes;
+    private double _totalMB;
+    private double _totalGB;
+    private int _maxFileSizeGB = 100; // Will be fetched from user's plan
+    
+    private bool _isUploading;
+    private bool _isProcessing;
+    private bool _uploadComplete;
+    private int _uploadProgress;
+    private long _uploadedBytes;
+    private double _uploadedMB;
+    private double _uploadSpeedMBps;
+    private TimeSpan _estimatedTimeRemaining;
+    private string _errorMessage = "";
+    private Guid _completedMailboxId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // TODO: Get tenant's plan and max file size from API
+        // For now, defaulting to Enterprise tier (100GB) for testing
+        _maxFileSizeGB = 100;
+    }
+
+    private void HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _selectedFile = e.File;
+        _fileName = e.File.Name;
+        _totalBytes = e.File.Size;
+        _totalMB = _totalBytes / (1024.0 * 1024.0);
+        _totalGB = _totalBytes / (1024.0 * 1024.0 * 1024.0);
+        _errorMessage = "";
+    }
+
+    private async Task StartUpload()
+    {
+        if (_selectedFile == null) return;
+        
+        // 1. Validate file size
+        if (_totalGB > _maxFileSizeGB)
+        {
+            _errorMessage = $"File size ({_totalGB:F2} GB) exceeds your plan limit ({_maxFileSizeGB} GB). Please upgrade your subscription.";
+            return;
+        }
+        
+        _isProcessing = true;
+        _errorMessage = "";
+        
+        try
+        {
+            // 2. Get SAS URL from backend
+            var initiateResponse = await Http.PostAsJsonAsync("/api/v1/upload/initiate", new InitiateUploadRequest(
+                _fileName,
+                _totalBytes,
+                _fileType
+            ));
+            
+            if (!initiateResponse.IsSuccessStatusCode)
+            {
+                var errorContent = await initiateResponse.Content.ReadAsStringAsync();
+                _errorMessage = $"Failed to initiate upload: {errorContent}";
+                return;
+            }
+
+            var result = await initiateResponse.Content.ReadFromJsonAsync<ApiResponse<InitiateUploadResponse>>();
+            
+            if (result?.Success != true || result.Data == null)
+            {
+                _errorMessage = result?.Error ?? "Failed to initiate upload";
+                return;
+            }
+            
+            _isProcessing = false;
+            _isUploading = true;
+            
+            // 3. Upload directly to Azure Blob with progress tracking
+            await UploadToAzureBlobAsync(result.Data.UploadUrl, result.Data.MailboxId);
+            
+            // 4. Notify backend upload is complete (triggers queue processing)
+            var completeResponse = await Http.PostAsJsonAsync("/api/v1/upload/complete", new CompleteUploadRequest(
+                result.Data.MailboxId
+            ));
+            
+            if (!completeResponse.IsSuccessStatusCode)
+            {
+                _errorMessage = "Upload completed but failed to queue for processing";
+                return;
+            }
+            
+            // 5. Show success
+            _isUploading = false;
+            _uploadComplete = true;
+            _completedMailboxId = result.Data.MailboxId;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+            _isUploading = false;
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task UploadToAzureBlobAsync(string sasUrl, Guid mailboxId)
+    {
+        try
+        {
+            // This will be implemented with JavaScript Interop
+            // Using Azure Blob Storage JavaScript SDK for chunked uploads
+            await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, DotNetObjectReference.Create(this));
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Upload failed: {ex.Message}";
+            _isUploading = false;
+            throw;
+        }
+    }
+
+    [JSInvokable]
+    public void UpdateProgress(int progress, long uploadedBytes, double speedMBps)
+    {
+        _uploadProgress = progress;
+        _uploadedBytes = uploadedBytes;
+        _uploadedMB = uploadedBytes / (1024.0 * 1024.0);
+        _uploadSpeedMBps = speedMBps;
+        
+        if (speedMBps > 0)
+        {
+            var remainingBytes = _totalBytes - uploadedBytes;
+            var remainingSeconds = remainingBytes / (speedMBps * 1024 * 1024);
+            _estimatedTimeRemaining = TimeSpan.FromSeconds(remainingSeconds);
+        }
+        
+        StateHasChanged();
+    }
+
+    private void CancelUpload()
+    {
+        // TODO: Implement cancellation in JavaScript
+        _isUploading = false;
+        _errorMessage = "Upload cancelled";
+    }
+}
+

@@ -115,7 +115,8 @@ public class JwtTokenService : IJwtTokenService
         
         return new TokenPair(
             accessToken, 
-            refreshTokenString, 
+            refreshTokenString,
+            refreshToken.Id,
             DateTime.UtcNow.AddMinutes(15),
             refreshToken.ExpiresAt
         );
@@ -151,8 +152,8 @@ public class JwtTokenService : IJwtTokenService
         // Generate new token pair
         var newTokenPair = await GenerateTokenPairAsync(user, roles, ipAddress);
         
-        // Link old token to new token
-        storedToken.ReplacedByTokenId = Guid.Parse(HashToken(newTokenPair.RefreshToken));
+        // Link old token to new token (for audit trail)
+        storedToken.ReplacedByTokenId = newTokenPair.RefreshTokenId;
         
         await _context.SaveChangesAsync();
         
