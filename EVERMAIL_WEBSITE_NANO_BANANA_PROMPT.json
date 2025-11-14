@@ -1,0 +1,533 @@
+{
+  "project": "Evermail Website Design",
+  "ai_service": "Nano Banana AI",
+  "output_type": "Modern SaaS landing page mockup",
+  "reference_template": "Provided screenshot - Clean, minimal B2B SaaS landing page",
+  
+  "brand_identity": {
+    "company_name": "evermail",
+    "logo_description": "Infinity symbol (∞) in two-tone: deep blue and cyan, with 'evermail' wordmark in lowercase cyan",
+    "tagline": "Your email archive, forever searchable",
+    "value_proposition": "Upload .mbox files, search years of emails instantly with AI-powered search. Secure, GDPR-compliant email archiving."
+  },
+
+  "color_palette": {
+    "primary": "#2563EB",
+    "primary_name": "Deep Blue",
+    "primary_usage": "Primary CTAs, navigation hover, headings, logo primary color",
+    
+    "accent": "#06B6D4",
+    "accent_name": "Bright Cyan",
+    "accent_usage": "Secondary elements, hover states, icons, logo accent color, 'Get Started' button",
+    
+    "text_dark": "#1E293B",
+    "text_dark_name": "Dark Charcoal",
+    "text_dark_usage": "Headlines, body text",
+    
+    "text_gray": "#475569",
+    "text_gray_name": "Slate Gray",
+    "text_gray_usage": "Subheadings, descriptions, secondary text",
+    
+    "background_white": "#FFFFFF",
+    "background_light": "#F1F5F9",
+    "background_light_name": "Light Gray",
+    "background_light_usage": "Alternate section backgrounds, cards"
+  },
+
+  "page_sections": [
+    {
+      "section_name": "Navigation Bar",
+      "position": "Top, sticky on scroll",
+      "layout": {
+        "description": "Horizontal navigation bar with logo on left, menu items center, CTA button on right",
+        "height": "80px",
+        "background": "White with subtle shadow when scrolled",
+        "elements": [
+          {
+            "element": "Logo",
+            "position": "Left aligned, 24px from edge",
+            "content": "Evermail infinity logo + wordmark",
+            "size": "40px height",
+            "colors": "Deep blue (#2563EB) and cyan (#06B6D4)"
+          },
+          {
+            "element": "Navigation Links",
+            "position": "Center, horizontal layout",
+            "content": ["Features", "Use Cases", "About Us", "Contact"],
+            "font": "Inter or DM Sans, 16px, Medium (500)",
+            "color": "Slate Gray (#475569)",
+            "hover_color": "Deep Blue (#2563EB)",
+            "spacing": "32px between items"
+          },
+          {
+            "element": "CTA Button",
+            "position": "Right aligned, 24px from edge",
+            "content": "Get Started",
+            "style": {
+              "background": "Bright Cyan (#06B6D4)",
+              "text_color": "White",
+              "height": "44px",
+              "padding": "12px 24px",
+              "border_radius": "8px",
+              "font_weight": "600",
+              "hover_effect": "Darken to #0891B2"
+            }
+          }
+        ]
+      }
+    },
+
+    {
+      "section_name": "Hero Section",
+      "layout": "Two-column layout (50/50 split on desktop)",
+      "background": "White",
+      "padding": "120px vertical, 80px horizontal",
+      
+      "left_column": {
+        "content_type": "Text content with CTAs",
+        "elements": [
+          {
+            "element": "Headline",
+            "content": "Effortless Email Archiving. Instant Search.",
+            "font": "Inter or DM Sans, Bold (700)",
+            "size": "56px desktop / 36px mobile",
+            "color": "Dark Charcoal (#1E293B)",
+            "line_height": "1.2",
+            "margin_bottom": "24px"
+          },
+          {
+            "element": "Subheadline",
+            "content": "evermail helps businesses securely archive, manage, and instant search bins with unarannlied ease.",
+            "font": "Inter or DM Sans, Regular (400)",
+            "size": "20px desktop / 18px mobile",
+            "color": "Slate Gray (#475569)",
+            "line_height": "1.6",
+            "margin_bottom": "40px",
+            "max_width": "480px"
+          },
+          {
+            "element": "CTA Buttons",
+            "layout": "Horizontal, side-by-side",
+            "spacing": "16px between buttons",
+            "buttons": [
+              {
+                "type": "Primary CTA",
+                "text": "Start Free Trial",
+                "style": {
+                  "background": "Bright Cyan (#06B6D4)",
+                  "text_color": "White",
+                  "height": "56px",
+                  "padding": "16px 32px",
+                  "border_radius": "8px",
+                  "font_size": "18px",
+                  "font_weight": "600",
+                  "hover_effect": "Lift with shadow"
+                }
+              },
+              {
+                "type": "Secondary CTA",
+                "text": "Watch a Quick Demo",
+                "style": {
+                  "background": "Transparent",
+                  "text_color": "Deep Blue (#2563EB)",
+                  "border": "2px solid #E2E8F0",
+                  "height": "56px",
+                  "padding": "16px 32px",
+                  "border_radius": "8px",
+                  "font_size": "18px",
+                  "font_weight": "600",
+                  "hover_effect": "Border color to Cyan"
+                }
+              }
+            ]
+          }
+        ]
+      },
+
+      "right_column": {
+        "content_type": "Product mockup/screenshot",
+        "description": "Clean mockup of Evermail email interface showing search results and email list",
+        "elements": [
+          {
+            "element": "Browser Window Frame",
+            "style": {
+              "border_radius": "12px",
+              "shadow": "Large soft shadow",
+              "background": "White"
+            },
+            "decorative_elements": [
+              "Subtle leaf/plant graphics in bottom corners (mint/cyan color)",
+              "Geometric shapes or abstract elements (optional)"
+            ]
+          },
+          {
+            "element": "Interface Content",
+            "description": "Email application interface showing:",
+            "components": [
+              "Left sidebar: Navigation with icons (Inbox, Starred, Archive, Spam, Trash, Settings)",
+              "Main area: Email list with 4 email items",
+              "Search bar at top with 'Attachment loaded' tag",
+              "Email items showing: sender icon (circular), subject line, preview text",
+              "Right side: Categories/filters",
+              "Clean, minimal design with cyan/blue accents"
+            ],
+            "colors": {
+              "sidebar_background": "Light gray (#F1F5F9)",
+              "selected_items": "Light cyan background",
+              "icons": "Deep blue (#2563EB) or Cyan (#06B6D4)",
+              "text": "Dark charcoal for titles, slate gray for previews"
+            }
+          }
+        ],
+        "size": "700px wide × 500px tall",
+        "position": "Right aligned with subtle perspective/tilt (optional)"
+      }
+    },
+
+    {
+      "section_name": "Features Section",
+      "heading": "Powerful Features Designed for You",
+      "layout": "Three columns on desktop, stacked on mobile",
+      "background": "Light Gray (#F1F5F9)",
+      "padding": "100px vertical, 80px horizontal",
+      
+      "section_header": {
+        "title": "Powerful Features Designed for You",
+        "font": "Bold, 48px desktop / 32px mobile",
+        "color": "Dark Charcoal (#1E293B)",
+        "alignment": "Centered",
+        "margin_bottom": "60px"
+      },
+
+      "feature_cards": [
+        {
+          "card_number": 1,
+          "icon_type": "Eye icon",
+          "icon_color": "Deep Blue (#2563EB)",
+          "icon_background": "Light cyan circle, 64px",
+          "title": "Advanced Search & Filtering",
+          "description": "Uisoin palar ate ale acaritulty law caofiorida",
+          "card_style": {
+            "background": "White",
+            "border": "1px solid #E2E8F0",
+            "border_radius": "12px",
+            "padding": "32px",
+            "hover_effect": "Lift with shadow, border color to cyan"
+          }
+        },
+        {
+          "card_number": 2,
+          "icon_type": "Clock with gear icon",
+          "icon_color": "Deep Blue (#2563EB)",
+          "icon_background": "Light cyan circle, 64px",
+          "title": "Advanced Search & Filtering",
+          "description": "Lorem ipsum wia tti inciode. fit mcoat acituatur ali alauds",
+          "card_style": {
+            "background": "White",
+            "border": "1px solid #E2E8F0",
+            "border_radius": "12px",
+            "padding": "32px",
+            "hover_effect": "Lift with shadow"
+          }
+        },
+        {
+          "card_number": 3,
+          "icon_type": "Shield icon",
+          "icon_color": "Deep Blue (#2563EB)",
+          "icon_background": "Light cyan circle, 64px",
+          "title": "Security",
+          "description": "Lorem ipsum annot artirat It vour transmuat orrmui tidisam",
+          "card_style": {
+            "background": "White",
+            "border": "1px solid #E2E8F0",
+            "border_radius": "12px",
+            "padding": "32px",
+            "hover_effect": "Lift with shadow"
+          }
+        }
+      ],
+
+      "cta_below": {
+        "text": "Explore All Features",
+        "style": "Text link with underline",
+        "color": "Deep Blue (#2563EB)",
+        "position": "Centered below cards"
+      }
+    },
+
+    {
+      "section_name": "Pricing Section",
+      "heading": "Simple, Transparent Pricing",
+      "layout": "Three pricing cards in row, center card highlighted",
+      "background": "White",
+      "padding": "100px vertical, 80px horizontal",
+      
+      "section_header": {
+        "title": "Simple, Transparent Pricing",
+        "font": "Bold, 48px desktop / 32px mobile",
+        "color": "Dark Charcoal (#1E293B)",
+        "alignment": "Centered",
+        "margin_bottom": "60px"
+      },
+
+      "pricing_cards": [
+        {
+          "tier": "Small Business",
+          "price": "$12.00",
+          "billing": "per month",
+          "features": [
+            "Donnis posibie ciored awsiotar yliut nominami fifazis",
+            "Dattis posibie ciored awsita flour pounat alir biaies"
+          ],
+          "cta_button": {
+            "text": "Start Free Trial",
+            "style": {
+              "background": "Transparent",
+              "border": "2px solid #E2E8F0",
+              "text_color": "Deep Blue (#2563EB)",
+              "hover": "Border cyan, background light cyan"
+            }
+          },
+          "card_style": {
+            "background": "White",
+            "border": "1px solid #E2E8F0",
+            "border_radius": "12px",
+            "padding": "40px 32px"
+          }
+        },
+        {
+          "tier": "Growth",
+          "price": "$8.00",
+          "billing": "per month",
+          "highlight": true,
+          "highlight_color": "Bright Cyan (#06B6D4) border, 2-3px thick",
+          "features": [
+            "Donnis posibie ciored awsiotar yliut nominami fifazis",
+            "Dattis posibie ciored awsita flour pounat alir biaies"
+          ],
+          "cta_button": {
+            "text": "Start Free Trial",
+            "style": {
+              "background": "Bright Cyan (#06B6D4)",
+              "text_color": "White",
+              "hover": "Darken background"
+            }
+          },
+          "card_style": {
+            "background": "White",
+            "border": "2px solid #06B6D4",
+            "border_radius": "12px",
+            "padding": "40px 32px",
+            "scale": "1.05 (slightly larger)",
+            "shadow": "Medium shadow"
+          }
+        },
+        {
+          "tier": "Enterprise",
+          "price": "$9.00",
+          "billing": "per month",
+          "features": [
+            "Donnis posibie ciored awsiotar yliut nominami fifazis",
+            "Dattis posibie ciored awsita flour pounat alir biaies"
+          ],
+          "cta_button": {
+            "text": "Start Free Deal",
+            "style": {
+              "background": "Bright Cyan (#06B6D4)",
+              "text_color": "White",
+              "hover": "Darken background"
+            }
+          },
+          "card_style": {
+            "background": "White",
+            "border": "1px solid #E2E8F0",
+            "border_radius": "12px",
+            "padding": "40px 32px"
+          }
+        }
+      ],
+
+      "pricing_card_specs": {
+        "tier_name_font": "18px, Semi-bold, Dark Charcoal",
+        "price_font": "48px, Bold, Dark Charcoal",
+        "billing_font": "16px, Regular, Slate Gray",
+        "features_font": "16px, Regular, Slate Gray",
+        "feature_bullets": "Checkmarks in cyan (#06B6D4)",
+        "button_height": "48px",
+        "button_font": "16px, Semi-bold"
+      }
+    },
+
+    {
+      "section_name": "Footer",
+      "layout": "Simple footer with logo, links, and legal",
+      "background": "White",
+      "border_top": "1px solid #E2E8F0",
+      "padding": "60px vertical, 80px horizontal",
+      
+      "elements": [
+        {
+          "element": "Logo",
+          "position": "Left",
+          "content": "Evermail infinity symbol + wordmark",
+          "size": "36px height",
+          "colors": "Deep Blue and Cyan"
+        },
+        {
+          "element": "Footer Links",
+          "position": "Center-right",
+          "layout": "Horizontal",
+          "links": ["Privacy Policy", "Terms of Service"],
+          "font": "16px, Regular",
+          "color": "Slate Gray (#475569)",
+          "hover_color": "Deep Blue (#2563EB)",
+          "spacing": "40px between items"
+        },
+        {
+          "element": "Social Icons",
+          "position": "Right",
+          "icons": ["Twitter/X", "LinkedIn (or Email)"],
+          "icon_size": "24px",
+          "icon_color": "Slate Gray (#475569)",
+          "hover_color": "Cyan (#06B6D4)",
+          "spacing": "16px between icons"
+        }
+      ]
+    }
+  ],
+
+  "design_style": {
+    "overall_aesthetic": "Clean, modern B2B SaaS - professional yet approachable",
+    "inspiration": "Stripe, Linear, Notion - minimal and sophisticated",
+    "whitespace": "Generous - let content breathe",
+    "typography": {
+      "font_family": "Inter or DM Sans (sans-serif)",
+      "font_weights": [400, 500, 600, 700],
+      "font_sizes": {
+        "h1": "56px desktop / 36px mobile",
+        "h2": "48px desktop / 32px mobile",
+        "h3": "32px desktop / 24px mobile",
+        "body_large": "20px",
+        "body": "16px",
+        "small": "14px"
+      },
+      "line_heights": {
+        "headings": "1.2",
+        "body": "1.6"
+      }
+    },
+    "border_radius": "8-12px for cards and buttons",
+    "shadows": {
+      "card": "0 4px 6px rgba(0,0,0,0.07)",
+      "card_hover": "0 10px 20px rgba(0,0,0,0.12)",
+      "large": "0 20px 40px rgba(0,0,0,0.15)"
+    }
+  },
+
+  "visual_elements": {
+    "decorative_graphics": [
+      "Subtle leaf/plant illustrations in mint/cyan color near hero mockup",
+      "Geometric shapes or abstract patterns (minimal, 3-5% opacity)",
+      "Optional: Gradient mesh background (very subtle)"
+    ],
+    "icons": {
+      "style": "Line icons or minimal filled icons",
+      "colors": "Deep Blue (#2563EB) or Cyan (#06B6D4)",
+      "size": "64px in feature cards",
+      "background": "Light circle background (light cyan or light blue)"
+    },
+    "mockup_interface": {
+      "description": "Clean email application interface mockup",
+      "requirements": [
+        "Browser chrome with rounded corners",
+        "Left sidebar with navigation icons",
+        "Main content area with email list",
+        "Search bar with filter tags",
+        "4-5 email items showing sender, subject, preview",
+        "Cyan/blue color accents throughout",
+        "Professional, clean design",
+        "Readable but not showing actual sensitive content"
+      ]
+    }
+  },
+
+  "responsive_design": {
+    "desktop": {
+      "breakpoint": "1440px+",
+      "max_content_width": "1440px",
+      "padding_horizontal": "80px",
+      "hero_layout": "Two columns (50/50)",
+      "features_layout": "Three columns",
+      "pricing_layout": "Three columns in row"
+    },
+    "tablet": {
+      "breakpoint": "768px - 1439px",
+      "padding_horizontal": "40px",
+      "hero_layout": "Two columns or stacked",
+      "features_layout": "Two columns",
+      "pricing_layout": "Two columns or stacked"
+    },
+    "mobile": {
+      "breakpoint": "< 768px",
+      "padding_horizontal": "24px",
+      "hero_layout": "Stacked (text first, image below)",
+      "features_layout": "Single column stacked",
+      "pricing_layout": "Single column stacked",
+      "navigation": "Hamburger menu"
+    }
+  },
+
+  "nano_banana_ai_generation_instructions": {
+    "output_format": "High-fidelity website mockup/screenshot",
+    "viewport": "Desktop view (1440px wide)",
+    "format": "PNG with transparency where applicable",
+    "quality": "High resolution, sharp text, professional",
+    "sections_to_include": [
+      "Navigation bar at top",
+      "Hero section with headline, subheadline, CTAs, and product mockup",
+      "Features section with 3 cards and icons",
+      "Pricing section with 3 pricing tiers (center one highlighted)",
+      "Footer with logo and links"
+    ],
+    "critical_elements": [
+      "Evermail infinity logo in Deep Blue and Cyan",
+      "Color palette: Deep Blue #2563EB, Cyan #06B6D4, whites and grays",
+      "Clean, professional B2B SaaS aesthetic",
+      "Product mockup showing email interface",
+      "Cyan 'Get Started' button in navigation",
+      "Highlighted pricing card with cyan border",
+      "Decorative leaf graphics near hero mockup"
+    ],
+    "text_content": {
+      "use_exact_text": true,
+      "headline": "Effortless Email Archiving. Instant Search.",
+      "subheadline": "evermail helps businesses securely archive, manage, and instant search bins with unarannlied ease.",
+      "features_heading": "Powerful Features Designed for You",
+      "pricing_heading": "Simple, Transparent Pricing",
+      "cta_primary": "Start Free Trial",
+      "cta_secondary": "Watch a Quick Demo"
+    }
+  },
+
+  "ai_prompt_summary": "Create a clean, modern B2B SaaS landing page for 'evermail' (email archiving platform). Design should be professional, minimal, and sophisticated - inspired by Stripe, Linear, and Notion. Color palette: Deep Blue (#2563EB) and Bright Cyan (#06B6D4) as primary colors, with slate gray text on white/light gray backgrounds. Layout includes: sticky navigation bar with logo and 'Get Started' cyan button; hero section with bold headline 'Effortless Email Archiving. Instant Search.', two CTAs, and a clean product mockup of an email interface on the right; features section with 3 icon-based cards; pricing section with 3 tiers (center one highlighted with cyan border); simple footer. Include decorative mint/cyan leaf graphics near the hero mockup. Typography: Inter or DM Sans, clean sans-serif. Style: generous whitespace, rounded corners (8-12px), soft shadows, professional but approachable. Desktop view at 1440px wide.",
+
+  "reference_notes": {
+    "template_analysis": "Provided template shows excellent B2B SaaS design - clean, professional, conversion-focused. Key elements: clear value prop in hero, visual product mockup, simple 3-card features section, transparent pricing with highlighted middle tier, minimal footer. Color scheme is cohesive with cyan as primary action color. Layout is balanced with good whitespace.",
+    "evermail_specific": "Adapt template for email archiving use case. Hero should emphasize 'search years of emails', 'unlimited mailboxes', and 'AI-powered'. Product mockup should show email list interface. Features should highlight: unlimited mailboxes, AI search, security/GDPR, fast search. Pricing should show Free/Pro/Team or Pro/Team/Enterprise tiers.",
+    "branding": "Evermail infinity logo is distinctive - use prominently. Color palette of deep blue + cyan creates trust (blue) + modern/tech (cyan) feeling. Maintain professional aesthetic for B2B while being approachable for individual users."
+  },
+
+  "metadata": {
+    "created": "2025-11-14",
+    "version": "1.0",
+    "based_on": [
+      "Provided website template screenshot",
+      "Evermail project documentation",
+      "Evermail logo color palette",
+      "Modern B2B SaaS design best practices"
+    ],
+    "for": "Nano Banana AI website mockup generation",
+    "expected_output": "Full landing page mockup showing navigation, hero, features, pricing, and footer sections in a single cohesive design"
+  }
+}
+
