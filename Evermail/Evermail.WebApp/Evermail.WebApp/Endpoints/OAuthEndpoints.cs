@@ -71,10 +71,17 @@ public static class OAuthEndpoints
             try
             {
                 // Create new tenant for this user
+                var tenantName = $"{firstName} {lastName}".Trim();
+                if (string.IsNullOrWhiteSpace(tenantName))
+                {
+                    tenantName = email.Split('@')[0]; // Use email prefix if no name
+                }
+                
                 var tenant = new Tenant
                 {
                     Id = Guid.NewGuid(),
-                    Name = $"{firstName} {lastName}".Trim(),
+                    Name = tenantName,
+                    Slug = GenerateSlug(tenantName, Guid.NewGuid().ToString("N")[..8]),
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -162,10 +169,17 @@ public static class OAuthEndpoints
             try
             {
                 // Create new tenant for this user
+                var tenantName = $"{firstName} {lastName}".Trim();
+                if (string.IsNullOrWhiteSpace(tenantName))
+                {
+                    tenantName = email.Split('@')[0]; // Use email prefix if no name
+                }
+                
                 var tenant = new Tenant
                 {
                     Id = Guid.NewGuid(),
-                    Name = $"{firstName} {lastName}".Trim(),
+                    Name = tenantName,
+                    Slug = GenerateSlug(tenantName, Guid.NewGuid().ToString("N")[..8]),
                     CreatedAt = DateTime.UtcNow
                 };
 
@@ -218,6 +232,20 @@ public static class OAuthEndpoints
 
         var returnUrl = context.Request.Query["returnUrl"].ToString() ?? "/";
         return Results.Redirect($"{returnUrl}?token={token}");
+    }
+
+    private static string GenerateSlug(string name, string suffix)
+    {
+        // Convert to lowercase and replace spaces/special chars with hyphens
+        var slug = name.ToLowerInvariant()
+            .Replace(" ", "-")
+            .Replace("_", "-");
+        
+        // Remove any characters that aren't alphanumeric or hyphen
+        slug = new string(slug.Where(c => char.IsLetterOrDigit(c) || c == '-').ToArray());
+        
+        // Add suffix for uniqueness
+        return $"{slug}-{suffix}";
     }
 }
 
