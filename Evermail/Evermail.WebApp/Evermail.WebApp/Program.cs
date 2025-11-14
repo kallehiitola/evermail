@@ -151,14 +151,15 @@ builder.Services.AddScoped<TenantContext>(sp =>
 builder.Services.AddHttpContextAccessor();
 
 // Configure HttpClient for Blazor Server components to call own API
-builder.Services.AddScoped(sp =>
+// Use IHttpClientFactory with named client instead of trying to resolve NavigationManager at startup
+builder.Services.AddHttpClient("EverMailAPI", (sp, client) =>
 {
-    var navigationManager = sp.GetRequiredService<NavigationManager>();
-    return new HttpClient
-    {
-        BaseAddress = new Uri(navigationManager.BaseUri)
-    };
+    // BaseAddress will be set by the component when NavigationManager is available
+    // For now, use relative URLs in API calls
 });
+
+// Also add a default HttpClient for backward compatibility
+builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("EverMailAPI"));
 
 // Add services to the container.
 builder.Services.AddRazorComponents()
