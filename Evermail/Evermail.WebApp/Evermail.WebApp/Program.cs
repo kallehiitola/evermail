@@ -123,6 +123,30 @@ builder.Services.AddAuthorization();
 // Add 2FA service
 builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 
+// Configure Azure Blob Storage
+builder.Services.AddSingleton(sp =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("blobs");
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Blob storage connection string 'blobs' is not configured");
+    }
+    return new Azure.Storage.Blobs.BlobServiceClient(connectionString);
+});
+builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+
+// Configure Azure Queue Storage
+builder.Services.AddSingleton(sp =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("queues");
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Queue storage connection string 'queues' is not configured");
+    }
+    return new Azure.Storage.Queues.QueueServiceClient(connectionString);
+});
+builder.Services.AddScoped<IQueueService, QueueService>();
+
 // Add authentication state services for Blazor
 builder.Services.AddScoped<Evermail.WebApp.Services.IAuthenticationStateService, Evermail.WebApp.Services.AuthenticationStateService>();
 builder.Services.AddScoped<AuthenticationStateProvider, Evermail.WebApp.Services.CustomAuthenticationStateProvider>();
@@ -189,7 +213,7 @@ using (var scope = app.Services.CreateScope())
             await DataSeeder.SeedAsync(context, roleManager);
             break; // Success!
         }
-        catch (Exception ex) when (i < maxRetries - 1)
+        catch (Exception) when (i < maxRetries - 1)
         {
             Console.WriteLine($"Waiting for database... (attempt {i + 1}/{maxRetries})");
             await Task.Delay(retryDelay);
@@ -222,6 +246,7 @@ app.UseAuthorization();
 // Map API endpoints
 var api = app.MapGroup("/api/v1");
 api.MapGroup("/auth").MapAuthEndpoints().MapOAuthEndpoints();
+api.MapGroup("/upload").MapUploadEndpoints();
 
 // Map Razor components
 app.MapRazorComponents<App>()
