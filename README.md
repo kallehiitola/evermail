@@ -289,26 +289,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-### Q1 2025 - MVP Launch
+### Q4 2025 (Nov-Dec) - MVP Launch
 - [x] Core email parsing and storage
 - [x] Full-text search
 - [x] User authentication
 - [x] Stripe integration
 - [ ] Beta launch with 10 users
 
-### Q2 2025 - AI Features
+### Q1 2026 - AI Features
 - [ ] Azure OpenAI integration
 - [ ] Semantic search
 - [ ] Email summaries
 - [ ] Gmail/Outlook OAuth import
 
-### Q3 2025 - Team Features
+### Q2 2026 - Team Features
 - [ ] Shared workspaces
 - [ ] Team management
 - [ ] API access
 - [ ] Enhanced admin dashboard
 
-### Q4 2025 - Enterprise
+### Q3 2026 - Enterprise
 - [ ] GDPR Archive tier
 - [ ] Immutable storage
 - [ ] Advanced compliance features

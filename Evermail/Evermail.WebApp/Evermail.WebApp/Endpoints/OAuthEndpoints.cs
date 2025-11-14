@@ -1,6 +1,11 @@
+using Evermail.Domain.Entities;
+using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -35,7 +40,11 @@ public static class OAuthEndpoints
         return group;
     }
 
-    private static async Task<IResult> GoogleCallbackAsync(HttpContext context)
+    private static async Task<IResult> GoogleCallbackAsync(
+        HttpContext context,
+        UserManager<ApplicationUser> userManager,
+        EmailDbContext dbContext,
+        IJwtTokenService jwtService)
     {
         var result = await context.AuthenticateAsync(GoogleDefaults.AuthenticationScheme);
         
@@ -49,14 +58,68 @@ public static class OAuthEndpoints
         var firstName = result.Principal?.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.GivenName)?.Value ?? "";
         var lastName = result.Principal?.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Surname)?.Value ?? "";
 
-        // TODO: Find or create user with this email
-        // TODO: Generate JWT token
-        // For now, redirect to home
+        if (string.IsNullOrEmpty(email))
+        {
+            return Results.Redirect("/login?error=no_email");
+        }
+
+        // Find or create user
+        var user = await userManager.FindByEmailAsync(email);
+        
+        if (user == null)
+        {
+            // Create new tenant for this user
+            var tenant = new Tenant
+            {
+                Id = Guid.NewGuid(),
+                Name = $"{firstName} {lastName}".Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            // Create new user
+            user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenant.Id,
+                UserName = email,
+                Email = email,
+                EmailConfirmed = true, // OAuth emails are pre-verified
+                FirstName = firstName,
+                LastName = lastName,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            dbContext.Tenants.Add(tenant);
+            
+            // Create user without password (OAuth only)
+            var createResult = await userManager.CreateAsync(user);
+            
+            if (!createResult.Succeeded)
+            {
+                return Results.Redirect("/login?error=registration_failed");
+            }
+
+            // Assign default role
+            await userManager.AddToRoleAsync(user, "User");
+        }
+
+        // Get user roles
+        var roles = await userManager.GetRolesAsync(user);
+
+        // Generate JWT token
+        var token = await jwtService.GenerateTokenAsync(user, roles);
+
+        // Return token as cookie or redirect with token
+        // For now, redirect to home (TODO: implement proper token handling)
         var returnUrl = context.Request.Query["returnUrl"].ToString() ?? "/";
-        return Results.Redirect(returnUrl);
+        return Results.Redirect($"{returnUrl}?token={token}");
     }
 
-    private static async Task<IResult> MicrosoftCallbackAsync(HttpContext context)
+    private static async Task<IResult> MicrosoftCallbackAsync(
+        HttpContext context,
+        UserManager<ApplicationUser> userManager,
+        EmailDbContext dbContext,
+        IJwtTokenService jwtService)
     {
         var result = await context.AuthenticateAsync(OpenIdConnectDefaults.AuthenticationScheme);
         
@@ -70,10 +133,59 @@ public static class OAuthEndpoints
         var firstName = result.Principal?.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.GivenName)?.Value ?? "";
         var lastName = result.Principal?.FindFirst(c => c.Type == System.Security.Claims.ClaimTypes.Surname)?.Value ?? "";
 
-        // TODO: Find or create user with this email
-        // TODO: Generate JWT token
+        if (string.IsNullOrEmpty(email))
+        {
+            return Results.Redirect("/login?error=no_email");
+        }
+
+        // Find or create user (same logic as Google)
+        var user = await userManager.FindByEmailAsync(email);
+        
+        if (user == null)
+        {
+            // Create new tenant for this user
+            var tenant = new Tenant
+            {
+                Id = Guid.NewGuid(),
+                Name = $"{firstName} {lastName}".Trim(),
+                CreatedAt = DateTime.UtcNow
+            };
+
+            // Create new user
+            user = new ApplicationUser
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenant.Id,
+                UserName = email,
+                Email = email,
+                EmailConfirmed = true, // OAuth emails are pre-verified
+                FirstName = firstName,
+                LastName = lastName,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            dbContext.Tenants.Add(tenant);
+            
+            // Create user without password (OAuth only)
+            var createResult = await userManager.CreateAsync(user);
+            
+            if (!createResult.Succeeded)
+            {
+                return Results.Redirect("/login?error=registration_failed");
+            }
+
+            // Assign default role
+            await userManager.AddToRoleAsync(user, "User");
+        }
+
+        // Get user roles
+        var roles = await userManager.GetRolesAsync(user);
+
+        // Generate JWT token
+        var token = await jwtService.GenerateTokenAsync(user, roles);
+
         var returnUrl = context.Request.Query["returnUrl"].ToString() ?? "/";
-        return Results.Redirect(returnUrl);
+        return Results.Redirect($"{returnUrl}?token={token}");
     }
 }
 
