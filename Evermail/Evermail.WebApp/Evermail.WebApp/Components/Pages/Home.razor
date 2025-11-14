@@ -25,21 +25,21 @@
                             <i class="bi bi-check-circle-fill me-2"></i>You're Logged In!
                         </h4>
                         <hr />
-                        <p class="mb-1"><strong>Email:</strong> @context.User.Identity?.Name</p>
+                        <p class="mb-1"><strong>Email:</strong> @context.User.FindFirst("email")?.Value</p>
                         <p class="mb-1"><strong>User ID:</strong> @context.User.FindFirst("sub")?.Value</p>
                         <p class="mb-0"><strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value</p>
                         <hr />
                         <div class="d-flex gap-2 mt-3 flex-wrap">
-                            <a href="/emails" class="btn btn-success">
+                            <a href="/emails" class="btn btn-success btn-lg">
                                 <i class="bi bi-envelope-fill me-2"></i>View My Emails
                             </a>
-                            <a href="/settings" class="btn btn-outline-secondary">
+                            <a href="/settings" class="btn btn-outline-secondary btn-lg">
                                 <i class="bi bi-gear-fill me-2"></i>Settings
                             </a>
-                            <button class="btn btn-outline-danger" @onclick="HandleLogout">
-                                <i class="bi bi-box-arrow-right me-2"></i>Logout
-                            </button>
                         </div>
+                        <p class="text-muted mt-3 mb-0">
+                            <small>To logout, use the button in the top-right corner</small>
+                        </p>
                     </div>
 
                     <div class="card mt-4">
