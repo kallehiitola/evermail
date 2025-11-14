@@ -9,7 +9,7 @@ public static class OAuthEndpoints
     public static RouteGroupBuilder MapOAuthEndpoints(this RouteGroupBuilder group)
     {
         // Google OAuth
-        group.MapGet("/google/login", async (HttpContext context, string? returnUrl = null) =>
+        group.MapGet("/google/login", (HttpContext context, string? returnUrl = null) =>
         {
             var properties = new AuthenticationProperties
             {
@@ -21,7 +21,7 @@ public static class OAuthEndpoints
         group.MapGet("/google/callback", GoogleCallbackAsync);
 
         // Microsoft OAuth
-        group.MapGet("/microsoft/login", async (HttpContext context, string? returnUrl = null) =>
+        group.MapGet("/microsoft/login", (HttpContext context, string? returnUrl = null) =>
         {
             var properties = new AuthenticationProperties
             {
