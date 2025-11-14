@@ -1,6 +1,10 @@
 ﻿@page "/"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Services
+@inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
 
 <PageTitle>Evermail - Email Archive Platform</PageTitle>
 
@@ -114,3 +118,28 @@
         </div>
     </div>
 </div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        // Handle OAuth redirect with token in query string
+        var uri = new Uri(Navigation.Uri);
+        var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var token = queryParams["token"];
+
+        if (!string.IsNullOrEmpty(token))
+        {
+            // Store token in localStorage
+            await AuthStateService.SetTokenAsync(token);
+            
+            // Notify authentication state changed
+            if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+            {
+                customProvider.NotifyAuthenticationStateChanged();
+            }
+
+            // Redirect to clean URL (removes token from address bar)
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+    }
+}
