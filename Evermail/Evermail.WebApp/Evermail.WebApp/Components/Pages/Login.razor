@@ -3,8 +3,12 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Auth
 @using System.Net.Http.Json
+@using Evermail.WebApp.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @inject NavigationManager Navigation
 @inject HttpClient Http
+@inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Login - Evermail</PageTitle>
 
@@ -78,6 +82,42 @@
     private bool _needs2FA;
     private string? _errorMessage;
 
+    protected override async Task OnInitializedAsync()
+    {
+        // Check if we have a token in query string (OAuth redirect)
+        var uri = new Uri(Navigation.Uri);
+        var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        var token = queryParams["token"];
+
+        if (!string.IsNullOrEmpty(token))
+        {
+            // Store token and update auth state
+            await AuthStateService.SetTokenAsync(token);
+            
+            // Notify authentication state changed
+            if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+            {
+                customProvider.NotifyAuthenticationStateChanged();
+            }
+
+            // Redirect to clean URL (remove token from query string)
+            Navigation.NavigateTo("/", forceLoad: true);
+        }
+
+        // Check for error from OAuth
+        var error = queryParams["error"];
+        if (!string.IsNullOrEmpty(error))
+        {
+            _errorMessage = error switch
+            {
+                "oauth_failed" => "OAuth authentication failed. Please try again.",
+                "no_email" => "Could not retrieve email from OAuth provider.",
+                "registration_failed" => "Failed to create user account. Please try again.",
+                _ => "An error occurred during authentication."
+            };
+        }
+    }
+
     private void HandleOAuthLogin(string provider)
     {
         // Redirect to OAuth endpoint
@@ -101,9 +141,17 @@
                 
                 if (result?.Success == true && result.Data != null)
                 {
-                    // Store token in localStorage (will implement properly later)
-                    // For now, just navigate to home
-                    Navigation.NavigateTo("/");
+                    // Store token in localStorage
+                    await AuthStateService.SetTokenAsync(result.Data.Token);
+                    
+                    // Notify authentication state changed
+                    if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                    {
+                        customProvider.NotifyAuthenticationStateChanged();
+                    }
+
+                    // Navigate to home
+                    Navigation.NavigateTo("/", forceLoad: true);
                 }
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)

@@ -1,0 +1,73 @@
+@page "/settings"
+@rendermode InteractiveServer
+@attribute [Authorize]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+<PageTitle>Settings - Evermail</PageTitle>
+
+<div class="container mt-4">
+    <h1>Settings</h1>
+    
+    <AuthorizeView>
+        <Authorized>
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Account Information</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>Email:</strong> @context.User.Identity?.Name</p>
+                            <p><strong>User ID:</strong> @context.User.FindFirst("sub")?.Value</p>
+                            <p><strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Security</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">Coming in Phase 1:</p>
+                            <ul>
+                                <li>Enable/disable 2FA</li>
+                                <li>Change password</li>
+                                <li>Manage sessions</li>
+                                <li>Connected OAuth accounts</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Subscription</h5>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted">Coming in Phase 1:</p>
+                            <ul>
+                                <li>Current plan: Free</li>
+                                <li>Upgrade to Pro/Team/Enterprise</li>
+                                <li>Usage statistics</li>
+                                <li>Billing history</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-warning">
+                You must be logged in to view this page.
+                <a href="/login" class="alert-link">Please login</a>.
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+

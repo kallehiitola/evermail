@@ -6,6 +6,7 @@ using Evermail.WebApp.Components;
 using Evermail.WebApp.Endpoints;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -82,12 +83,23 @@ builder.Services.AddAuthentication(options =>
     googleOptions.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
     googleOptions.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
     googleOptions.CallbackPath = "/signin-google";
+})
+.AddMicrosoftAccount(microsoftOptions =>
+{
+    microsoftOptions.ClientId = builder.Configuration["Authentication:Microsoft:ClientId"]!;
+    microsoftOptions.ClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"]!;
+    microsoftOptions.CallbackPath = "/signin-microsoft";
 });
 
 builder.Services.AddAuthorization();
 
 // Add 2FA service
 builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
+
+// Add authentication state services for Blazor
+builder.Services.AddScoped<Evermail.WebApp.Services.IAuthenticationStateService, Evermail.WebApp.Services.AuthenticationStateService>();
+builder.Services.AddScoped<AuthenticationStateProvider, Evermail.WebApp.Services.CustomAuthenticationStateProvider>();
+builder.Services.AddCascadingAuthenticationState();
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>

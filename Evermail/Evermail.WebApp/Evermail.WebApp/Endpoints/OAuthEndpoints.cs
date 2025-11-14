@@ -3,7 +3,7 @@ using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
-using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,7 +32,7 @@ public static class OAuthEndpoints
             {
                 RedirectUri = $"/api/v1/auth/microsoft/callback?returnUrl={returnUrl ?? "/"}"
             };
-            return Results.Challenge(properties, new[] { OpenIdConnectDefaults.AuthenticationScheme });
+            return Results.Challenge(properties, new[] { MicrosoftAccountDefaults.AuthenticationScheme });
         });
 
         group.MapGet("/microsoft/callback", MicrosoftCallbackAsync);
@@ -121,7 +121,7 @@ public static class OAuthEndpoints
         EmailDbContext dbContext,
         IJwtTokenService jwtService)
     {
-        var result = await context.AuthenticateAsync(OpenIdConnectDefaults.AuthenticationScheme);
+        var result = await context.AuthenticateAsync(MicrosoftAccountDefaults.AuthenticationScheme);
         
         if (!result.Succeeded)
         {

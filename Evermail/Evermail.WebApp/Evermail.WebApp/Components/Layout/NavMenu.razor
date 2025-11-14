@@ -1,6 +1,26 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Evermail.WebApp</a>
+﻿@rendermode InteractiveServer
+@using Evermail.WebApp.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid d-flex justify-content-between">
+        <a class="navbar-brand" href="">Evermail</a>
+        <AuthorizeView>
+            <Authorized>
+                <div class="d-flex align-items-center text-white">
+                    <span class="me-3">
+                        <span class="bi bi-person-circle me-1"></span>
+                        @context.User.Identity?.Name
+                    </span>
+                    <button class="btn btn-sm btn-outline-light" @onclick="HandleLogout">
+                        <span class="bi bi-box-arrow-right"></span> Logout
+                    </button>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </div>
 </div>
 
@@ -14,23 +34,48 @@
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="login">
-                <span class="bi bi-box-arrow-in-right" aria-hidden="true"></span> Login
-            </NavLink>
-        </div>
-        
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="register">
-                <span class="bi bi-person-plus" aria-hidden="true"></span> Register
-            </NavLink>
-        </div>
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="emails">
+                        <span class="bi bi-envelope-fill" aria-hidden="true"></span> Emails
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="settings">
+                        <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings
+                    </NavLink>
+                </div>
+            </Authorized>
+            <NotAuthorized>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="login">
+                        <span class="bi bi-box-arrow-in-right" aria-hidden="true"></span> Login
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="register">
+                        <span class="bi bi-person-plus" aria-hidden="true"></span> Register
+                    </NavLink>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
     </nav>
 </div>
 
+@code {
+    private async Task HandleLogout()
+    {
+        // Remove token from localStorage
+        await AuthStateService.RemoveTokenAsync();
+        
+        // Notify authentication state changed
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+        {
+            customProvider.NotifyAuthenticationStateChanged();
+        }
+
+        // Redirect to home
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}
