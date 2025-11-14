@@ -2,9 +2,11 @@
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Components.Authorization
 @using Evermail.WebApp.Services
+@using Microsoft.Extensions.Logging
 @inject IAuthenticationStateService AuthStateService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
+@inject ILogger<Home> Logger
 
 <PageTitle>Evermail - Email Archive Platform</PageTitle>
 
@@ -27,13 +29,16 @@
                         <p class="mb-1"><strong>User ID:</strong> @context.User.FindFirst("sub")?.Value</p>
                         <p class="mb-0"><strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value</p>
                         <hr />
-                        <div class="d-flex gap-2 mt-3">
+                        <div class="d-flex gap-2 mt-3 flex-wrap">
                             <a href="/emails" class="btn btn-success">
                                 <i class="bi bi-envelope-fill me-2"></i>View My Emails
                             </a>
                             <a href="/settings" class="btn btn-outline-secondary">
                                 <i class="bi bi-gear-fill me-2"></i>Settings
                             </a>
+                            <button class="btn btn-outline-danger" @onclick="HandleLogout">
+                                <i class="bi bi-box-arrow-right me-2"></i>Logout
+                            </button>
                         </div>
                     </div>
 
@@ -122,6 +127,8 @@
 @code {
     protected override async Task OnInitializedAsync()
     {
+        Logger.LogInformation("🏠 Home page loading. Current URL: {Url}", Navigation.Uri);
+        
         // Handle OAuth redirect with token in query string
         var uri = new Uri(Navigation.Uri);
         var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
@@ -129,17 +136,62 @@
 
         if (!string.IsNullOrEmpty(token))
         {
-            // Store token in localStorage
-            await AuthStateService.SetTokenAsync(token);
+            Logger.LogInformation("🔑 Token found in URL query string. Token length: {Length}", token.Length);
             
-            // Notify authentication state changed
-            if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+            try
             {
-                customProvider.NotifyAuthenticationStateChanged();
-            }
+                // Store token in localStorage
+                await AuthStateService.SetTokenAsync(token);
+                Logger.LogInformation("✅ Token stored in localStorage");
+                
+                // Notify authentication state changed
+                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                {
+                    customProvider.NotifyAuthenticationStateChanged();
+                    Logger.LogInformation("✅ Authentication state notified");
+                }
 
-            // Redirect to clean URL (removes token from address bar)
-            Navigation.NavigateTo("/", forceLoad: true);
+                // Small delay to ensure state propagation
+                await Task.Delay(100);
+                
+                // Redirect to clean URL (removes token from address bar)
+                Logger.LogInformation("🔄 Redirecting to clean URL");
+                Navigation.NavigateTo("/", forceLoad: true);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "❌ Error handling token");
+            }
         }
+        else
+        {
+            // Check if we already have a token in localStorage
+            var existingToken = await AuthStateService.GetTokenAsync();
+            if (!string.IsNullOrEmpty(existingToken))
+            {
+                Logger.LogInformation("✅ Token found in localStorage. User should be authenticated.");
+            }
+            else
+            {
+                Logger.LogInformation("ℹ️ No token found. User is not authenticated.");
+            }
+        }
+    }
+
+    private async Task HandleLogout()
+    {
+        Logger.LogInformation("🚪 User logging out");
+        
+        // Remove token from localStorage
+        await AuthStateService.RemoveTokenAsync();
+        
+        // Notify authentication state changed
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+        {
+            customProvider.NotifyAuthenticationStateChanged();
+        }
+
+        // Redirect to home
+        Navigation.NavigateTo("/", forceLoad: true);
     }
 }

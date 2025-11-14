@@ -1,0 +1,363 @@
+{
+  "project": "Evermail Logo Design",
+  "client": "Evermail SaaS Platform",
+  "ai_service": "Nano Banana AI",
+  "brief_summary": "Modern SaaS email archive platform with AI-powered search. Targeting individuals, small businesses, and enterprises. Positioning: Premium features at mid-tier pricing.",
+  
+  "brand_identity": {
+    "company_name": "Evermail",
+    "tagline": "Your email archive, forever searchable",
+    "industry": "SaaS, Email Archiving, Cloud Storage",
+    "core_values": [
+      "Modern - Cloud-based, cutting-edge technology",
+      "Simple - Clean, intuitive, no bloat",
+      "Trustworthy - Secure, private, GDPR-compliant",
+      "Accessible - Affordable (€9/month), approachable",
+      "Intelligent - AI-powered features, smart search",
+      "Professional - Serious tool for serious needs"
+    ],
+    "target_audience": {
+      "primary": "Individual professionals, freelancers (25-45 years old)",
+      "secondary": "Small business owners, HR departments, legal professionals",
+      "tertiary": "Enterprises with compliance needs"
+    },
+    "brand_voice": "Professional but not corporate. Intelligent but not intimidating. Modern but not trendy. Trustworthy but not boring.",
+    "positioning": "Think Dropbox meets Gmail meets modern SaaS aesthetics"
+  },
+
+  "recommended_concept": {
+    "name": "Infinite Archive",
+    "priority": 1,
+    "description": "Infinity symbol (∞) where each loop is formed by email/archive elements",
+    "visual_elements": [
+      "Left loop: Stylized envelope or mail icon",
+      "Right loop: Circular archive/database symbol",
+      "Connection point: Smooth, flowing transition"
+    ],
+    "symbolism": [
+      "Unlimited mailbox uploads (key Evermail feature)",
+      "Permanent archiving (forever searchable)",
+      "Continuous access and reliability",
+      "Infinite storage and search capabilities"
+    ],
+    "style": "Minimal, geometric, sophisticated, clean lines",
+    "why_recommended": "Unique, memorable, communicates core value proposition, scalable, not cliché"
+  },
+
+  "alternative_concepts": [
+    {
+      "name": "Search Archive",
+      "priority": 2,
+      "description": "Magnifying glass with stacked envelope layers inside the lens",
+      "visual_elements": [
+        "Clean magnifying glass handle",
+        "Lens contains layered mail symbols",
+        "Optional: Subtle sparkle/AI element in lens"
+      ],
+      "symbolism": [
+        "Searchable email archives",
+        "Depth of archived content",
+        "AI-powered discovery"
+      ]
+    },
+    {
+      "name": "Letter E + Archive",
+      "priority": 3,
+      "description": "Geometric letter 'E' with horizontal bars representing stacked mail layers",
+      "visual_elements": [
+        "Geometric 'E' letterform",
+        "Horizontal bars as stacked envelopes",
+        "Negative space suggests envelope fold"
+      ],
+      "symbolism": [
+        "Archive layers",
+        "Email envelope fold",
+        "Modern technology"
+      ]
+    },
+    {
+      "name": "Cloud Archive Vault",
+      "priority": 4,
+      "description": "Simplified cloud shape with envelope outline and security element",
+      "visual_elements": [
+        "Minimalist cloud form",
+        "Integrated envelope outline",
+        "Small lock or shield (security)"
+      ],
+      "symbolism": [
+        "Cloud-based storage",
+        "Secure archiving",
+        "Permanent accessibility"
+      ]
+    }
+  ],
+
+  "color_palette": {
+    "recommended": {
+      "name": "Professional Blue + Cyan",
+      "primary": {
+        "hex": "#2563EB",
+        "name": "Deep Blue",
+        "meaning": "Trust, technology, professional",
+        "usage": "Main icon elements, primary branding"
+      },
+      "accent": {
+        "hex": "#06B6D4",
+        "name": "Bright Cyan",
+        "meaning": "Modern, cloud, digital",
+        "usage": "Highlights, secondary elements, gradients"
+      },
+      "neutral": {
+        "hex": "#475569",
+        "name": "Slate Gray",
+        "meaning": "Balance, sophistication",
+        "usage": "Typography, supporting elements"
+      },
+      "background": {
+        "hex": "#FFFFFF",
+        "name": "White",
+        "meaning": "Clean, minimal, spacious",
+        "usage": "Backgrounds, negative space"
+      },
+      "reasoning": "Trust and technology (blue), modern and digital (cyan), professional enough for enterprises, approachable for individuals, high contrast for accessibility"
+    },
+    "alternatives": [
+      {
+        "name": "Modern Purple",
+        "primary": "#7C3AED",
+        "accent": "#3B82F6",
+        "neutral": "#334155",
+        "reasoning": "Innovation, premium feel, AI association"
+      },
+      {
+        "name": "Warm Professional",
+        "primary": "#0D9488",
+        "accent": "#F59E0B",
+        "neutral": "#1F2937",
+        "reasoning": "Balance of trust + innovation, energy (amber for AI features)"
+      }
+    ]
+  },
+
+  "typography": {
+    "wordmark": "evermail",
+    "case": "lowercase",
+    "style": "Modern sans-serif",
+    "weight": "500-600 (Medium to Semi-bold)",
+    "characteristics": [
+      "Clean, geometric letterforms",
+      "Excellent readability at small sizes (16px mobile)",
+      "Professional but approachable",
+      "Slightly rounded corners optional (softer feel)",
+      "NOT too corporate, NOT too playful"
+    ],
+    "recommended_fonts": [
+      "Inter (modern, excellent web rendering)",
+      "DM Sans (versatile, modern)",
+      "Poppins (friendly but professional)",
+      "Outfit (geometric, clean)",
+      "Space Grotesk (technical but warm)"
+    ]
+  },
+
+  "design_requirements": {
+    "style_guidelines": {
+      "must_include": [
+        "Clean, minimal design (avoid clutter)",
+        "Scalable from 16px (favicon) to 1024px (marketing)",
+        "Professional yet approachable",
+        "Modern but timeless",
+        "Works on light and dark backgrounds",
+        "Subtle sophistication (negative space, balance)"
+      ],
+      "must_avoid": [
+        "No gradients (unless very subtle and modern)",
+        "No overly complex illustrations",
+        "No generic envelope/mail clip art",
+        "No dated effects (drop shadows, bevels, glows)",
+        "No childish or overly playful elements",
+        "No clichés (@ symbol, obvious inbox icon)"
+      ]
+    },
+    "technical_specs": {
+      "formats_needed": [
+        "SVG (primary, scalable vector)",
+        "PNG (transparent, 32px, 64px, 128px, 256px, 512px, 1024px)",
+        "Favicon (16x16, 32x32, 48x48)"
+      ],
+      "variations": [
+        "Full logo (icon + wordmark horizontal)",
+        "Icon only (for app icons, favicons)",
+        "Wordmark only (for wide headers)",
+        "Monochrome (black, white)",
+        "Dark mode version (adapted for dark backgrounds)"
+      ],
+      "minimum_sizes": {
+        "full_logo": "24px height (web), 32px height (print)",
+        "icon_only": "16px × 16px (favicon)"
+      },
+      "clear_space": "Minimum = height of the 'e' in 'evermail' on all sides"
+    }
+  },
+
+  "nano_banana_ai_prompts": {
+    "concept_1_infinite_archive": {
+      "prompt": "Professional SaaS logo for 'evermail', an email archive search platform. Design concept: Elegant infinity symbol (∞) where the left loop is a stylized envelope icon and the right loop is a circular archive/database symbol, connected by smooth flowing lines. Style: Minimal, geometric, sophisticated, clean vector art. Colors: Deep blue #2563EB for main elements, bright cyan #06B6D4 for accent flow, slate gray #475569 for wordmark. Typography: Modern sans-serif 'evermail' in lowercase, medium weight, positioned below or to the right of icon. Inspiration: Stripe, Linear, Notion logos - clean, professional, scalable. No gradients, no shadows, flat design. White background. Professional but approachable aesthetic.",
+      "negative_prompt": "no realistic images, no 3D effects, no drop shadows, no bevels, no clipart, no cartoons, no busy patterns, no dated effects, no @ symbols, no generic inbox icons, no childish elements",
+      "style_tags": [
+        "minimal",
+        "geometric",
+        "professional",
+        "flat design",
+        "vector art",
+        "modern SaaS",
+        "technology"
+      ],
+      "aspect_ratio": "1:1",
+      "output_size": "1024x1024"
+    },
+    
+    "concept_2_search_archive": {
+      "prompt": "Modern logo for 'evermail' email archiving SaaS. Design: Clean magnifying glass icon where the lens contains 3-4 stacked envelope layers showing archive depth. Handle is minimal geometric line. Optional subtle sparkle in top-right of lens (AI hint). Style: Minimal geometric, professional, sophisticated. Colors: Deep blue #2563EB primary, bright cyan #06B6D4 accents on envelopes. Typography: 'evermail' in clean sans-serif below icon, slate gray #475569. Flat vector design, no shadows. Inspiration: Modern tech company logos like Stripe, Notion. White background.",
+      "negative_prompt": "no realistic magnifying glass, no 3D effects, no shadows, no gradients, no clipart, no cartoons, no complex illustrations, no busy patterns",
+      "style_tags": [
+        "minimal",
+        "geometric",
+        "professional",
+        "clean lines",
+        "technology",
+        "SaaS"
+      ],
+      "aspect_ratio": "1:1",
+      "output_size": "1024x1024"
+    },
+
+    "concept_3_letter_e_archive": {
+      "prompt": "Minimalist logo for 'evermail'. Design: Bold geometric letter 'E' where the three horizontal bars are represented as stacked envelope/mail layers, with subtle gaps between them to show depth. Negative space suggests envelope fold. Style: Geometric abstraction, minimal, sophisticated, modern. Colors: Deep blue #2563EB for main E, cyan #06B6D4 gradient flow on edges (very subtle). Typography: Continue with 'vermail' in matching sans-serif font, slate gray. Clean vector art, flat design, professional. Inspiration: Abstract tech logos. White background.",
+      "negative_prompt": "no 3D, no shadows, no complex illustrations, no decorative elements, no realistic textures, no cartoons",
+      "style_tags": [
+        "geometric",
+        "abstract",
+        "minimal",
+        "typography-based",
+        "modern",
+        "professional"
+      ],
+      "aspect_ratio": "1:1",
+      "output_size": "1024x1024"
+    },
+
+    "concept_4_cloud_vault": {
+      "prompt": "Professional logo for 'evermail' cloud email archive. Design: Simplified geometric cloud shape with subtle envelope outline integrated into the cloud form. Small minimal lock or shield icon at bottom-right (security element). Style: Minimalist, geometric, clean, modern. Colors: Deep blue #2563EB cloud, cyan #06B6D4 envelope outline, slate gray lock. Typography: 'evermail' below in modern sans-serif. Flat vector design, professional but approachable. No complex details. White background.",
+      "negative_prompt": "no realistic clouds, no 3D effects, no shadows, no cartoons, no complex illustrations, no dated security icons, no clipart",
+      "style_tags": [
+        "minimal",
+        "cloud",
+        "secure",
+        "geometric",
+        "professional",
+        "SaaS"
+      ],
+      "aspect_ratio": "1:1",
+      "output_size": "1024x1024"
+    }
+  },
+
+  "generation_parameters": {
+    "quality": "high",
+    "style_consistency": "strict",
+    "iterations": 4,
+    "output_format": "PNG with transparency",
+    "color_mode": "RGB",
+    "dpi": 300,
+    "notes": "Generate each concept separately. Prioritize Concept 1 (Infinite Archive) as recommended primary design."
+  },
+
+  "design_context": {
+    "competitive_positioning": {
+      "avoid_similarity_to": [
+        "Gmail - Red/blue/yellow/green M (too playful, consumer)",
+        "Outlook - Blue O with envelope (too corporate, dated)",
+        "MailStore - Orange shield (too enterprise-focused)",
+        "Proton Mail - Purple envelope with atom (too privacy-focused)"
+      ],
+      "differentiation_strategy": "Modern geometric abstraction with sophisticated color palette (blue/cyan). Avoid obvious envelope iconography. Focus on 'infinite' and 'search' concepts rather than just 'mail'."
+    },
+    "use_cases": [
+      "Website header and footer",
+      "Browser tab favicon (16px)",
+      "Mobile app icon (512px)",
+      "Email signatures",
+      "Social media profiles (Twitter, LinkedIn)",
+      "Marketing materials",
+      "Stripe billing pages"
+    ],
+    "brand_personality_keywords": [
+      "trustworthy",
+      "intelligent",
+      "modern",
+      "professional",
+      "accessible",
+      "sophisticated",
+      "clean",
+      "reliable"
+    ]
+  },
+
+  "success_criteria": {
+    "must_achieve": [
+      "Instantly recognizable at 16px (favicon) and 1024px (hero)",
+      "Works beautifully on white, light gray, and dark backgrounds",
+      "Feels premium but accessible (not exclusive or intimidating)",
+      "Communicates email/archive/search without being literal",
+      "Memorable enough to recall after seeing once",
+      "Professional enough for Enterprise clients",
+      "Friendly enough for individual users",
+      "Scalable to future mobile app icon"
+    ],
+    "quality_benchmarks": "Should match quality and sophistication of: Stripe, Linear, Notion, Dropbox, Intercom"
+  },
+
+  "post_generation_steps": [
+    "1. Generate all 4 concepts using Nano Banana AI",
+    "2. Review outputs at multiple sizes (16px, 128px, 512px)",
+    "3. Test on white and dark backgrounds",
+    "4. Select strongest 1-2 concepts",
+    "5. Refine selected concept(s) with design iterations",
+    "6. Hire designer to vectorize final selection (SVG format)",
+    "7. Create all required variations (icon only, wordmark only, monochrome)",
+    "8. Generate full asset library (PNG sizes, favicons, social media)",
+    "9. Document brand guidelines (colors, spacing, usage rules)",
+    "10. Implement across website, app, and marketing materials"
+  ],
+
+  "budget_and_timeline": {
+    "nano_banana_ai_generation": {
+      "cost": "Per Nano Banana AI pricing",
+      "timeline": "Immediate (minutes to hours)",
+      "iterations": "4 concepts × 2-3 variations each = 8-12 images"
+    },
+    "designer_refinement": {
+      "cost": "$200-400",
+      "timeline": "3-5 days",
+      "scope": "Vectorize best concept, create variations, brand guidelines",
+      "platforms": "Fiverr, Upwork, Dribbble"
+    },
+    "total_estimated": {
+      "cost": "$250-450",
+      "timeline": "1 week",
+      "deliverables": "Complete logo system ready for production use"
+    }
+  },
+
+  "metadata": {
+    "created": "2025-11-14",
+    "version": "1.0",
+    "document_type": "AI Image Generation Prompt (JSON)",
+    "ai_service": "Nano Banana AI",
+    "project": "Evermail Logo Design",
+    "based_on": "EVERMAIL_LOGO_PROMPT.md comprehensive design brief",
+    "status": "Ready for generation"
+  }
+}
+
