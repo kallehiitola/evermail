@@ -19,8 +19,8 @@ var webapp = builder.AddProject<Projects.Evermail_WebApp>("webapp")
     .WithReference(sql)
     .WithReference(blobs)
     .WithReference(queues)
-    .WithHttpsEndpoint(port: 7136, name: "https")
-    .WithHttpEndpoint(port: 5264, name: "http")
+    .WithHttpsEndpoint(port: 7136)
+    .WithHttpEndpoint(port: 5264)
     .WithExternalHttpEndpoints();
 
 // Add AdminApp (Blazor Server)
@@ -29,8 +29,8 @@ var adminapp = builder.AddProject<Projects.Evermail_AdminApp>("adminapp")
     .WithReference(sql)
     .WithReference(blobs)
     .WithReference(queues)
-    .WithHttpsEndpoint(port: 7137, name: "https")
-    .WithHttpEndpoint(port: 5265, name: "http")
+    .WithHttpsEndpoint(port: 7137)
+    .WithHttpEndpoint(port: 5265)
     .WithExternalHttpEndpoints();
 
 // Add IngestionWorker (Background Service)
