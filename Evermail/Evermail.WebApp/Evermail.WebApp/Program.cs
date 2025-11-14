@@ -75,6 +75,12 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new ECDsaSecurityKey(ecdsaKey),
         ClockSkew = TimeSpan.FromMinutes(1)
     };
+})
+.AddGoogle(googleOptions =>
+{
+    googleOptions.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
+    googleOptions.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
+    googleOptions.CallbackPath = "/signin-google";
 });
 
 builder.Services.AddAuthorization();
