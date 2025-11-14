@@ -1,5 +1,6 @@
 ﻿@rendermode InteractiveServer
 @using Evermail.WebApp.Services
+@using Evermail.WebApp.Extensions
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IAuthenticationStateService AuthStateService
 @inject AuthenticationStateProvider AuthStateProvider
@@ -13,7 +14,7 @@
                 <div class="d-flex align-items-center text-white">
                     <span class="me-3 small">
                         <span class="bi bi-person-circle me-1"></span>
-                        @context.User.FindFirst("email")?.Value
+                        @context.User.GetEmail()
                     </span>
                     <button class="btn btn-sm btn-outline-light" @onclick="HandleLogout">
                         <span class="bi bi-box-arrow-right me-1"></span>Logout
