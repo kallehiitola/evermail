@@ -1,7 +1,116 @@
 ﻿@page "/"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
 
-<PageTitle>Home</PageTitle>
+<PageTitle>Evermail - Email Archive Platform</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="container mt-5">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="text-center mb-5">
+                <h1 class="display-4 fw-bold">Welcome to Evermail</h1>
+                <p class="lead text-muted">Transform your email archives into searchable knowledge</p>
+            </div>
 
-Welcome to your new app.
+            <AuthorizeView>
+                <Authorized>
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <h4 class="alert-heading">
+                            <i class="bi bi-check-circle-fill me-2"></i>You're Logged In!
+                        </h4>
+                        <hr />
+                        <p class="mb-1"><strong>Email:</strong> @context.User.Identity?.Name</p>
+                        <p class="mb-1"><strong>User ID:</strong> @context.User.FindFirst("sub")?.Value</p>
+                        <p class="mb-0"><strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value</p>
+                        <hr />
+                        <div class="d-flex gap-2 mt-3">
+                            <a href="/emails" class="btn btn-success">
+                                <i class="bi bi-envelope-fill me-2"></i>View My Emails
+                            </a>
+                            <a href="/settings" class="btn btn-outline-secondary">
+                                <i class="bi bi-gear-fill me-2"></i>Settings
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">
+                                <i class="bi bi-info-circle-fill me-2"></i>Quick Start
+                            </h5>
+                        </div>
+                        <div class="card-body">
+                            <h6>Phase 1 Features (Coming Soon):</h6>
+                            <ul>
+                                <li>Upload .mbox files from Gmail, Outlook, Thunderbird</li>
+                                <li>Automatic email parsing and indexing</li>
+                                <li>Full-text search across all your emails</li>
+                                <li>View attachments</li>
+                                <li>Advanced filters (date, sender, folder)</li>
+                            </ul>
+                            <p class="mb-0 text-muted">
+                                <small>You're using the <strong>Free tier</strong> (1 GB storage, 1 mailbox)</small>
+                            </p>
+                        </div>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <div class="row g-4 mt-4">
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-body text-center p-4">
+                                    <h3>
+                                        <i class="bi bi-person-plus-fill text-primary"></i>
+                                    </h3>
+                                    <h5 class="card-title">Create Account</h5>
+                                    <p class="card-text text-muted">
+                                        Get started with Evermail. Sign up with email or use Google/Microsoft.
+                                    </p>
+                                    <a href="/register" class="btn btn-primary w-100">
+                                        <i class="bi bi-person-plus me-2"></i>Register Now
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-body text-center p-4">
+                                    <h3>
+                                        <i class="bi bi-box-arrow-in-right text-success"></i>
+                                    </h3>
+                                    <h5 class="card-title">Already Have an Account?</h5>
+                                    <p class="card-text text-muted">
+                                        Sign in to access your email archives.
+                                    </p>
+                                    <a href="/login" class="btn btn-success w-100">
+                                        <i class="bi bi-box-arrow-in-right me-2"></i>Login
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h5>Why Evermail?</h5>
+                            <div class="row mt-3">
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-search text-primary"></i> Powerful Search</h6>
+                                    <p class="text-muted small">Find any email instantly with full-text search</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-shield-check text-success"></i> Secure & Private</h6>
+                                    <p class="text-muted small">Your data stays encrypted and isolated</p>
+                                </div>
+                                <div class="col-md-4">
+                                    <h6><i class="bi bi-clock-history text-info"></i> Long-term Archive</h6>
+                                    <p class="text-muted small">Keep your email history forever</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </NotAuthorized>
+            </AuthorizeView>
+        </div>
+    </div>
+</div>
