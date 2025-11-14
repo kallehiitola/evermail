@@ -68,39 +68,55 @@ public static class OAuthEndpoints
         
         if (user == null)
         {
-            // Create new tenant for this user
-            var tenant = new Tenant
+            try
             {
-                Id = Guid.NewGuid(),
-                Name = $"{firstName} {lastName}".Trim(),
-                CreatedAt = DateTime.UtcNow
-            };
+                // Create new tenant for this user
+                var tenant = new Tenant
+                {
+                    Id = Guid.NewGuid(),
+                    Name = $"{firstName} {lastName}".Trim(),
+                    CreatedAt = DateTime.UtcNow
+                };
 
-            // Create new user
-            user = new ApplicationUser
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenant.Id,
-                UserName = email,
-                Email = email,
-                EmailConfirmed = true, // OAuth emails are pre-verified
-                FirstName = firstName,
-                LastName = lastName,
-                CreatedAt = DateTime.UtcNow
-            };
+                // Create new user
+                user = new ApplicationUser
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenant.Id,
+                    UserName = email,
+                    Email = email,
+                    EmailConfirmed = true, // OAuth emails are pre-verified
+                    FirstName = firstName,
+                    LastName = lastName,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-            dbContext.Tenants.Add(tenant);
-            
-            // Create user without password (OAuth only)
-            var createResult = await userManager.CreateAsync(user);
-            
-            if (!createResult.Succeeded)
-            {
-                return Results.Redirect("/login?error=registration_failed");
+                dbContext.Tenants.Add(tenant);
+                
+                // Create user without password (OAuth only)
+                var createResult = await userManager.CreateAsync(user);
+                
+                if (!createResult.Succeeded)
+                {
+                    var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                    Console.WriteLine($"❌ Failed to create user: {errors}");
+                    return Results.Redirect("/login?error=registration_failed");
+                }
+
+                // Assign default role
+                await userManager.AddToRoleAsync(user, "User");
+                
+                Console.WriteLine($"✅ New user registered via Google OAuth: {email}");
             }
-
-            // Assign default role
-            await userManager.AddToRoleAsync(user, "User");
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error during OAuth registration: {ex.Message}");
+                return Results.Redirect("/login?error=registration_error");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"✅ Existing user logged in via Google OAuth: {email}");
         }
 
         // Get user roles
@@ -143,39 +159,55 @@ public static class OAuthEndpoints
         
         if (user == null)
         {
-            // Create new tenant for this user
-            var tenant = new Tenant
+            try
             {
-                Id = Guid.NewGuid(),
-                Name = $"{firstName} {lastName}".Trim(),
-                CreatedAt = DateTime.UtcNow
-            };
+                // Create new tenant for this user
+                var tenant = new Tenant
+                {
+                    Id = Guid.NewGuid(),
+                    Name = $"{firstName} {lastName}".Trim(),
+                    CreatedAt = DateTime.UtcNow
+                };
 
-            // Create new user
-            user = new ApplicationUser
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenant.Id,
-                UserName = email,
-                Email = email,
-                EmailConfirmed = true, // OAuth emails are pre-verified
-                FirstName = firstName,
-                LastName = lastName,
-                CreatedAt = DateTime.UtcNow
-            };
+                // Create new user
+                user = new ApplicationUser
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenant.Id,
+                    UserName = email,
+                    Email = email,
+                    EmailConfirmed = true, // OAuth emails are pre-verified
+                    FirstName = firstName,
+                    LastName = lastName,
+                    CreatedAt = DateTime.UtcNow
+                };
 
-            dbContext.Tenants.Add(tenant);
-            
-            // Create user without password (OAuth only)
-            var createResult = await userManager.CreateAsync(user);
-            
-            if (!createResult.Succeeded)
-            {
-                return Results.Redirect("/login?error=registration_failed");
+                dbContext.Tenants.Add(tenant);
+                
+                // Create user without password (OAuth only)
+                var createResult = await userManager.CreateAsync(user);
+                
+                if (!createResult.Succeeded)
+                {
+                    var errors = string.Join(", ", createResult.Errors.Select(e => e.Description));
+                    Console.WriteLine($"❌ Failed to create user: {errors}");
+                    return Results.Redirect("/login?error=registration_failed");
+                }
+
+                // Assign default role
+                await userManager.AddToRoleAsync(user, "User");
+                
+                Console.WriteLine($"✅ New user registered via Microsoft OAuth: {email}");
             }
-
-            // Assign default role
-            await userManager.AddToRoleAsync(user, "User");
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error during OAuth registration: {ex.Message}");
+                return Results.Redirect("/login?error=registration_error");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"✅ Existing user logged in via Microsoft OAuth: {email}");
         }
 
         // Get user roles

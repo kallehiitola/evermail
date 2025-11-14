@@ -59,7 +59,7 @@ builder.Services.AddSingleton<IJwtTokenService>(sp =>
         ecdsaKey: ecdsaKey
     ));
 
-builder.Services.AddAuthentication(options =>
+var authBuilder = builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -77,19 +77,45 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new ECDsaSecurityKey(ecdsaKey),
         ClockSkew = TimeSpan.FromMinutes(1)
     };
-})
-.AddGoogle(googleOptions =>
-{
-    googleOptions.ClientId = builder.Configuration["Authentication:Google:ClientId"]!;
-    googleOptions.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"]!;
-    googleOptions.CallbackPath = "/signin-google";
-})
-.AddMicrosoftAccount(microsoftOptions =>
-{
-    microsoftOptions.ClientId = builder.Configuration["Authentication:Microsoft:ClientId"]!;
-    microsoftOptions.ClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"]!;
-    microsoftOptions.CallbackPath = "/signin-microsoft";
 });
+
+// Configure OAuth providers (only if credentials are available)
+
+// Google OAuth (optional)
+var googleClientId = builder.Configuration["Authentication:Google:ClientId"];
+var googleClientSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+if (!string.IsNullOrEmpty(googleClientId) && !string.IsNullOrEmpty(googleClientSecret))
+{
+    authBuilder.AddGoogle(googleOptions =>
+    {
+        googleOptions.ClientId = googleClientId;
+        googleOptions.ClientSecret = googleClientSecret;
+        googleOptions.CallbackPath = "/signin-google";
+    });
+    Console.WriteLine("✅ Google OAuth configured");
+}
+else
+{
+    Console.WriteLine("⚠️  Google OAuth not configured (missing credentials)");
+}
+
+// Microsoft OAuth (optional)
+var microsoftClientId = builder.Configuration["Authentication:Microsoft:ClientId"];
+var microsoftClientSecret = builder.Configuration["Authentication:Microsoft:ClientSecret"];
+if (!string.IsNullOrEmpty(microsoftClientId) && !string.IsNullOrEmpty(microsoftClientSecret))
+{
+    authBuilder.AddMicrosoftAccount(microsoftOptions =>
+    {
+        microsoftOptions.ClientId = microsoftClientId;
+        microsoftOptions.ClientSecret = microsoftClientSecret;
+        microsoftOptions.CallbackPath = "/signin-microsoft";
+    });
+    Console.WriteLine("✅ Microsoft OAuth configured");
+}
+else
+{
+    Console.WriteLine("⚠️  Microsoft OAuth not configured (missing credentials)");
+}
 
 builder.Services.AddAuthorization();
 
