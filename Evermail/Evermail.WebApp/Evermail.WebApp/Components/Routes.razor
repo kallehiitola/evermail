@@ -1,4 +1,7 @@
-﻿@using Microsoft.AspNetCore.Components.Authorization
+﻿@using Microsoft.Extensions.Logging
+@using Evermail.WebApp.Components.Pages
+@inject ILogger<Routes> Logger
+@inject NavigationManager NavigationManager
 
 <Router AppAssembly="@typeof(Program).Assembly" AdditionalAssemblies="new[] { typeof(Client._Imports).Assembly }">
     <Found Context="routeData">
@@ -6,40 +9,12 @@
         <FocusOnNavigate RouteData="@routeData" Selector="h1" />
     </Found>
     <NotFound>
+        @{
+            Logger.LogWarning("🔍 404 - Route not found: {Path}", NavigationManager.Uri);
+        }
         <PageTitle>Not Found - Evermail</PageTitle>
         <LayoutView Layout="@typeof(Layout.MainLayout)">
-            <div class="container mt-5">
-                <div class="row justify-content-center">
-                    <div class="col-md-6 text-center">
-                        <div class="card">
-                            <div class="card-body p-5">
-                                <h1 class="display-1 text-muted">404</h1>
-                                <h2 class="mb-4">Page Not Found</h2>
-                                <p class="text-muted mb-4">
-                                    Sorry, the page you're looking for doesn't exist.
-                                </p>
-                                <div class="d-grid gap-2">
-                                    <a href="/" class="btn btn-primary">
-                                        <i class="bi bi-house-fill"></i> Go to Home
-                                    </a>
-                                    <AuthorizeView>
-                                        <NotAuthorized>
-                                            <a href="/login" class="btn btn-outline-secondary">
-                                                <i class="bi bi-box-arrow-in-right"></i> Login
-                                            </a>
-                                        </NotAuthorized>
-                                        <Authorized>
-                                            <a href="/emails" class="btn btn-outline-secondary">
-                                                <i class="bi bi-envelope-fill"></i> My Emails
-                                            </a>
-                                        </Authorized>
-                                    </AuthorizeView>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            <NotFound />
         </LayoutView>
     </NotFound>
 </Router>
