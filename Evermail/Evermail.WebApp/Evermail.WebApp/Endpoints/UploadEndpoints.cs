@@ -77,6 +77,21 @@ public static class UploadEndpoints
         }
         
         // 4. Create Mailbox record (Pending status)
+        // Log values for debugging
+        Console.WriteLine($"DEBUG: Creating mailbox with TenantId={tenantContext.TenantId}, UserId={tenantContext.UserId}");
+        
+        // Verify user exists
+        var userExists = await context.Users.AnyAsync(u => u.Id == tenantContext.UserId);
+        Console.WriteLine($"DEBUG: User exists in database: {userExists}");
+        
+        if (!userExists)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: $"User not found. UserId: {tenantContext.UserId}"
+            ));
+        }
+        
         var mailbox = new Mailbox
         {
             Id = Guid.NewGuid(),
