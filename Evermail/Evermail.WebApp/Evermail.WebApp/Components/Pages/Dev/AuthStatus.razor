@@ -1,0 +1,92 @@
+@page "/dev/auth-status"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Extensions
+@inject AuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Dev: Auth Status - Evermail</PageTitle>
+
+<div class="container mt-4">
+    <h1>🔍 Authentication Status</h1>
+    <p class="text-muted">Debug authentication and role information</p>
+
+    <AuthorizeView>
+        <Authorized>
+            <div class="alert alert-success">
+                <h4>✅ You are logged in!</h4>
+                <p><strong>Email:</strong> @context.User.GetEmail()</p>
+                <p><strong>User ID:</strong> @context.User.GetUserId()</p>
+                <p><strong>Tenant ID:</strong> @context.User.GetTenantId()</p>
+                
+                <hr />
+                
+                <h5>Your Roles:</h5>
+                @if (context.User.Identity?.IsAuthenticated == true)
+                {
+                    <ul class="list-group">
+                        @foreach (var claim in context.User.Claims.Where(c => c.Type == "role" || c.Type.Contains("role")))
+                        {
+                            <li class="list-group-item">
+                                <span class="badge bg-primary">@claim.Value</span>
+                            </li>
+                        }
+                        @if (!context.User.Claims.Any(c => c.Type == "role" || c.Type.Contains("role")))
+                        {
+                            <li class="list-group-item text-warning">No roles found in token</li>
+                        }
+                    </ul>
+                    
+                    <hr />
+                    
+                    <h5>All Claims:</h5>
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Type</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var claim in context.User.Claims)
+                                {
+                                    <tr>
+                                        <td><code>@claim.Type</code></td>
+                                        <td>@claim.Value</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                
+                <div class="mt-3">
+                    <h5>Can Access Admin Pages?</h5>
+                    @if (context.User.IsInRole("Admin") || context.User.IsInRole("SuperAdmin"))
+                    {
+                        <div class="alert alert-success">
+                            ✅ Yes! You have Admin role.
+                            <a href="/admin/subscriptions" class="btn btn-sm btn-primary ms-2">Go to Subscriptions</a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning">
+                            ❌ No - You need Admin role.
+                            <a href="/dev/admin-roles" class="btn btn-sm btn-primary ms-2">Add Admin Role</a>
+                        </div>
+                    }
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="alert alert-danger">
+                <h4>❌ You are NOT logged in</h4>
+                <p>Please login to continue</p>
+                <a href="/login" class="btn btn-primary">Login</a>
+                <a href="/register" class="btn btn-secondary ms-2">Register</a>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
+</div>
+
