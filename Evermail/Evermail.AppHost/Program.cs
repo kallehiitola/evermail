@@ -10,28 +10,11 @@ var sql = builder.AddSqlServer("sql", password: sqlPassword)
     .WithDataVolume("evermail-sql-data")        // Persist data in named volume
     .AddDatabase("evermaildb");
 
-// Add Azure Storage
-// If connection string exists in user secrets, use real Azure Storage (HTTPS, no mixed content errors)
-// Otherwise, use Azurite emulator for local development
-var storage = builder.AddAzureStorage("storage");
-
-var azureConnectionString = builder.Configuration["ConnectionStrings:blobs"];
-if (string.IsNullOrEmpty(azureConnectionString) || azureConnectionString.Contains("UseDevelopmentStorage=true"))
-{
-    // Use Azurite emulator if no real Azure connection string
-    storage = storage.RunAsEmulator(c => c
-        .WithLifetime(ContainerLifetime.Persistent)
-        .WithDataVolume("evermail-azurite-data"));
-    Console.WriteLine("📦 Using Azurite emulator for storage");
-}
-else
-{
-    Console.WriteLine($"☁️ Using real Azure Storage: {azureConnectionString.Split(';')[0]}");
-}
-
-// Add blob and queue resources
-var blobs = storage.AddBlobs("blobs");
-var queues = storage.AddQueues("queues");
+// Add Azure Storage using connection strings (existing storage account)
+// This avoids auto-provisioning and RBAC role assignment issues
+// Falls back to Azurite if no connection string is configured
+var blobs = builder.AddConnectionString("blobs");
+var queues = builder.AddConnectionString("queues");
 
 // Add WebApp (Blazor Web App - hybrid SSR + WASM)
 // Ports defined in Properties/launchSettings.json: 7136 HTTPS, 5264 HTTP
