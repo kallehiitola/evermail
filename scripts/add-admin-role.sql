@@ -19,7 +19,8 @@ WHERE Name = 'Admin';
 IF @UserId IS NULL
 BEGIN
     PRINT 'ERROR: User not found with email: ' + @UserEmail;
-    PRINT 'Please register this user first at https://localhost:7136/register';
+    PRINT 'Please register this user first at 
+    https://localhost:7136/register';
 END
 ELSE IF @RoleId IS NULL
 BEGIN

@@ -1,0 +1,283 @@
+@page "/dev/admin-roles"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Identity
+@using Evermail.Domain.Entities
+@inject UserManager<ApplicationUser> UserManager
+@inject IWebHostEnvironment Environment
+
+<PageTitle>Dev: Admin Role Manager - Evermail</PageTitle>
+
+@if (!Environment.IsDevelopment())
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger">
+            <h4>❌ Not Available in Production</h4>
+            <p>This page is only available in Development environment.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container mt-4">
+        <h1>🔧 Development: Admin Role Manager</h1>
+        <p class="text-muted">Add Admin or SuperAdmin roles to users for testing</p>
+
+        <div class="alert alert-warning">
+            <strong>⚠️ Development Only</strong> - This page is automatically disabled in production
+        </div>
+
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert @(_isError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+                @_message
+                <button type="button" class="btn-close" @onclick="() => _message = string.Empty"></button>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Add Admin Role</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small">Can manage subscriptions and view admin pages</p>
+                        <div class="mb-3">
+                            <label class="form-label">User Email</label>
+                            <input type="email" 
+                                   class="form-control" 
+                                   @bind="_adminEmail" 
+                                   placeholder="user@example.com" />
+                        </div>
+                        <button class="btn btn-primary" @onclick="AddAdminAsync" disabled="@_isProcessing">
+                            @if (_isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Add Admin Role
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">Add SuperAdmin Role</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small">Full system access (includes Admin)</p>
+                        <div class="mb-3">
+                            <label class="form-label">User Email</label>
+                            <input type="email" 
+                                   class="form-control" 
+                                   @bind="_superAdminEmail" 
+                                   placeholder="user@example.com" />
+                        </div>
+                        <button class="btn btn-danger" @onclick="AddSuperAdminAsync" disabled="@_isProcessing">
+                            @if (_isProcessing)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Add SuperAdmin Role
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Check User Roles</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label">User Email</label>
+                    <input type="email" 
+                           class="form-control" 
+                           @bind="_checkEmail" 
+                           placeholder="user@example.com" />
+                </div>
+                <button class="btn btn-secondary" @onclick="CheckRolesAsync" disabled="@_isProcessing">
+                    @if (_isProcessing)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                    }
+                    Check Roles
+                </button>
+
+                @if (_userRoles != null && _userRoles.Any())
+                {
+                    <div class="mt-3">
+                        <strong>Current Roles:</strong>
+                        <ul class="list-group mt-2">
+                            @foreach (var role in _userRoles)
+                            {
+                                <li class="list-group-item">
+                                    <span class="badge bg-primary">@role</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0">Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <p>Make <strong>kalle.hiitola@gmail.com</strong> an admin:</p>
+                <button class="btn btn-success" @onclick="MakeKalleAdminAsync" disabled="@_isProcessing">
+                    🚀 Make kalle.hiitola@gmail.com Admin
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _adminEmail = "kalle.hiitola@gmail.com";
+    private string _superAdminEmail = "kalle.hiitola@gmail.com";
+    private string _checkEmail = "kalle.hiitola@gmail.com";
+    private string _message = "";
+    private bool _isError;
+    private bool _isProcessing;
+    private List<string> _userRoles = new();
+
+    private async Task AddAdminAsync()
+    {
+        await AddRoleToUserAsync(_adminEmail, "Admin");
+    }
+
+    private async Task AddSuperAdminAsync()
+    {
+        await AddRoleToUserAsync(_superAdminEmail, "SuperAdmin", includeBothRoles: true);
+    }
+
+    private async Task MakeKalleAdminAsync()
+    {
+        await AddRoleToUserAsync("kalle.hiitola@gmail.com", "Admin");
+    }
+
+    private async Task AddRoleToUserAsync(string email, string roleName, bool includeBothRoles = false)
+    {
+        _isProcessing = true;
+        _message = "";
+        _isError = false;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                _message = "Please enter an email address";
+                _isError = true;
+                return;
+            }
+
+            var user = await UserManager.FindByEmailAsync(email);
+            if (user == null)
+            {
+                _message = $"❌ User with email '{email}' not found. Please register this user first at /register";
+                _isError = true;
+                return;
+            }
+
+            // Add Admin role first if adding SuperAdmin
+            if (includeBothRoles && roleName == "SuperAdmin")
+            {
+                var adminResult = await UserManager.AddToRoleAsync(user, "Admin");
+                // Ignore if already has Admin role
+            }
+
+            var result = await UserManager.AddToRoleAsync(user, roleName);
+
+            if (!result.Succeeded)
+            {
+                // Check if user already has this role
+                if (result.Errors.Any(e => e.Code == "UserAlreadyInRole"))
+                {
+                    _message = $"✅ User '{email}' already has the {roleName} role";
+                    _isError = false;
+                }
+                else
+                {
+                    var errors = string.Join(", ", result.Errors.Select(e => e.Description));
+                    _message = $"❌ Failed to add {roleName} role: {errors}";
+                    _isError = true;
+                }
+                return;
+            }
+
+            var roles = await UserManager.GetRolesAsync(user);
+            _message = $"✅ Successfully added '{email}' to {roleName} role! Current roles: {string.Join(", ", roles)}";
+            _isError = false;
+
+            // Clear the email field
+            if (roleName == "Admin")
+                _adminEmail = "";
+            else if (roleName == "SuperAdmin")
+                _superAdminEmail = "";
+        }
+        catch (Exception ex)
+        {
+            _message = $"❌ Error: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+
+    private async Task CheckRolesAsync()
+    {
+        _isProcessing = true;
+        _message = "";
+        _isError = false;
+        _userRoles.Clear();
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_checkEmail))
+            {
+                _message = "Please enter an email address";
+                _isError = true;
+                return;
+            }
+
+            var user = await UserManager.FindByEmailAsync(_checkEmail);
+            if (user == null)
+            {
+                _message = $"❌ User with email '{_checkEmail}' not found";
+                _isError = true;
+                return;
+            }
+
+            var roles = await UserManager.GetRolesAsync(user);
+            _userRoles = roles.ToList();
+
+            if (!_userRoles.Any())
+            {
+                _message = $"User '{_checkEmail}' has no roles assigned";
+                _isError = false;
+            }
+            else
+            {
+                _message = $"✅ Found {_userRoles.Count} role(s) for '{_checkEmail}'";
+                _isError = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _message = $"❌ Error: {ex.Message}";
+            _isError = true;
+        }
+        finally
+        {
+            _isProcessing = false;
+        }
+    }
+}
+
