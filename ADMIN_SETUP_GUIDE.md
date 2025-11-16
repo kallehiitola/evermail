@@ -2,34 +2,24 @@
 
 ## 🎯 Quick Start: Add Admin Role to kalle.hiitola@gmail.com
 
-### Option 1: Use Development API (Easiest) ✅
+### Option 1: Use Dev Admin Page (Easiest) ✅
 
 **Prerequisites:**
 - Aspire is running
 - User `kalle.hiitola@gmail.com` is registered
 
-**Step 1: Make the user an Admin**
+**Step 1: Open the Dev Admin Page**
 
-```bash
-curl -X POST "https://localhost:7136/api/v1/dev/add-admin?email=kalle.hiitola%40gmail.com"
+Navigate to: https://localhost:7136/dev/admin-roles
+
+**Step 2: Make yourself Admin**
+
+Click the big button: **"🚀 Make kalle.hiitola@gmail.com Admin"**
+
+You should see:
 ```
-
-**Expected Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "email": "kalle.hiitola@gmail.com",
-    "roles": ["User", "Admin"],
-    "message": "✅ User 'kalle.hiitola@gmail.com' has been added to Admin role!"
-  }
-}
-```
-
-**Step 2: Verify Roles**
-
-```bash
-curl "https://localhost:7136/api/v1/dev/user-roles/kalle.hiitola@gmail.com"
+✅ Successfully added 'kalle.hiitola@gmail.com' to Admin role! 
+Current roles: User, Admin
 ```
 
 **Step 3: Test Admin Access**
