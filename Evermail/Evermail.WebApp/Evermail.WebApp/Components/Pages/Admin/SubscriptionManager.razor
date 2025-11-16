@@ -1,15 +1,18 @@
 @page "/admin/subscriptions"
-@attribute [Microsoft.AspNetCore.Authorization.Authorize(Roles = "Admin,SuperAdmin")]
 @rendermode InteractiveServer
 @using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components.Authorization
 @inject Evermail.Infrastructure.Data.EvermailDbContext DbContext
 @inject Microsoft.AspNetCore.Identity.UserManager<Evermail.Domain.Entities.ApplicationUser> UserManager
+@inject NavigationManager Navigation
 
 <PageTitle>Manage Subscriptions - Evermail</PageTitle>
 
-<div class="container mt-4">
-    <h1>Subscription Manager</h1>
-    <p class="text-muted">Change user subscription tiers for testing</p>
+<AuthorizeView Roles="Admin,SuperAdmin">
+    <Authorized>
+        <div class="container mt-4">
+            <h1>Subscription Manager</h1>
+            <p class="text-muted">Change user subscription tiers for testing</p>
 
     <div class="card mt-4">
         <div class="card-body">
@@ -81,7 +84,18 @@
             </table>
         </div>
     </div>
-</div>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="container mt-5">
+            <div class="alert alert-danger">
+                <h4>🔒 Access Denied</h4>
+                <p>You need Admin or SuperAdmin role to access this page.</p>
+                <a href="/dev/admin-roles" class="btn btn-primary">Add Admin Role</a>
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     private List<Evermail.Domain.Entities.SubscriptionPlan> _plans = new();
