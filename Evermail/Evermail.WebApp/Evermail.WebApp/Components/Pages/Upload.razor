@@ -3,9 +3,12 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Upload
 @using Microsoft.AspNetCore.Components.Forms
+@using Evermail.WebApp.Services
+@using System.Net.Http.Json
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
 
 <PageTitle>Upload Email Archive - Evermail</PageTitle>
 
@@ -176,12 +179,25 @@
         
         try
         {
+            // Get auth token
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _errorMessage = "You must be logged in to upload files";
+                return;
+            }
+
             // 2. Get SAS URL from backend
-            var initiateResponse = await Http.PostAsJsonAsync("/api/v1/upload/initiate", new InitiateUploadRequest(
+            var apiUrl = $"{Navigation.BaseUri}api/v1/upload/initiate";
+            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            request.Content = JsonContent.Create(new InitiateUploadRequest(
                 _fileName,
                 _totalBytes,
                 _fileType
             ));
+            
+            var initiateResponse = await Http.SendAsync(request);
             
             if (!initiateResponse.IsSuccessStatusCode)
             {
@@ -205,9 +221,14 @@
             await UploadToAzureBlobAsync(result.Data.UploadUrl, result.Data.MailboxId);
             
             // 4. Notify backend upload is complete (triggers queue processing)
-            var completeResponse = await Http.PostAsJsonAsync("/api/v1/upload/complete", new CompleteUploadRequest(
+            var completeUrl = $"{Navigation.BaseUri}api/v1/upload/complete";
+            var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
+            completeRequest.Headers.Add("Authorization", $"Bearer {token}");
+            completeRequest.Content = JsonContent.Create(new CompleteUploadRequest(
                 result.Data.MailboxId
             ));
+            
+            var completeResponse = await Http.SendAsync(completeRequest);
             
             if (!completeResponse.IsSuccessStatusCode)
             {
