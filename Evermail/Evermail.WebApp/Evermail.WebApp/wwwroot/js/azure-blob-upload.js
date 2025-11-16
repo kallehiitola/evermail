@@ -1,5 +1,5 @@
-// Azure Blob Storage Upload with Progress Tracking
-// Uses Azure Storage Blob SDK for chunked uploads
+// Azure Blob Storage Upload using native Fetch API (no SDK needed)
+// Uploads files in 4MB chunks directly to Azure Blob Storage
 
 window.azureBlobUpload = {
     currentUpload: null,
@@ -14,15 +14,6 @@ window.azureBlobUpload = {
             const file = fileInput.files[0];
             console.log(`Starting upload: ${file.name} (${file.size} bytes)`);
 
-            // Parse SAS URL to get blob info
-            const url = new URL(sasUrl);
-            const blobUrl = `${url.origin}${url.pathname}`;
-            const sasToken = url.search;
-
-            // Create BlockBlobClient using Azure Storage SDK
-            const { BlockBlobClient } = window.AzureStorageBlob;
-            const blockBlobClient = new BlockBlobClient(sasUrl);
-
             // Configuration
             const chunkSize = 4 * 1024 * 1024; // 4MB chunks
             const totalBlocks = Math.ceil(file.size / chunkSize);
@@ -33,20 +24,32 @@ window.azureBlobUpload = {
 
             console.log(`File will be uploaded in ${totalBlocks} chunks`);
 
-            // Upload each chunk
+            // Upload each chunk using PUT block API
             for (let i = 0; i < totalBlocks; i++) {
                 const start = i * chunkSize;
                 const end = Math.min(start + chunkSize, file.size);
                 const chunk = file.slice(start, end);
 
-                // Generate unique block ID (base64 encoded, must be same length for all blocks)
+                // Generate unique block ID (base64 encoded)
                 const blockId = btoa(`block-${String(i).padStart(10, '0')}`);
                 blockIds.push(blockId);
 
                 console.log(`Uploading block ${i + 1}/${totalBlocks} (${chunk.size} bytes)`);
 
-                // Upload block
-                await blockBlobClient.stageBlock(blockId, chunk, chunk.size);
+                // Upload block using Azure Blob REST API
+                const blockUrl = `${sasUrl}&comp=block&blockid=${encodeURIComponent(blockId)}`;
+                const uploadResponse = await fetch(blockUrl, {
+                    method: 'PUT',
+                    body: chunk,
+                    headers: {
+                        'x-ms-blob-type': 'BlockBlob',
+                        'Content-Length': chunk.size.toString()
+                    }
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error(`Block upload failed: ${uploadResponse.status} ${uploadResponse.statusText}`);
+                }
 
                 uploadedBytes += chunk.size;
                 const progress = Math.round((uploadedBytes / file.size) * 100);
@@ -63,7 +66,22 @@ window.azureBlobUpload = {
 
             // Commit all blocks to finalize the blob
             console.log('Committing blocks...');
-            await blockBlobClient.commitBlockList(blockIds);
+            
+            const commitUrl = `${sasUrl}&comp=blocklist`;
+            const blockListXml = `<?xml version="1.0" encoding="utf-8"?><BlockList>${blockIds.map(id => `<Latest>${id}</Latest>`).join('')}</BlockList>`;
+            
+            const commitResponse = await fetch(commitUrl, {
+                method: 'PUT',
+                body: blockListXml,
+                headers: {
+                    'Content-Type': 'application/xml',
+                    'Content-Length': blockListXml.length.toString()
+                }
+            });
+
+            if (!commitResponse.ok) {
+                throw new Error(`Commit failed: ${commitResponse.status} ${commitResponse.statusText}`);
+            }
 
             console.log('Upload complete!');
 
@@ -83,5 +101,4 @@ window.azureBlobUpload = {
 };
 
 // Log when script is loaded
-console.log('Azure Blob Upload script loaded');
-
+console.log('Azure Blob Upload script loaded (using native Fetch API)');

@@ -23,9 +23,9 @@ var connectionString = builder.Configuration.GetConnectionString("evermaildb")
 
 builder.Services.AddDbContext<EvermailDbContext>((serviceProvider, options) =>
 {
-    var tenantContext = serviceProvider.GetService<TenantContext>();
     options.UseSqlServer(connectionString);
-});
+    // TenantContext is injected via constructor in EvermailDbContext
+}, ServiceLifetime.Scoped);
 
 // Configure ASP.NET Core Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
@@ -157,13 +157,27 @@ builder.Services.AddScoped<TenantContext>(sp =>
 {
     var httpContext = sp.GetRequiredService<IHttpContextAccessor>().HttpContext;
     
+    Console.WriteLine($"DEBUG TenantContext: HttpContext exists: {httpContext != null}");
+    Console.WriteLine($"DEBUG TenantContext: User exists: {httpContext?.User != null}");
+    Console.WriteLine($"DEBUG TenantContext: IsAuthenticated: {httpContext?.User?.Identity?.IsAuthenticated}");
+    
     if (httpContext?.User?.Identity?.IsAuthenticated != true)
     {
+        Console.WriteLine("DEBUG TenantContext: User NOT authenticated, returning empty GUIDs");
         return new TenantContext { TenantId = Guid.Empty, UserId = Guid.Empty };
     }
 
+    // Try multiple claim types for UserId (JWT validation might map "sub" to different claim type)
+    var userIdClaim = httpContext.User.FindFirst("sub")?.Value
+        ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+        ?? httpContext.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+    
     var tenantIdClaim = httpContext.User.FindFirst("tenant_id")?.Value;
-    var userIdClaim = httpContext.User.FindFirst("sub")?.Value;
+    
+    Console.WriteLine($"DEBUG TenantContext: tenant_id claim: {tenantIdClaim}");
+    Console.WriteLine($"DEBUG TenantContext: sub/userId claim: {userIdClaim}");
+    Console.WriteLine($"DEBUG TenantContext: All claims: {string.Join(", ", httpContext.User.Claims.Select(c => $"{c.Type}={c.Value?.Substring(0, Math.Min(20, c.Value.Length))}..."))}");
+
 
     return new TenantContext
     {
