@@ -43,8 +43,16 @@ public class BlobStorageService : IBlobStorageService
         
         var sasUri = blobClient.GenerateSasUri(sasBuilder);
         
+        // Fix for local development: Azurite uses HTTP but browser needs HTTPS
+        // Replace HTTP with HTTPS for localhost/127.0.0.1
+        var sasUrl = sasUri.ToString();
+        if (sasUrl.StartsWith("http://127.0.0.1:") || sasUrl.StartsWith("http://localhost:"))
+        {
+            sasUrl = sasUrl.Replace("http://", "https://");
+        }
+        
         return new SasUploadInfo(
-            sasUri.ToString(),
+            sasUrl,
             blobPath,
             sasBuilder.ExpiresOn.UtcDateTime
         );
