@@ -2,12 +2,15 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 // Add SQL Server with database (runs locally in container, deploys to Azure SQL)
 var sql = builder.AddSqlServer("sql")
-    .WithLifetime(ContainerLifetime.Persistent)  // Persist data between restarts
+    .WithLifetime(ContainerLifetime.Persistent)  // Persist container between restarts
+    .WithDataVolume("evermail-sql-data")        // Persist data in named volume
     .AddDatabase("evermaildb");
 
 // Add Azure Storage (runs Azurite locally, deploys to Azure Storage)
 var storage = builder.AddAzureStorage("storage")
-    .RunAsEmulator(c => c.WithLifetime(ContainerLifetime.Persistent));
+    .RunAsEmulator(c => c
+        .WithLifetime(ContainerLifetime.Persistent)  // Persist container
+        .WithDataVolume("evermail-azurite-data"));   // Persist blob/queue data
 
 // Add blob and queue resources
 var blobs = storage.AddBlobs("blobs");

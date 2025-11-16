@@ -52,6 +52,19 @@
                         <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings
                     </NavLink>
                 </div>
+                
+                <!-- Admin-only links -->
+                <AuthorizeView Roles="Admin,SuperAdmin" Context="adminContext">
+                    <Authorized>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="admin/subscriptions">
+                                <span class="bi bi-shield-lock-fill" aria-hidden="true"></span> Admin: Subscriptions
+                            </NavLink>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+                
+                <!-- Dev-only links -->
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="dev/admin-roles">
                         <span class="bi bi-tools" aria-hidden="true"></span> Dev: Admin Roles
