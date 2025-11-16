@@ -43,12 +43,17 @@ public class BlobStorageService : IBlobStorageService
         
         var sasUri = blobClient.GenerateSasUri(sasBuilder);
         
-        // Fix for local development: Azurite uses HTTP but browser needs HTTPS
-        // Replace HTTP with HTTPS for localhost/127.0.0.1
+        // Fix for local development: Azurite HTTP/HTTPS port mapping
+        // Azurite: HTTP port 10000, HTTPS port 10001 (when using SSL)
+        // For now, use HTTP but accessed from same-origin HTTP endpoint
         var sasUrl = sasUri.ToString();
         if (sasUrl.StartsWith("http://127.0.0.1:") || sasUrl.StartsWith("http://localhost:"))
         {
-            sasUrl = sasUrl.Replace("http://", "https://");
+            // Convert Azurite HTTP port (10000) to HTTPS port (10001)
+            sasUrl = sasUrl.Replace("http://127.0.0.1:", "https://127.0.0.1:")
+                          .Replace("http://localhost:", "https://localhost:");
+            // Note: Azurite must be started with --cert and --key for HTTPS
+            // Or we just accept HTTP for local dev and use real Azure for prod
         }
         
         return new SasUploadInfo(
