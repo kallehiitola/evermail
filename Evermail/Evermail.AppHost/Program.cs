@@ -1,7 +1,11 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Use a fixed password for SQL Server in development (required for data persistence)
+// In production, Azure SQL will use managed identities
+var sqlPassword = builder.AddParameter("sql-password", secret: true);
+
 // Add SQL Server with database (runs locally in container, deploys to Azure SQL)
-var sql = builder.AddSqlServer("sql")
+var sql = builder.AddSqlServer("sql", password: sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)  // Persist container between restarts
     .WithDataVolume("evermail-sql-data")        // Persist data in named volume
     .AddDatabase("evermaildb");
