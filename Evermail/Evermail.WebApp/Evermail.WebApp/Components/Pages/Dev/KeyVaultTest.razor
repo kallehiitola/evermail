@@ -1,0 +1,265 @@
+@page "/dev/test-keyvault"
+@rendermode InteractiveServer
+@using Evermail.Common.DTOs
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IWebHostEnvironment Environment
+@inject HttpClient Http
+
+<PageTitle>Dev: Key Vault Test - Evermail</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+@if (!Environment.IsDevelopment())
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger">
+            <h4>❌ Not Available in Production</h4>
+            <p>This page is only available in Development environment.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container mt-4">
+        <h1>🔐 Development: Key Vault Test</h1>
+        <p class="text-muted">Test Azure Key Vault access and verify secrets are loaded</p>
+
+        <div class="alert alert-warning">
+            <strong>⚠️ Development Only</strong> - This page is automatically disabled in production
+        </div>
+
+        @if (!string.IsNullOrEmpty(_errorMessage))
+        {
+            <div class="alert alert-danger alert-dismissible fade show">
+                @_errorMessage
+                <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
+            </div>
+        }
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Key Vault Status</h5>
+                        <button class="btn btn-primary btn-sm" @onclick="TestKeyVault" disabled="@_isLoading">
+                            @if (_isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                            }
+                            else
+                            {
+                                <span class="bi bi-arrow-clockwise me-2"></span>
+                            }
+                            Test Key Vault
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        @if (_testResults == null && !_isLoading)
+                        {
+                            <p class="text-muted">Click "Test Key Vault" to check Key Vault access and verify secrets are loaded.</p>
+                        }
+                        else if (_isLoading)
+                        {
+                            <div class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Testing Key Vault access...</p>
+                            </div>
+                        }
+                        else if (_testResults != null)
+                        {
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Test Item</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td><strong>Source</strong></td>
+                                            <td>@_testResults.Source</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Blobs Connection</strong></td>
+                                            <td>@_testResults.BlobsConnection</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Queues Connection</strong></td>
+                                            <td>@_testResults.QueuesConnection</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>SQL Password</strong></td>
+                                            <td>@_testResults.SqlPassword</td>
+                                        </tr>
+                                        @if (!string.IsNullOrEmpty(_testResults.BlobService))
+                                        {
+                                            <tr>
+                                                <td><strong>Blob Service</strong></td>
+                                                <td>@_testResults.BlobService</td>
+                                            </tr>
+                                        }
+                                        @if (!string.IsNullOrEmpty(_testResults.BlobAccessTest))
+                                        {
+                                            <tr>
+                                                <td><strong>Blob Access Test</strong></td>
+                                                <td>@_testResults.BlobAccessTest</td>
+                                            </tr>
+                                        }
+                                        @if (!string.IsNullOrEmpty(_testResults.QueueService))
+                                        {
+                                            <tr>
+                                                <td><strong>Queue Service</strong></td>
+                                                <td>@_testResults.QueueService</td>
+                                            </tr>
+                                        }
+                                        @if (!string.IsNullOrEmpty(_testResults.QueueAccessTest))
+                                        {
+                                            <tr>
+                                                <td><strong>Queue Access Test</strong></td>
+                                                <td>@_testResults.QueueAccessTest</td>
+                                            </tr>
+                                        }
+                                        @if (!string.IsNullOrEmpty(_testResults.KeyVaultClient))
+                                        {
+                                            <tr>
+                                                <td><strong>Key Vault Client</strong></td>
+                                                <td>@_testResults.KeyVaultClient</td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            @if (_testResults.Timestamp.HasValue)
+                            {
+                                <p class="text-muted small mt-3">
+                                    Last tested: @_testResults.Timestamp.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")
+                                </p>
+                            }
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">How It Works</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul>
+                            <li><strong>Source</strong>: Shows whether secrets come from Key Vault or user secrets</li>
+                            <li><strong>Connection Strings</strong>: Verifies blob and queue connection strings are loaded</li>
+                            <li><strong>Service Tests</strong>: Actually tries to access Azure Storage to verify connection strings work</li>
+                            <li><strong>Key Vault Client</strong>: Shows if Key Vault client is configured</li>
+                        </ul>
+                        <p class="text-muted small mt-2">
+                            This page calls the API endpoint: <code>/api/v1/dev/test-keyvault</code>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+    </Authorized>
+    <NotAuthorized>
+        <div class="container mt-5">
+            <div class="alert alert-warning">
+                <h4>Authentication Required</h4>
+                <p>You must be logged in to access this page.</p>
+                <a href="/login" class="btn btn-primary">Login</a>
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private string? _errorMessage;
+    private bool _isLoading = false;
+    private KeyVaultTestResults? _testResults;
+
+    private async Task TestKeyVault()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+        _testResults = null;
+
+        try
+        {
+            var response = await Http.GetAsync("/api/v1/dev/test-keyvault");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var apiResponse = await response.Content.ReadFromJsonAsync<ApiResponse<KeyVaultTestData>>();
+                
+                if (apiResponse?.Success == true && apiResponse.Data?.Results != null)
+                {
+                    var results = apiResponse.Data.Results;
+                    _testResults = new KeyVaultTestResults
+                    {
+                        Source = GetValue(results, "source"),
+                        BlobsConnection = GetValue(results, "blobs-connection"),
+                        QueuesConnection = GetValue(results, "queues-connection"),
+                        SqlPassword = GetValue(results, "sql-password"),
+                        BlobService = GetValue(results, "blob-service"),
+                        BlobAccessTest = GetValue(results, "blob-access-test"),
+                        QueueService = GetValue(results, "queue-service"),
+                        QueueAccessTest = GetValue(results, "queue-access-test"),
+                        KeyVaultClient = GetValue(results, "keyvault-client"),
+                        Timestamp = apiResponse.Data.Timestamp
+                    };
+                }
+                else
+                {
+                    _errorMessage = "Failed to parse test results";
+                }
+            }
+            else
+            {
+                _errorMessage = $"API returned status: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error testing Key Vault: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string GetValue(Dictionary<string, object>? dict, string key)
+    {
+        if (dict == null) return string.Empty;
+        return dict.TryGetValue(key, out var value) ? value?.ToString() ?? string.Empty : string.Empty;
+    }
+
+    private class KeyVaultTestData
+    {
+        public string Message { get; set; } = string.Empty;
+        public Dictionary<string, object>? Results { get; set; }
+        public DateTime? Timestamp { get; set; }
+    }
+
+    private class KeyVaultTestResults
+    {
+        public string Source { get; set; } = string.Empty;
+        public string BlobsConnection { get; set; } = string.Empty;
+        public string QueuesConnection { get; set; } = string.Empty;
+        public string SqlPassword { get; set; } = string.Empty;
+        public string BlobService { get; set; } = string.Empty;
+        public string BlobAccessTest { get; set; } = string.Empty;
+        public string QueueService { get; set; } = string.Empty;
+        public string QueueAccessTest { get; set; } = string.Empty;
+        public string KeyVaultClient { get; set; } = string.Empty;
+        public DateTime? Timestamp { get; set; }
+    }
+}
+

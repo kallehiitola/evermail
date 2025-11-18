@@ -1,12 +1,15 @@
 @page "/dev/admin-roles"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Identity
+@using Microsoft.AspNetCore.Components.Authorization
 @using Evermail.Domain.Entities
 @inject UserManager<ApplicationUser> UserManager
 @inject IWebHostEnvironment Environment
 
 <PageTitle>Dev: Admin Role Manager - Evermail</PageTitle>
 
+<AuthorizeView>
+    <Authorized>
 @if (!Environment.IsDevelopment())
 {
     <div class="container mt-5">
@@ -136,6 +139,17 @@ else
         </div>
     </div>
 }
+    </Authorized>
+    <NotAuthorized>
+        <div class="container mt-5">
+            <div class="alert alert-warning">
+                <h4>Authentication Required</h4>
+                <p>You must be logged in to access this page.</p>
+                <a href="/login" class="btn btn-primary">Login</a>
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     private string _adminEmail = "kalle.hiitola@gmail.com";
