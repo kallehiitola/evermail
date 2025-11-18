@@ -291,31 +291,55 @@ app.Use(async (context, next) =>
 
 #### Azure Key Vault
 All secrets stored in Key Vault:
-- Database connection strings
-- Stripe API keys
-- Azure OpenAI keys
-- JWT signing keys
-- Encryption keys
+- Database connection strings (`ConnectionStrings--blobs`, `ConnectionStrings--queues`)
+- SQL Server password (`sql-password` - dev only)
+- Stripe API keys (when implemented)
+- Azure OpenAI keys (Phase 2)
+- JWT signing keys (future)
 
-**Access**:
+**Key Vault Resources:**
+- **Dev**: `evermail-dev-kv` (resource group: `evermail-dev`)
+- **Prod**: `evermail-prod-kv` (resource group: `evermail-prod`)
+
+**Access in Code:**
+The application uses Aspire's Key Vault integration which automatically:
+- Uses `DefaultAzureCredential` for authentication
+- Works with managed identities in Azure
+- Falls back to Azure CLI credentials in local development
+- Loads secrets into `IConfiguration` automatically
+
 ```csharp
-builder.Configuration.AddAzureKeyVault(
-    new Uri($"https://{keyVaultName}.vault.azure.net/"),
-    new DefaultAzureCredential()
-);
+// In Program.cs (automatically configured via Aspire resource reference)
+builder.Configuration.AddAzureKeyVaultSecrets(connectionName: "key-vault");
 
-// Use in code
-var stripeKey = builder.Configuration["Stripe:SecretKey"];
+// Use in code (secrets available via IConfiguration)
+var connectionString = builder.Configuration.GetConnectionString("blobs");
+var sqlPassword = builder.Configuration["sql-password"];
 ```
 
-**Access Policy**: Grant read-only access to Container Apps via managed identity
+**Access Control (RBAC):**
+Key Vaults use RBAC authorization. Grant access to Container Apps via managed identity:
 
 ```bash
-az keyvault set-policy \
-  --name evermail-kv \
-  --object-id <container-app-identity-id> \
-  --secret-permissions get list
+# Get Container App managed identity principal ID
+APP_IDENTITY_ID=$(az containerapp show --name evermail-webapp --resource-group evermail-prod-rg --query identity.principalId -o tsv)
+
+# Grant Key Vault Secrets User role (read-only access to secrets)
+az role assignment create \
+  --role "Key Vault Secrets User" \
+  --scope /subscriptions/<sub-id>/resourceGroups/evermail-prod/providers/Microsoft.KeyVault/vaults/evermail-prod-kv \
+  --assignee $APP_IDENTITY_ID
 ```
+
+**Local Development:**
+- Tries Key Vault first (if logged into Azure CLI via `az login`)
+- Falls back to user secrets if Key Vault is not accessible
+- Test Key Vault access: `curl -k https://localhost:7136/api/v1/dev/test-keyvault`
+- Verify in logs: Look for "✅ Azure Key Vault secrets loaded" or "⚠️ Key Vault not accessible"
+
+**Secret Naming Convention:**
+- Use double dashes (`--`) for nested configuration keys (e.g., `ConnectionStrings--blobs`)
+- Simple keys use single name (e.g., `sql-password`)
 
 ## Input Validation & Sanitization
 

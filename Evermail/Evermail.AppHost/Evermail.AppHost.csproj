@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.AppHost" Version="13.0.0" />
+    <PackageReference Include="Aspire.Hosting.Azure.KeyVault" Version="13.0.0" />
     <PackageReference Include="Aspire.Hosting.Azure.Sql" Version="13.0.0" />
     <PackageReference Include="Aspire.Hosting.Azure.Storage" Version="13.0.0" />
   </ItemGroup>
@@ -20,6 +21,7 @@
     <ProjectReference Include="..\Evermail.WebApp\Evermail.WebApp\Evermail.WebApp.csproj" />
     <ProjectReference Include="..\Evermail.AdminApp\Evermail.AdminApp.csproj" />
     <ProjectReference Include="..\Evermail.IngestionWorker\Evermail.IngestionWorker.csproj" />
+    <ProjectReference Include="..\Evermail.MigrationService\Evermail.MigrationService.csproj" />
   </ItemGroup>
 
 </Project>

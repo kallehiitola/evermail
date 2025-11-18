@@ -1,7 +1,29 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
+// Add Azure Key Vault resources (existing Key Vaults created manually)
+// Automatically selects dev or prod Key Vault based on publish mode
+// In local dev: uses evermail-dev-kv
+// In production: uses evermail-prod-kv
+var keyVaultName = builder.ExecutionContext.IsPublishMode ? "evermail-prod-kv" : "evermail-dev-kv";
+var keyVaultResourceGroup = builder.ExecutionContext.IsPublishMode ? "evermail-prod" : "evermail-dev";
+
+// Use environment variables if set, otherwise use defaults above
+var keyVaultNameParam = builder.AddParameter("key-vault-name", secret: false);
+var keyVaultResourceGroupParam = builder.AddParameter("key-vault-resource-group", secret: false);
+
+// Set default values in user secrets for local dev (optional - can override via env vars)
+if (!builder.ExecutionContext.IsPublishMode)
+{
+    // These are set in user secrets, but we provide defaults
+    // User can override via: dotnet user-secrets set "Parameters:key-vault-name" "custom-name"
+}
+
+var keyVault = builder.AddAzureKeyVault("key-vault")
+    .AsExisting(keyVaultNameParam, keyVaultResourceGroupParam);
+
 // Use a fixed password for SQL Server in development (required for data persistence)
 // In production, Azure SQL will use managed identities
+// Password can come from Key Vault or user secrets (for local dev)
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 
 // Add SQL Server with database (runs locally in container, deploys to Azure SQL)
@@ -16,24 +38,41 @@ var sql = builder.AddSqlServer("sql", password: sqlPassword)
 var blobs = builder.AddConnectionString("blobs");
 var queues = builder.AddConnectionString("queues");
 
+// Add Migration Service - runs migrations before other services start
+// This ensures the database schema is up-to-date before the app starts
+var migrations = builder.AddProject<Projects.Evermail_MigrationService>("migrations")
+    .WithReference(sql)
+    .WithReference(keyVault)
+    .WaitFor(sql);
+
 // Add WebApp (Blazor Web App - hybrid SSR + WASM)
 // Ports defined in Properties/launchSettings.json: 7136 HTTPS, 5264 HTTP
 // These ports are fixed in launchSettings and won't change between restarts
+// Note: WithReference(keyVault) automatically grants KeyVaultSecretsUser role when deployed
+// WaitFor(migrations) ensures migrations complete before WebApp starts
 var webapp = builder.AddProject<Projects.Evermail_WebApp>("webapp")
     .WithReference(sql)
     .WithReference(blobs)
-    .WithReference(queues);
+    .WithReference(queues)
+    .WithReference(keyVault)
+    .WaitForCompletion(migrations);
 
 // Add AdminApp (Blazor Server)
+// WaitFor(migrations) ensures migrations complete before AdminApp starts
 var adminapp = builder.AddProject<Projects.Evermail_AdminApp>("adminapp")
     .WithReference(sql)
     .WithReference(blobs)
-    .WithReference(queues);
+    .WithReference(queues)
+    .WithReference(keyVault)
+    .WaitForCompletion(migrations);
 
 // Add IngestionWorker (Background Service)
+// WaitFor(migrations) ensures migrations complete before Worker starts
 builder.AddProject<Projects.Evermail_IngestionWorker>("worker")
     .WithReference(sql)
     .WithReference(blobs)
-    .WithReference(queues);
+    .WithReference(queues)
+    .WithReference(keyVault)
+    .WaitForCompletion(migrations);
 
 builder.Build().Run();

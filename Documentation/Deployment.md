@@ -59,22 +59,90 @@ dotnet run
 This will:
 - Start SQL Server container
 - Start Azurite (local blob/queue storage)
-- Start WebApp API
-- Start Admin Dashboard
-- Start Ingestion Worker
+- **Run database migrations automatically** (via MigrationService)
+- Start WebApp API (after migrations complete)
+- Start Admin Dashboard (after migrations complete)
+- Start Ingestion Worker (after migrations complete)
 - Open Aspire Dashboard at `http://localhost:15000`
 
-### 5. Apply Database Migrations
+**Note**: Migrations run automatically via `Evermail.MigrationService` before other services start. You no longer need to manually run `dotnet ef database update`.
+
+### 5. Access Applications
+- **User Web App**: `https://localhost:7136` or `http://localhost:5264`
+- **Admin Dashboard**: `http://localhost:5001`
+- **API**: `https://localhost:7136/api/v1` or `http://localhost:5264/api/v1`
+- **Aspire Dashboard**: `http://localhost:15000`
+
+### 7. Test Key Vault Access (Local Development)
+
+**Prerequisites**: Login to Azure CLI to access Key Vault
 ```bash
-cd ../Evermail.WebApp
-dotnet ef database update --project ../Evermail.Infrastructure
+az login
 ```
 
-### 6. Access Applications
-- **User Web App**: `http://localhost:5000`
-- **Admin Dashboard**: `http://localhost:5001`
-- **API**: `http://localhost:5000/api/v1`
-- **Aspire Dashboard**: `http://localhost:15000`
+**Test Key Vault endpoint** (app must be running in Development mode):
+```bash
+# Test HTTPS endpoint (use -k to ignore self-signed cert)
+curl -k https://localhost:7136/api/v1/dev/test-keyvault
+
+# Pretty print JSON response
+curl -k -s https://localhost:7136/api/v1/dev/test-keyvault | jq '.'
+
+# Test HTTP endpoint (follow redirects)
+curl -L http://localhost:5264/api/v1/dev/test-keyvault | jq '.'
+```
+
+**Test Key Vault access directly via Azure CLI** (verify secrets are accessible):
+```bash
+# Test dev Key Vault (should return connection strings)
+az keyvault secret show --vault-name evermail-dev-kv --name "ConnectionStrings--blobs" --query value -o tsv
+az keyvault secret show --vault-name evermail-dev-kv --name "ConnectionStrings--queues" --query value -o tsv
+az keyvault secret show --vault-name evermail-dev-kv --name "sql-password" --query value -o tsv
+
+# Test prod Key Vault (will show placeholder until production resources created)
+az keyvault secret show --vault-name evermail-prod-kv --name "ConnectionStrings--blobs" --query value -o tsv
+az keyvault secret show --vault-name evermail-prod-kv --name "ConnectionStrings--queues" --query value -o tsv
+az keyvault secret show --vault-name evermail-prod-kv --name "sql-password" --query value -o tsv
+```
+
+**Verification**: The endpoint confirms Key Vault is being used when:
+- `source` shows "✅ Key Vault (connection string matches Key Vault pattern)"
+- Connection strings contain storage account names from Key Vault (e.g., "evermaildevstorage")
+- All secrets are found with correct lengths
+
+**Note**: The `/api/v1/dev/test-keyvault` endpoint returns 404 if:
+- App is not running (start with `cd Evermail.AppHost && dotnet run`)
+- Environment is not `Development` (check `ASPNETCORE_ENVIRONMENT=Development`)
+- Check application startup logs for "✅ Azure Key Vault secrets loaded" message
+
+**Expected response** (if Key Vault is accessible):
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Key Vault access test results",
+    "results": {
+      "blobs-connection": "✅ Found (length: 123)",
+      "queues-connection": "✅ Found (length: 123)",
+      "sql-password": "✅ Found (length: 25)",
+      "source": "✅ Key Vault (dev)"
+    }
+  }
+}
+```
+
+**If not logged into Azure CLI**, you'll see:
+```json
+{
+  "results": {
+    "source": "ℹ️  User secrets (local fallback)"
+  }
+}
+```
+
+**Verify in application logs**:
+- ✅ `Azure Key Vault secrets loaded (using DefaultAzureCredential)` = Using Key Vault
+- ⚠️ `Key Vault not accessible: ...` = Falling back to user secrets
 
 ## Azure Deployment
 
@@ -105,25 +173,52 @@ This creates:
 - Azure Key Vault
 
 #### 3. Set Secrets in Key Vault
+
+**Key Vaults Created:**
+- **Dev**: `evermail-dev-kv` (resource group: `evermail-dev`)
+- **Prod**: `evermail-prod-kv` (resource group: `evermail-prod`)
+
+**Secrets stored in Key Vault:**
+- `ConnectionStrings--blobs` - Azure Storage Blob connection string
+- `ConnectionStrings--queues` - Azure Storage Queue connection string
+- `sql-password` - SQL Server password (dev only; prod uses managed identity)
+
+**Set secrets manually:**
 ```bash
-# Get Key Vault name from azd output
-KV_NAME=$(azd env get-values | grep AZURE_KEY_VAULT_NAME | cut -d'=' -f2)
+# Dev Key Vault
+az keyvault secret set --vault-name evermail-dev-kv --name "ConnectionStrings--blobs" --value "..."
+az keyvault secret set --vault-name evermail-dev-kv --name "ConnectionStrings--queues" --value "..."
+az keyvault secret set --vault-name evermail-dev-kv --name "sql-password" --value "..."
 
-# Set Stripe secrets
-az keyvault secret set --vault-name $KV_NAME --name "Stripe--SecretKey" --value "sk_live_..."
-az keyvault secret set --vault-name $KV_NAME --name "Stripe--WebhookSecret" --value "whsec_..."
-
-# Set database connection string (auto-generated, but verify)
-CONN_STRING=$(az keyvault secret show --vault-name $KV_NAME --name "ConnectionStrings--evermaildb" --query value -o tsv)
-echo $CONN_STRING
+# Production Key Vault (update when production resources are created)
+az keyvault secret set --vault-name evermail-prod-kv --name "ConnectionStrings--blobs" --value "..."
+az keyvault secret set --vault-name evermail-prod-kv --name "ConnectionStrings--queues" --value "..."
 ```
+
+**Grant access to Container Apps (managed identity):**
+```bash
+# Get Container App managed identity principal ID
+APP_IDENTITY_ID=$(az containerapp show --name evermail-webapp --resource-group evermail-prod-rg --query identity.principalId -o tsv)
+
+# Grant Key Vault Secrets User role
+az role assignment create \
+  --role "Key Vault Secrets User" \
+  --scope /subscriptions/<sub-id>/resourceGroups/evermail-prod/providers/Microsoft.KeyVault/vaults/evermail-prod-kv \
+  --assignee $APP_IDENTITY_ID
+```
+
+**Note:** The application automatically loads secrets from Key Vault when deployed to Azure (using `DefaultAzureCredential` with managed identity). Local development continues to use user secrets.
 
 #### 4. Deploy Applications
 ```bash
 azd deploy
 ```
 
-#### 5. Apply Database Migrations
+#### 5. Database Migrations
+
+**Migrations run automatically** via `Evermail.MigrationService` when deployed via Aspire. The MigrationService runs before other services start, ensuring the database schema is up-to-date.
+
+**If you need to apply migrations manually** (e.g., for troubleshooting or when not using Aspire deployment):
 ```bash
 # Connect to Azure SQL and apply migrations
 # Option A: From local machine with Azure SQL firewall rule
@@ -138,10 +233,10 @@ az sql server firewall-rule create \
 CONN_STRING=$(az keyvault secret show --vault-name $KV_NAME --name "ConnectionStrings--evermaildb" --query value -o tsv)
 
 # Apply migrations
-dotnet ef database update --project Evermail.Infrastructure --startup-project Evermail.WebApp --connection "$CONN_STRING"
+dotnet ef database update --project Evermail.Infrastructure --startup-project Evermail.WebApp/Evermail.WebApp --connection "$CONN_STRING"
 
 # Option B: Use Azure SQL migration bundle (recommended for prod)
-dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp -o migrate
+dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp/Evermail.WebApp -o migrate
 
 # Run bundle in Azure Container Instance or from local
 ./migrate --connection "$CONN_STRING"
@@ -313,15 +408,17 @@ jobs:
           az containerapp update --name evermail-webapp --resource-group ${{ env.RESOURCE_GROUP }} --image ${{ env.ACR_NAME }}.azurecr.io/evermail-webapp:${{ github.sha }}
           az containerapp update --name evermail-worker --resource-group ${{ env.RESOURCE_GROUP }} --image ${{ env.ACR_NAME }}.azurecr.io/evermail-worker:${{ github.sha }}
       
-      - name: Run Database Migrations
+      - name: Database Migrations
         run: |
+          # Note: Migrations run automatically via MigrationService when deployed via Aspire
+          # This step is only needed if deploying without Aspire or for manual migration verification
           # Get connection string from Key Vault
           CONN_STRING=$(az keyvault secret show --vault-name evermail-kv --name "ConnectionStrings--evermaildb" --query value -o tsv)
           
           # Create migration bundle
-          dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp -o migrate
+          dotnet ef migrations bundle --project Evermail.Infrastructure --startup-project Evermail.WebApp/Evermail.WebApp -o migrate
           
-          # Apply migrations
+          # Apply migrations (if not using Aspire automatic migrations)
           ./migrate --connection "$CONN_STRING"
 ```
 

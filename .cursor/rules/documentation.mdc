@@ -25,8 +25,99 @@ Documentation/
 ├── DatabaseSchema.md   # EF entities and relationships
 ├── Deployment.md       # Azure Aspire deployment guide
 ├── Security.md         # Authentication, authorization, data protection
-└── Pricing.md          # Business model and cost calculations
+├── Pricing.md          # Business model and cost calculations
+└── ProgressReports/
+    └── ProgressReport.md  # SINGLE consolidated progress report (ALWAYS update this)
 ```
+
+## Progress Reports - CRITICAL RULE
+
+**ABSOLUTE REQUIREMENT**: There is **ONLY ONE** progress report file: `Documentation/ProgressReports/ProgressReport.md`
+
+### ❌ NEVER Create New Progress Report Files
+
+**FORBIDDEN**:
+- ❌ `CHECKPOINT_*.md` files
+- ❌ `SESSION_*.md` files
+- ❌ `*_COMPLETE.md` files in root or Documentation/
+- ❌ `*_VERIFICATION.md` files
+- ❌ `*_READY.md` files
+- ❌ Any date-stamped progress files (e.g., `2025-11-14.md`)
+- ❌ Any checkpoint or milestone files
+
+### ✅ ALWAYS Update Single Progress Report
+
+**REQUIRED**:
+- ✅ **ONLY** update `Documentation/ProgressReports/ProgressReport.md`
+- ✅ Add new progress as chronological entries
+- ✅ Update "Last Updated" date at the top
+- ✅ Add new sections or subsections as needed
+- ✅ Maintain chronological order (newest at bottom)
+
+### Progress Report Structure
+
+When documenting progress:
+
+1. **Update the "Last Updated" date** at the top of `ProgressReport.md`
+2. **Add a new entry** in the "Recent Updates" section with:
+   - Date
+   - Brief summary
+   - Key accomplishments
+3. **Update relevant sections** (Infrastructure, Authentication, Database, etc.) if needed
+4. **Never create a separate file** for progress updates
+
+### Example: Documenting Progress
+
+**Wrong Approach** ❌:
+```
+1. Create CHECKPOINT_2025-11-15.md
+2. Create SESSION_COMPLETE.md
+3. Create AUTHENTICATION_VERIFIED.md
+```
+
+**Correct Approach** ✅:
+```
+1. Open Documentation/ProgressReports/ProgressReport.md
+2. Update "Last Updated" date to 2025-11-15
+3. Add new entry in "Recent Updates" section:
+   ### 2025-11-15 - Authentication Verified
+   - ✅ Authentication system tested
+   - ✅ OAuth flows verified
+   - ✅ JWT tokens working
+4. Update "Authentication System" section if needed
+```
+
+### AI Assistant Instructions for Progress Reports
+
+**CRITICAL**: When asked to document progress, completion, checkpoints, or milestones:
+
+1. **NEVER create new progress report files**
+   - Do NOT create `CHECKPOINT_*.md`
+   - Do NOT create `SESSION_*.md`
+   - Do NOT create `*_COMPLETE.md`
+   - Do NOT create date-stamped progress files
+
+2. **ALWAYS update `Documentation/ProgressReports/ProgressReport.md`**
+   - Open the existing file
+   - Add new chronological entry
+   - Update relevant sections
+   - Update "Last Updated" date
+
+3. **If user requests a progress report file**:
+   - Politely redirect: "I'll update the consolidated progress report instead"
+   - Update `Documentation/ProgressReports/ProgressReport.md`
+   - Explain the single-file policy
+
+4. **Enforce this rule strictly**:
+   - This is a non-negotiable requirement
+   - No exceptions for "quick notes" or "temporary files"
+   - All progress must go in the single file
+
+### Progress Report File Location
+
+- **Single File**: `Documentation/ProgressReports/ProgressReport.md`
+- **Old Files**: Historical progress files have been moved to `Documentation/ProgressReports/` for reference only
+- **Do Not Use**: Old files are archived - always update `ProgressReport.md`
 
 ## Workflow: Before Implementing a Feature
 
@@ -294,6 +385,11 @@ When asked to implement a feature, **ALWAYS**:
 4. **Keep documentation current**
    - Update docs in same commit as code
    - Ensure consistency
+
+5. **For progress reports, ALWAYS use single file**
+   - **NEVER** create `CHECKPOINT_*.md`, `SESSION_*.md`, `*_COMPLETE.md`, or any progress report files
+   - **ALWAYS** update `Documentation/ProgressReports/ProgressReport.md` only
+   - This is a non-negotiable requirement with no exceptions
 
 ## Example: Adding New Feature
 

@@ -1,8 +1,6 @@
 ---
-description: Development workflow, git practices, and general standards
-alwaysApply: false
+alwaysApply: true
 ---
-
 # Development Workflow & Standards
 
 ## Local Development Setup
@@ -18,10 +16,27 @@ dotnet run
 open http://localhost:15000
 
 # Access applications
-# - User App: http://localhost:5000
+# - User App: https://localhost:7136 or http://localhost:5264
 # - Admin Dashboard: http://localhost:5001
-# - API: http://localhost:5000/api/v1
+# - API: https://localhost:7136/api/v1
 ```
+
+### AI Assistant: Restart and Test Aspire
+
+**The AI assistant is authorized to:**
+- ✅ Stop running Aspire processes (`pkill -f "Evermail.AppHost"`)
+- ✅ Start Aspire AppHost in background (`dotnet run &`)
+- ✅ Wait for services to initialize (15-30 seconds)
+- ✅ Test endpoints with curl commands
+- ✅ Check application logs for startup status
+- ✅ Restart services as needed for testing
+
+**When testing endpoints:**
+- Always use curl commands (as per documentation standards)
+- Test both HTTPS (7136) and HTTP (5264) ports
+- Use `-k` flag for HTTPS to ignore self-signed certificates
+- Pretty print JSON responses with `jq '.'`
+- Verify Key Vault secrets are loaded by checking startup logs
 
 ### Environment Variables
 
@@ -46,16 +61,18 @@ dotnet user-secrets set "AzureOpenAI:ApiKey" "..."
 
 ### Database Migrations
 
+**Migrations run automatically** via `Evermail.MigrationService` when Aspire starts. The MigrationService runs before other services start, ensuring the database schema is up-to-date.
+
+**To create a new migration** (migrations are still created manually):
 ```bash
 # Add migration
 dotnet ef migrations add MigrationName \
     -p Evermail.Infrastructure \
-    -s Evermail.WebApp
+    -s Evermail.WebApp/Evermail.WebApp
 
-# Update database
-dotnet ef database update \
-    -p Evermail.Infrastructure \
-    -s Evermail.WebApp
+# Migrations are applied automatically when Aspire starts
+# No need to run "dotnet ef database update" manually
+```
 
 # Generate SQL script (for review)
 dotnet ef migrations script \

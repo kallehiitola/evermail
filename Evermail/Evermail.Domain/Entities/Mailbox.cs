@@ -34,6 +34,7 @@ public class Mailbox
     public int TotalEmails { get; set; }
     public int ProcessedEmails { get; set; }
     public int FailedEmails { get; set; }
+    public long ProcessedBytes { get; set; } // Track bytes processed for progress calculation
     
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

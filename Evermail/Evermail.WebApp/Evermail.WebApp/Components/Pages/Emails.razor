@@ -1,50 +1,453 @@
 @page "/emails"
 @rendermode InteractiveServer
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Email
+@using Evermail.Common.DTOs.Mailbox
 @using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Services
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
+@inject IJSRuntime JSRuntime
 
 <PageTitle>My Emails - Evermail</PageTitle>
 
+<AuthorizeView>
+    <Authorized>
 <div class="container mt-4">
-    <h1>My Emails</h1>
-    
-    <AuthorizeView>
-        <Authorized>
-            <div class="alert alert-info mt-4">
-                <h4 class="alert-heading">Welcome, @context.User.Identity?.Name!</h4>
-                <p>This is a protected page. You're viewing your emails.</p>
-                <hr />
-                <p class="mb-0">
-                    <strong>User ID:</strong> @context.User.FindFirst("sub")?.Value<br />
-                    <strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value<br />
-                    <strong>Roles:</strong> @string.Join(", ", context.User.Claims.Where(c => c.Type == "http://schemas.microsoft.com/ws/2008/06/identity/claims/role").Select(c => c.Value))
-                </p>
-            </div>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>My Emails</h1>
+        <a href="/mailboxes" class="btn btn-outline-secondary">
+            <i class="bi bi-inbox"></i> View Mailboxes
+        </a>
+    </div>
 
-            <div class="card mt-4">
-                <div class="card-body">
-                    <h5 class="card-title">Email Viewer (Coming in Phase 1)</h5>
-                    <p class="card-text">
-                        This page will display your email archives once you upload .mbox files.
-                    </p>
-                    <p class="text-muted">
-                        <strong>Features coming soon:</strong>
-                    </p>
-                    <ul>
-                        <li>Upload .mbox files</li>
-                        <li>Browse emails by mailbox</li>
-                        <li>Full-text search</li>
-                        <li>Advanced filters (date, sender, folder)</li>
-                        <li>View attachments</li>
-                    </ul>
+    <!-- Search and Filters -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form @onsubmit="HandleSearch" @onsubmit:preventDefault="true">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <input type="text" 
+                               class="form-control" 
+                               placeholder="Search emails..." 
+                               @bind="_searchQuery"
+                               @bind:event="oninput" />
+                    </div>
+                    <div class="col-md-3">
+                        <select class="form-select" value="@(_selectedMailboxId?.ToString() ?? "")" @onchange="OnMailboxSelectChanged">
+                            <option value="">All Mailboxes</option>
+                            @if (_mailboxes != null)
+                            {
+                                @foreach (var mailbox in _mailboxes)
+                                {
+                                    <option value="@mailbox.Id">@mailbox.FileName</option>
+                                }
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                    </div>
                 </div>
-            </div>
-        </Authorized>
-        <NotAuthorized>
-            <div class="alert alert-warning">
-                You must be logged in to view this page.
-                <a href="/login" class="alert-link">Please login</a>.
-            </div>
-        </NotAuthorized>
-    </AuthorizeView>
-</div>
+            </form>
+        </div>
+    </div>
 
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading emails...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_errorMessage
+        </div>
+    }
+    else if (_emails == null || !_emails.Any())
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-envelope display-1 text-muted"></i>
+                <h3 class="mt-3">No Emails Found</h3>
+                <p class="text-muted">
+                    @if (string.IsNullOrEmpty(_searchQuery))
+                    {
+                        <text>Upload a mailbox to get started!</text>
+                    }
+                    else
+                    {
+                        <text>No emails match your search criteria.</text>
+                    }
+                </p>
+                @if (string.IsNullOrEmpty(_searchQuery))
+                {
+                    <a href="/upload" class="btn btn-primary">
+                        <i class="bi bi-cloud-upload"></i> Upload Mailbox
+                    </a>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    Showing @((_currentPage - 1) * _pageSize + 1) - @Math.Min(_currentPage * _pageSize, _totalCount) 
+                    of @_totalCount emails
+                    @if (_queryTime.HasValue)
+                    {
+                        <small class="text-muted">(in @_queryTime.Value.ToString("F3")s)</small>
+                    }
+                </span>
+            </div>
+            <div class="list-group list-group-flush">
+                @foreach (var email in _emails)
+                {
+                    var emailUrl = $"/emails/{email.Id}";
+                    if (_selectedMailboxId.HasValue && _selectedMailboxId.Value != Guid.Empty)
+                    {
+                        emailUrl += $"?mailbox={_selectedMailboxId.Value}";
+                    }
+                    <a href="@emailUrl" 
+                       class="list-group-item list-group-item-action @(email.IsRead ? "" : "fw-bold")"
+                       data-email-id="@email.Id">
+                        <div class="d-flex w-100 justify-content-between">
+                            <div class="flex-grow-1">
+                                <div class="d-flex align-items-center mb-1">
+                                    <h6 class="mb-0 me-2">
+                                        @if (!string.IsNullOrEmpty(email.FromName))
+                                        {
+                                            <text>@email.FromName</text>
+                                        }
+                                        else
+                                        {
+                                            <text>@email.FromAddress</text>
+                                        }
+                                    </h6>
+                                    <small class="text-muted">@email.FromAddress</small>
+                                    @if (email.HasAttachments)
+                                    {
+                                        @if (email.FirstAttachmentId.HasValue)
+                                        {
+                                            <button type="button"
+                                                    class="ms-2 btn btn-link p-0 text-decoration-none border-0 bg-transparent attachment-download-btn"
+                                                    title="@email.AttachmentCount attachment(s)"
+                                                    data-attachment-id="@email.FirstAttachmentId!.Value"
+                                                    @onclick="async () => await DownloadAttachment(email.FirstAttachmentId!.Value)"
+                                                    @onclick:stopPropagation="true"
+                                                    @onclick:preventDefault="true">
+                                                <i class="bi bi-paperclip text-primary"></i>
+                                                @if (email.AttachmentCount > 1)
+                                                {
+                                                    <small class="text-muted">(@email.AttachmentCount)</small>
+                                                }
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <span class="ms-2" title="@email.AttachmentCount attachment(s)">
+                                                <i class="bi bi-paperclip text-primary"></i>
+                                                @if (email.AttachmentCount > 1)
+                                                {
+                                                    <small class="text-muted">(@email.AttachmentCount)</small>
+                                                }
+                                            </span>
+                                        }
+                                    }
+                                </div>
+                                <p class="mb-1">
+                                    <strong>@(email.Subject ?? "(No Subject)")</strong>
+                                </p>
+                                @if (!string.IsNullOrEmpty(email.Snippet))
+                                {
+                                    <p class="mb-1 text-muted small">@email.Snippet</p>
+                                }
+                            </div>
+                            <small class="text-muted ms-3">@FormatDate(email.Date)</small>
+                        </div>
+                    </a>
+                }
+            </div>
+            @if (_totalPages > 1)
+            {
+                <div class="card-footer">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="text-muted">
+                            Showing @((_currentPage - 1) * _pageSize + 1) - @Math.Min(_currentPage * _pageSize, _totalCount) of @_totalCount
+                        </div>
+                        <div class="btn-group" role="group" aria-label="Pagination">
+                            <button type="button" 
+                                    class="btn btn-outline-secondary @(_currentPage == 1 ? "disabled" : "")"
+                                    @onclick="async () => { if (_currentPage > 1) { _currentPage--; await UpdateUrl(); await LoadEmails(_currentPage); } }"
+                                    disabled="@(_currentPage == 1)">
+                                <i class="bi bi-chevron-left"></i>
+                            </button>
+                            <button type="button" 
+                                    class="btn btn-outline-secondary @(_currentPage == _totalPages ? "disabled" : "")"
+                                    @onclick="async () => { if (_currentPage < _totalPages) { _currentPage++; await UpdateUrl(); await LoadEmails(_currentPage); } }"
+                                    disabled="@(_currentPage == _totalPages)">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+    </Authorized>
+    <NotAuthorized>
+        <RequiresAuth />
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private List<EmailListItemDto>? _emails;
+    private List<MailboxDto>? _mailboxes;
+    private bool _isLoading = true;
+    private string _errorMessage = "";
+    private string _searchQuery = "";
+    private Guid? _selectedMailboxId;
+    private int _currentPage = 1;
+    private int _pageSize = 50;
+    private int _totalCount = 0;
+    private int _totalPages = 1;
+    private double? _queryTime;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Read URL parameters to preserve mailbox filter
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var queryParams = QueryHelpers.ParseQuery(uri.Query);
+        
+        if (queryParams.TryGetValue("mailbox", out var mailboxParam) && 
+            Guid.TryParse(mailboxParam, out var mailboxId))
+        {
+            _selectedMailboxId = mailboxId;
+        }
+        
+        if (queryParams.TryGetValue("q", out var searchParam))
+        {
+            _searchQuery = searchParam.ToString();
+        }
+        
+        if (queryParams.TryGetValue("page", out var pageParam) && 
+            int.TryParse(pageParam, out var page))
+        {
+            _currentPage = page;
+        }
+
+        await LoadMailboxes();
+        await LoadEmails(_currentPage);
+    }
+
+    private async Task LoadMailboxes()
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/mailboxes?pageSize=100";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+
+            var response = await Http.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<PagedMailboxesResponse>>();
+                if (result?.Success == true && result.Data != null)
+                {
+                    _mailboxes = result.Data.Items.Where(m => m.Status == "Completed").ToList();
+                }
+            }
+        }
+        catch
+        {
+            // Silently fail - mailboxes filter is optional
+        }
+    }
+
+    private async Task LoadEmails(int page = 1)
+    {
+        _isLoading = true;
+        _currentPage = page;
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _errorMessage = "You must be logged in";
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/emails/search?page={page}&pageSize={_pageSize}";
+            
+            if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                url += $"&q={Uri.EscapeDataString(_searchQuery)}";
+            }
+            
+            if (_selectedMailboxId.HasValue && _selectedMailboxId.Value != Guid.Empty)
+            {
+                url += $"&mailboxId={_selectedMailboxId.Value}";
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+
+            var response = await Http.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<PagedEmailsResponse>>();
+                if (result?.Success == true && result.Data != null)
+                {
+                    _emails = result.Data.Items;
+                    _totalCount = result.Data.TotalCount;
+                    _totalPages = (int)Math.Ceiling((double)_totalCount / _pageSize);
+                    _queryTime = result.Data.QueryTime;
+                    _errorMessage = "";
+                    
+                    // Set up event listeners for attachment buttons after emails are loaded
+                    await JSRuntime.InvokeVoidAsync("attachmentDownload.setupAttachmentButtonListeners");
+                }
+            }
+            else
+            {
+                _errorMessage = $"Failed to load emails: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task OnMailboxSelectChanged(ChangeEventArgs e)
+    {
+        var value = e.Value?.ToString();
+        if (string.IsNullOrEmpty(value) || !Guid.TryParse(value, out var mailboxId))
+        {
+            _selectedMailboxId = null;
+        }
+        else
+        {
+            _selectedMailboxId = mailboxId;
+        }
+        _currentPage = 1;
+        await UpdateUrl();
+        await LoadEmails(1);
+    }
+
+    private async Task HandleSearch()
+    {
+        _currentPage = 1;
+        await UpdateUrl();
+        await LoadEmails(1);
+    }
+
+    private async Task UpdateUrl()
+    {
+        var queryParams = new Dictionary<string, string?>();
+        
+        if (_selectedMailboxId.HasValue && _selectedMailboxId.Value != Guid.Empty)
+        {
+            queryParams["mailbox"] = _selectedMailboxId.Value.ToString();
+        }
+        
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            queryParams["q"] = _searchQuery;
+        }
+        
+        if (_currentPage > 1)
+        {
+            queryParams["page"] = _currentPage.ToString();
+        }
+
+        var baseUri = Navigation.ToAbsoluteUri("/emails").GetLeftPart(UriPartial.Path);
+        var filteredParams = queryParams.Where(kvp => kvp.Value != null)
+            .ToDictionary(kvp => kvp.Key, kvp => (string?)kvp.Value!) as IDictionary<string, string?>;
+        var queryString = QueryHelpers.AddQueryString("", filteredParams ?? new Dictionary<string, string?>());
+        
+        Navigation.NavigateTo($"{baseUri}{queryString}", replace: true);
+    }
+
+
+    private async Task DownloadAttachment(Guid attachmentId)
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                await AuthStateService.RefreshTokenIfNeededAsync();
+                token = await AuthStateService.GetTokenAsync();
+            }
+
+            if (string.IsNullOrEmpty(token))
+            {
+                // Show error or redirect to login
+                return;
+            }
+
+            var attachmentUrl = $"{Navigation.BaseUri}api/v1/attachments/{attachmentId}/download";
+            await JSRuntime.InvokeVoidAsync("attachmentDownload.download", attachmentUrl, token);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error downloading attachment: {ex.Message}");
+        }
+    }
+
+    private string FormatDate(DateTime date)
+    {
+        var now = DateTime.UtcNow;
+        var diff = now - date;
+
+        if (diff.TotalDays < 1)
+        {
+            return date.ToString("HH:mm");
+        }
+        else if (diff.TotalDays < 7)
+        {
+            return date.ToString("ddd HH:mm");
+        }
+        else if (diff.TotalDays < 365)
+        {
+            return date.ToString("MMM d");
+        }
+        else
+        {
+            return date.ToString("MMM d, yyyy");
+        }
+    }
+
+    public void Dispose()
+    {
+        // Cleanup if needed
+    }
+}

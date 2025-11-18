@@ -17,6 +17,22 @@ var builder = WebApplication.CreateBuilder(args);
 // Add service defaults (Aspire telemetry, service discovery)
 builder.AddServiceDefaults();
 
+// Load secrets from Azure Key Vault
+// - In production: Uses managed identity (automatic)
+// - In local dev: Uses Azure CLI credentials (if logged in) or falls back to user secrets
+// The Key Vault connection is configured via Aspire resource reference
+try
+{
+    builder.Configuration.AddAzureKeyVaultSecrets(connectionName: "key-vault");
+    Console.WriteLine("✅ Azure Key Vault secrets loaded (using DefaultAzureCredential)");
+}
+catch (Exception ex)
+{
+    // Fallback to user secrets if Key Vault is not accessible (e.g., not logged into Azure CLI)
+    Console.WriteLine($"⚠️  Key Vault not accessible: {ex.Message}");
+    Console.WriteLine("ℹ️  Falling back to local user secrets");
+}
+
 // Add database context
 var connectionString = builder.Configuration.GetConnectionString("evermaildb") 
     ?? "Server=(localdb)\\mssqllocaldb;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true";
@@ -209,31 +225,10 @@ builder.Services.AddEndpointsApiExplorer();
 
 var app = builder.Build();
 
-// Seed database (with retry for SQL container startup)
-using (var scope = app.Services.CreateScope())
-{
-    var context = scope.ServiceProvider.GetRequiredService<EvermailDbContext>();
-    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
-    
-    // Retry connecting to SQL (container might not be ready immediately)
-    var maxRetries = 10;
-    var retryDelay = TimeSpan.FromSeconds(2);
-    
-    for (int i = 0; i < maxRetries; i++)
-    {
-        try
-        {
-            await context.Database.MigrateAsync();
-            await DataSeeder.SeedAsync(context, roleManager);
-            break; // Success!
-        }
-        catch (Exception) when (i < maxRetries - 1)
-        {
-            Console.WriteLine($"Waiting for database... (attempt {i + 1}/{maxRetries})");
-            await Task.Delay(retryDelay);
-        }
-    }
-}
+// Database migrations are handled by Evermail.MigrationService in Aspire
+// Migrations run automatically before this service starts (via WaitForCompletion in AppHost)
+// Data seeding is also handled by the MigrationService
+// This ensures migrations complete before the app starts accepting requests
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -261,6 +256,9 @@ app.UseAuthorization();
 var api = app.MapGroup("/api/v1");
 api.MapGroup("/auth").MapAuthEndpoints().MapOAuthEndpoints();
 api.MapGroup("/upload").MapUploadEndpoints();
+api.MapGroup("/mailboxes").MapMailboxEndpoints();
+api.MapGroup("/emails").MapEmailEndpoints();
+api.MapGroup("/attachments").MapAttachmentEndpoints();
 
 // Development-only endpoints (disabled in production)
 if (app.Environment.IsDevelopment())

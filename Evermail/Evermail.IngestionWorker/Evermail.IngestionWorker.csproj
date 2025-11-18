@@ -8,6 +8,17 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Azure.Security.KeyVault" Version="13.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="MimeKit" Version="4.8.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
+    <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
+    <PackageReference Include="Azure.Storage.Queues" Version="12.24.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Evermail.Infrastructure\Evermail.Infrastructure.csproj" />
+    <ProjectReference Include="..\Evermail.Domain\Evermail.Domain.csproj" />
+    <ProjectReference Include="..\Evermail.ServiceDefaults\Evermail.ServiceDefaults.csproj" />
   </ItemGroup>
 </Project>

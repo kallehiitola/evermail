@@ -8,8 +8,8 @@ public static class DataSeeder
 {
     public static async Task SeedAsync(EvermailDbContext context, RoleManager<IdentityRole<Guid>> roleManager)
     {
-        // Ensure database is created
-        await context.Database.MigrateAsync();
+        // Note: Migrations are handled by Evermail.MigrationService before seeding
+        // This method only seeds data (roles and subscription plans)
 
         // Seed Roles
         var roles = new[] { "User", "Admin", "SuperAdmin" };

@@ -1,28 +1,7 @@
 ﻿@rendermode InteractiveServer
-@using Evermail.WebApp.Services
-@using Evermail.WebApp.Extensions
-@using Microsoft.AspNetCore.Components.Authorization
-@inject IAuthenticationStateService AuthStateService
-@inject AuthenticationStateProvider AuthStateProvider
-@inject NavigationManager Navigation
 
 <div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid d-flex justify-content-between">
-        <a class="navbar-brand" href="">Evermail</a>
-        <AuthorizeView>
-            <Authorized>
-                <div class="d-flex align-items-center text-white">
-                    <span class="me-3 small">
-                        <span class="bi bi-person-circle me-1"></span>
-                        @context.User.GetEmail()
-                    </span>
-                    <button class="btn btn-sm btn-outline-light" @onclick="HandleLogout">
-                        <span class="bi bi-box-arrow-right me-1"></span>Logout
-                    </button>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-    </div>
+    <a class="navbar-brand" href="">Evermail</a>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
@@ -31,25 +10,30 @@
     <nav class="flex-column">
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                <i class="bi bi-house-door-fill" aria-hidden="true"></i> Home
             </NavLink>
         </div>
 
         <AuthorizeView>
             <Authorized>
                 <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="mailboxes">
+                        <i class="bi bi-inbox-fill" aria-hidden="true"></i> Mailboxes
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
                     <NavLink class="nav-link" href="upload">
-                        <span class="bi bi-cloud-upload-fill" aria-hidden="true"></span> Upload
+                        <i class="bi bi-cloud-upload-fill" aria-hidden="true"></i> Upload
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="emails">
-                        <span class="bi bi-envelope-fill" aria-hidden="true"></span> Emails
+                        <i class="bi bi-envelope-fill" aria-hidden="true"></i> Emails
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="settings">
-                        <span class="bi bi-gear-fill" aria-hidden="true"></span> Settings
+                        <i class="bi bi-gear-fill" aria-hidden="true"></i> Settings
                     </NavLink>
                 </div>
                 
@@ -58,33 +42,42 @@
                     <Authorized>
                         <div class="nav-item px-3">
                             <NavLink class="nav-link" href="admin/subscriptions">
-                                <span class="bi bi-shield-lock-fill" aria-hidden="true"></span> Admin: Subscriptions
+                                <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Admin: Subscriptions
                             </NavLink>
                         </div>
                     </Authorized>
                 </AuthorizeView>
                 
                 <!-- Dev-only links -->
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="dev/admin-roles">
-                        <span class="bi bi-tools" aria-hidden="true"></span> Dev: Admin Roles
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="dev/auth-status">
-                        <span class="bi bi-shield-check" aria-hidden="true"></span> Dev: Auth Status
-                    </NavLink>
-                </div>
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="dev/admin-roles">
+                                <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
+                            </NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="dev/auth-status">
+                                <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status
+                            </NavLink>
+                        </div>
+                        <div class="nav-item px-3">
+                            <NavLink class="nav-link" href="dev/test-keyvault">
+                                <i class="bi bi-key" aria-hidden="true"></i> Dev: Key Vault Test
+                            </NavLink>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
             </Authorized>
             <NotAuthorized>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="login">
-                        <span class="bi bi-box-arrow-in-right" aria-hidden="true"></span> Login
+                        <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Login
                     </NavLink>
                 </div>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="register">
-                        <span class="bi bi-person-plus" aria-hidden="true"></span> Register
+                        <i class="bi bi-person-plus" aria-hidden="true"></i> Register
                     </NavLink>
                 </div>
             </NotAuthorized>
@@ -92,19 +85,3 @@
     </nav>
 </div>
 
-@code {
-    private async Task HandleLogout()
-    {
-        // Remove token from localStorage
-        await AuthStateService.RemoveTokenAsync();
-        
-        // Notify authentication state changed
-        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
-        {
-            customProvider.NotifyAuthenticationStateChanged();
-        }
-
-        // Redirect to home
-        Navigation.NavigateTo("/", forceLoad: true);
-    }
-}

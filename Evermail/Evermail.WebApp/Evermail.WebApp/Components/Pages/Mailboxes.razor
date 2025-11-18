@@ -1,0 +1,279 @@
+@page "/mailboxes"
+@rendermode InteractiveServer
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Mailbox
+@using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Services
+@using System.Net.Http.Json
+@implements IDisposable
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
+
+<PageTitle>My Mailboxes - Evermail</PageTitle>
+
+<AuthorizeView>
+    <Authorized>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>My Mailboxes</h1>
+        <a href="/upload" class="btn btn-primary">
+            <i class="bi bi-cloud-upload"></i> Upload New Mailbox
+        </a>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading mailboxes...</p>
+        </div>
+    }
+    else if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger">
+            <strong>Error:</strong> @_errorMessage
+        </div>
+    }
+    else if (_mailboxes == null || !_mailboxes.Any())
+    {
+        <div class="card">
+            <div class="card-body text-center py-5">
+                <i class="bi bi-inbox display-1 text-muted"></i>
+                <h3 class="mt-3">No Mailboxes Yet</h3>
+                <p class="text-muted">Upload your first .mbox file to get started!</p>
+                <a href="/upload" class="btn btn-primary btn-lg">
+                    <i class="bi bi-cloud-upload"></i> Upload Mailbox
+                </a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card">
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>File Name</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                                <th>Progress</th>
+                                <th>Emails</th>
+                                <th>Uploaded</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var mailbox in _mailboxes)
+                            {
+                                <tr>
+                                    <td>
+                                        <strong>@mailbox.FileName</strong>
+                                    </td>
+                                    <td>@FormatFileSize(mailbox.FileSizeBytes)</td>
+                                    <td>
+                                        @GetStatusBadge(mailbox.Status)
+                                    </td>
+                                    <td>
+                                        @if (mailbox.Status == "Processing")
+                                        {
+                                            int progress;
+                                            if (mailbox.TotalEmails > 0)
+                                            {
+                                                // Use email count if we know the total
+                                                progress = (int)((double)mailbox.ProcessedEmails / mailbox.TotalEmails * 100);
+                                            }
+                                            else if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
+                                            {
+                                                // Use file size for progress when total emails unknown
+                                                progress = (int)((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100);
+                                            }
+                                            else
+                                            {
+                                                progress = 0;
+                                            }
+                                            
+                                            <div class="progress" style="width: 100px; height: 20px;">
+                                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                     role="progressbar" 
+                                                     style="width: @progress%">
+                                                    @progress%
+                                                </div>
+                                            </div>
+                                        }
+                                        else if (mailbox.Status == "Completed")
+                                        {
+                                            <span class="text-success">100%</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (mailbox.Status == "Completed")
+                                        {
+                                            <span>@mailbox.ProcessedEmails</span>
+                                            @if (mailbox.FailedEmails > 0)
+                                            {
+                                                <span class="text-danger">(@mailbox.FailedEmails failed)</span>
+                                            }
+                                        }
+                                        else if (mailbox.Status == "Processing")
+                                        {
+                                            <span>@mailbox.ProcessedEmails / @mailbox.TotalEmails</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">-</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <small>@mailbox.CreatedAt.ToString("yyyy-MM-dd HH:mm")</small>
+                                    </td>
+                                    <td>
+                                        <a href="/mailboxes/@mailbox.Id" class="btn btn-sm btn-outline-primary">
+                                            View Details
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                @if (_totalPages > 1)
+                {
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination justify-content-center">
+                            <li class="page-item @(_currentPage == 1 ? "disabled" : "")">
+                                <a class="page-link" @onclick="() => LoadMailboxes(_currentPage - 1)">Previous</a>
+                            </li>
+                            @for (int i = 1; i <= _totalPages; i++)
+                            {
+                                <li class="page-item @(i == _currentPage ? "active" : "")">
+                                    <a class="page-link" @onclick="() => LoadMailboxes(i)">@i</a>
+                                </li>
+                            }
+                            <li class="page-item @(_currentPage == _totalPages ? "disabled" : "")">
+                                <a class="page-link" @onclick="() => LoadMailboxes(_currentPage + 1)">Next</a>
+                            </li>
+                        </ul>
+                    </nav>
+                }
+            </div>
+        </div>
+    }
+</div>
+    </Authorized>
+    <NotAuthorized>
+        <RequiresAuth />
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private List<MailboxDto>? _mailboxes;
+    private bool _isLoading = true;
+    private string _errorMessage = "";
+    private int _currentPage = 1;
+    private int _totalPages = 1;
+    private System.Threading.Timer? _refreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMailboxes(1);
+        
+        // Auto-refresh every 5 seconds if there are processing mailboxes
+        _refreshTimer = new System.Threading.Timer(async _ =>
+        {
+            if (_mailboxes?.Any(m => m.Status == "Processing") == true)
+            {
+                await InvokeAsync(async () =>
+                {
+                    await LoadMailboxes(_currentPage, silent: true);
+                    StateHasChanged();
+                });
+            }
+        }, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    private async Task LoadMailboxes(int page = 1, bool silent = false)
+    {
+        if (!silent)
+        {
+            _isLoading = true;
+        }
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _errorMessage = "You must be logged in";
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/mailboxes?page={page}&pageSize=20";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+
+            var response = await Http.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<ApiResponse<PagedMailboxesResponse>>();
+                if (result?.Success == true && result.Data != null)
+                {
+                    _mailboxes = result.Data.Items;
+                    _currentPage = result.Data.Page;
+                    _totalPages = (int)Math.Ceiling((double)result.Data.TotalCount / result.Data.PageSize);
+                    _errorMessage = "";
+                }
+            }
+            else
+            {
+                _errorMessage = $"Failed to load mailboxes: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private string FormatFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        double len = bytes;
+        int order = 0;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    private RenderFragment GetStatusBadge(string status) => status switch
+    {
+        "Pending" => @<span class="badge bg-secondary">Pending</span>,
+        "Processing" => @<span class="badge bg-info">Processing</span>,
+        "Completed" => @<span class="badge bg-success">Completed</span>,
+        "Failed" => @<span class="badge bg-danger">Failed</span>,
+        _ => @<span class="badge bg-secondary">@status</span>
+    };
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+    }
+}
+
