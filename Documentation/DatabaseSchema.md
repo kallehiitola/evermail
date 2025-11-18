@@ -8,6 +8,12 @@ Evermail uses **Azure SQL Serverless** as the primary relational database. The s
 - **Full-Text Search**: SQL Server Full-Text Search on email content
 - **Audit Compliance**: Comprehensive logging for GDPR
 
+### Schema Deployment (Evermail.MigrationService)
+- The Aspire AppHost launches `Evermail.MigrationService` before the WebApp or Worker. It runs `dotnet ef database update` using the same connection string so new tables/columns (`MailboxUploads`, `MailboxDeletionQueue`, `ContentHash` indexes, etc.) exist everywhere.
+- Manual invocation (optional): `dotnet run --project Evermail.MigrationService`.
+- Verify success via Aspire logs: `Waiting for resource 'migrations'` → `Finished waiting for resource 'migrations'`.
+- No manual SQL or `dotnet ef database update` is required in CI/CD — `azd deploy` already orchestrates the migration step.
+
 ## Entity Relationship Diagram
 
 ```
@@ -145,7 +151,10 @@ CREATE TABLE Mailboxes (
     TenantId UNIQUEIDENTIFIER NOT NULL,
     UserId UNIQUEIDENTIFIER NOT NULL,
     
-    -- File Info
+    -- User-friendly metadata
+    DisplayName NVARCHAR(500) NULL,
+    
+    -- Latest upload snapshot (for backwards compatibility)
     FileName NVARCHAR(500) NOT NULL,
     FileSizeBytes BIGINT NOT NULL,
     BlobPath NVARCHAR(1000) NOT NULL, -- mbox-archives/{tenantId}/{mailboxId}/original.mbox
@@ -161,6 +170,15 @@ CREATE TABLE Mailboxes (
     ProcessedEmails INT NOT NULL DEFAULT 0,
     FailedEmails INT NOT NULL DEFAULT 0,
     
+    -- Lifecycle flags
+    LatestUploadId UNIQUEIDENTIFIER NULL, -- FK -> MailboxUploads.Id (set post creation)
+    UploadRemovedAt DATETIME2 NULL,
+    UploadRemovedByUserId UNIQUEIDENTIFIER NULL,
+    IsPendingDeletion BIT NOT NULL DEFAULT 0,
+    SoftDeletedAt DATETIME2 NULL,
+    SoftDeletedByUserId UNIQUEIDENTIFIER NULL,
+    PurgeAfter DATETIME2 NULL,
+    
     -- Timestamps
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     UpdatedAt DATETIME2 NULL,
@@ -168,8 +186,53 @@ CREATE TABLE Mailboxes (
     CONSTRAINT FK_Mailboxes_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE NO ACTION,
     CONSTRAINT FK_Mailboxes_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
     INDEX IX_Mailboxes_Tenant_User (TenantId, UserId),
-    INDEX IX_Mailboxes_Status (Status)
+    INDEX IX_Mailboxes_Status (Status),
+    INDEX IX_Mailboxes_Purge (IsPendingDeletion, PurgeAfter)
 );
+```
+
+> `LatestUploadId` is populated only when the mailbox has at least one entry in `MailboxUploads`.
+
+### MailboxUploads
+
+Keeps a history of every upload/re-import tied to a logical mailbox. Enables deleting an upload while keeping the indexed emails.
+
+```sql
+CREATE TABLE MailboxUploads (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    MailboxId UNIQUEIDENTIFIER NOT NULL,
+    UploadedByUserId UNIQUEIDENTIFIER NOT NULL,
+    
+    FileName NVARCHAR(500) NOT NULL,
+    FileSizeBytes BIGINT NOT NULL,
+    BlobPath NVARCHAR(1000) NOT NULL,
+    
+    Status NVARCHAR(50) NOT NULL DEFAULT 'Pending', -- Pending, Processing, Completed, Failed, Deleted
+    ProcessingStartedAt DATETIME2 NULL,
+    ProcessingCompletedAt DATETIME2 NULL,
+    ErrorMessage NVARCHAR(MAX) NULL,
+    
+    TotalEmails INT NOT NULL DEFAULT 0,
+    ProcessedEmails INT NOT NULL DEFAULT 0,
+    FailedEmails INT NOT NULL DEFAULT 0,
+    
+    KeepEmails BIT NOT NULL DEFAULT 0, -- true when upload deleted but emails retained
+    DeletedAt DATETIME2 NULL,
+    DeletedByUserId UNIQUEIDENTIFIER NULL,
+    PurgeAfter DATETIME2 NULL,
+    
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    
+    CONSTRAINT FK_MailboxUploads_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE NO ACTION,
+    CONSTRAINT FK_MailboxUploads_Mailbox FOREIGN KEY (MailboxId) REFERENCES Mailboxes(Id) ON DELETE CASCADE,
+    INDEX IX_MailboxUploads_Mailbox (MailboxId),
+    INDEX IX_MailboxUploads_Status (Status)
+);
+
+ALTER TABLE Mailboxes
+    ADD CONSTRAINT FK_Mailboxes_LatestUpload
+        FOREIGN KEY (LatestUploadId) REFERENCES MailboxUploads(Id);
 ```
 
 ### EmailMessages
@@ -181,6 +244,7 @@ CREATE TABLE EmailMessages (
     TenantId UNIQUEIDENTIFIER NOT NULL,
     UserId UNIQUEIDENTIFIER NOT NULL,
     MailboxId UNIQUEIDENTIFIER NOT NULL,
+    MailboxUploadId UNIQUEIDENTIFIER NULL,
     
     -- Email Headers
     MessageId NVARCHAR(512) NULL, -- SMTP Message-ID header
@@ -208,6 +272,7 @@ CREATE TABLE EmailMessages (
     Snippet NVARCHAR(512) NULL,     -- First 200 chars of text body
     TextBody NVARCHAR(MAX) NULL,
     HtmlBody NVARCHAR(MAX) NULL,
+    ContentHash VARBINARY(32) NULL,
     
     -- Metadata
     HasAttachments BIT NOT NULL DEFAULT 0,
@@ -220,12 +285,14 @@ CREATE TABLE EmailMessages (
     CONSTRAINT FK_EmailMessages_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE NO ACTION,
     CONSTRAINT FK_EmailMessages_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE NO ACTION,
     CONSTRAINT FK_EmailMessages_Mailbox FOREIGN KEY (MailboxId) REFERENCES Mailboxes(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_EmailMessages_MailboxUpload FOREIGN KEY (MailboxUploadId) REFERENCES MailboxUploads(Id) ON DELETE SET NULL,
     
     INDEX IX_EmailMessages_Tenant_User (TenantId, UserId),
     INDEX IX_EmailMessages_Mailbox (MailboxId),
     INDEX IX_EmailMessages_Date (Date),
     INDEX IX_EmailMessages_FromAddress (FromAddress),
-    INDEX IX_EmailMessages_Subject (Subject)
+    INDEX IX_EmailMessages_Subject (Subject),
+    UNIQUE (TenantId, MailboxId, ContentHash) WHERE ContentHash IS NOT NULL
 );
 
 -- Full-Text Search Catalog
@@ -271,6 +338,36 @@ CREATE TABLE Attachments (
     INDEX IX_Attachments_Tenant (TenantId)
 );
 ```
+
+### MailboxDeletionQueue
+
+Deferred deletion tasks processed by the background worker. Supports the "recycle bin" retention window (30 days) while letting SuperAdmins purge immediately.
+
+```sql
+CREATE TABLE MailboxDeletionQueue (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    MailboxId UNIQUEIDENTIFIER NOT NULL,
+    MailboxUploadId UNIQUEIDENTIFIER NULL,
+    
+    DeleteUpload BIT NOT NULL,
+    DeleteEmails BIT NOT NULL,
+    RequestedByUserId UNIQUEIDENTIFIER NOT NULL,
+    RequestedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    ExecuteAfter DATETIME2 NOT NULL,
+    ExecutedAt DATETIME2 NULL,
+    ExecutedByUserId UNIQUEIDENTIFIER NULL,
+    Status NVARCHAR(50) NOT NULL DEFAULT 'Scheduled', -- Scheduled, Running, Completed, Failed
+    Notes NVARCHAR(MAX) NULL,
+    
+    CONSTRAINT FK_MailboxDeletionQueue_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_MailboxDeletionQueue_Mailbox FOREIGN KEY (MailboxId) REFERENCES Mailboxes(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_MailboxDeletionQueue_Upload FOREIGN KEY (MailboxUploadId) REFERENCES MailboxUploads(Id) ON DELETE SET NULL,
+    INDEX IX_MailboxDeletionQueue_Status (Status, ExecuteAfter)
+);
+```
+
+The worker polls rows where `Status='Scheduled' AND ExecuteAfter <= SYSUTCDATETIME()` and performs blob + DB cleanup. SuperAdmins can set `ExecuteAfter = GETUTCDATE()` to bypass the 30-day wait.
 
 ## Subscription & Billing
 
@@ -424,6 +521,22 @@ INSERT INTO AuditLogs (TenantId, UserId, Action, Details)
 VALUES ('tenant-id', 'user-id', 'DataExported', '{"format":"zip","sizeBytes":1048576}');
 ```
 
+Mailbox lifecycle operations MUST emit similar entries. Example when deleting an upload but keeping the indexed emails:
+
+```json
+{
+  "action": "MailboxUploadDeleted",
+  "resourceType": "Mailbox",
+  "resourceId": "mailbox-id",
+  "details": {
+    "uploadId": "upload-id",
+    "deleteUpload": true,
+    "deleteEmails": false,
+    "purgeAfter": "2025-12-18T00:00:00Z"
+  }
+}
+```
+
 ## Phase 2 Tables (Future)
 
 ### Workspaces
@@ -515,6 +628,9 @@ CREATE TABLE PIIDetection (
     INDEX IX_PIIDetection_Tenant_PIIType (TenantId, PIIType)
 );
 ```
+
+### EmailThreads (Planned)
+Future table to normalize email conversation metadata (root message id, thread participants, latest activity). Required to power threaded views in the UI without repeated expensive queries. Definition TBD once the viewer feature moves into active development.
 
 ## Indexes Summary
 

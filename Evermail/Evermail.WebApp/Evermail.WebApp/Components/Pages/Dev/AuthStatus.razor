@@ -80,12 +80,7 @@
             </div>
         </Authorized>
         <NotAuthorized>
-            <div class="alert alert-danger">
-                <h4>❌ You are NOT logged in</h4>
-                <p>Please login to continue</p>
-                <a href="/login" class="btn btn-primary">Login</a>
-                <a href="/register" class="btn btn-secondary ms-2">Register</a>
-            </div>
+            <CheckAuthAndRedirect />
         </NotAuthorized>
     </AuthorizeView>
 </div>

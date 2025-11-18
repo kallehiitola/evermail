@@ -99,8 +99,28 @@ public class AuthenticationStateService : IAuthenticationStateService
             return null;
         }
 
-        var principal = _jwtTokenService.ValidateToken(token);
-        return principal;
+        try
+        {
+            var principal = _jwtTokenService.ValidateToken(token);
+            
+            // Ensure the identity is marked as authenticated
+            if (principal != null && principal.Identity != null && !principal.Identity.IsAuthenticated)
+            {
+                // Create a new authenticated identity from the claims
+                var claims = principal.Claims.ToList();
+                var authenticatedIdentity = new ClaimsIdentity(claims, "jwt", ClaimTypes.Name, ClaimTypes.Role);
+                principal = new ClaimsPrincipal(authenticatedIdentity);
+            }
+            
+            return principal;
+        }
+        catch (Exception ex)
+        {
+            // Token validation failed - log but don't throw
+            // This allows the app to continue and show login page
+            System.Diagnostics.Debug.WriteLine($"Token validation failed: {ex.Message}");
+            return null;
+        }
     }
 
     public async Task<bool> RefreshTokenIfNeededAsync()

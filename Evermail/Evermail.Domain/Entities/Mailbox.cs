@@ -12,7 +12,11 @@ public class Mailbox
     [Required, MaxLength(64)]
     public Guid UserId { get; set; }
     
-    // File Info
+    // User defined metadata
+    [MaxLength(500)]
+    public string? DisplayName { get; set; }
+    
+    // File Info (legacy snapshot of latest upload)
     [Required, MaxLength(500)]
     public string FileName { get; set; } = string.Empty;
     
@@ -36,6 +40,15 @@ public class Mailbox
     public int FailedEmails { get; set; }
     public long ProcessedBytes { get; set; } // Track bytes processed for progress calculation
     
+    // Lifecycle / uploads
+    public Guid? LatestUploadId { get; set; }
+    public DateTime? UploadRemovedAt { get; set; }
+    public Guid? UploadRemovedByUserId { get; set; }
+    public bool IsPendingDeletion { get; set; }
+    public DateTime? SoftDeletedAt { get; set; }
+    public Guid? SoftDeletedByUserId { get; set; }
+    public DateTime? PurgeAfter { get; set; }
+    
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
@@ -44,5 +57,7 @@ public class Mailbox
     public Tenant Tenant { get; set; } = null!;
     public ApplicationUser User { get; set; } = null!;
     public ICollection<EmailMessage> EmailMessages { get; set; } = new List<EmailMessage>();
+    public ICollection<MailboxUpload> Uploads { get; set; } = new List<MailboxUpload>();
+    public MailboxUpload? LatestUpload { get; set; }
 }
 

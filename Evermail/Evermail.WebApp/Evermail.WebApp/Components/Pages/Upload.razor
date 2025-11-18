@@ -4,6 +4,7 @@
 @using Evermail.Common.DTOs.Upload
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.WebUtilities
 @using Evermail.WebApp.Services
 @using System.Net.Http.Json
 @inject HttpClient Http
@@ -16,8 +17,17 @@
 <AuthorizeView>
     <Authorized>
 <div class="container mt-4">
-    <h1>Upload Email Archive</h1>
-    <p class="text-muted">Upload your .mbox file or email export to get started</p>
+    <h1>@(_targetMailboxId.HasValue ? "Re-import Mailbox" : "Upload Email Archive")</h1>
+    <p class="text-muted">
+        @if (_targetMailboxId.HasValue)
+        {
+            <span>Upload a newer export to merge it into your existing mailbox without duplicates.</span>
+        }
+        else
+        {
+            <span>Upload your .mbox file or email export to get started.</span>
+        }
+    </p>
     
     @if (_isUploading)
     {
@@ -130,18 +140,7 @@
 </div>
     </Authorized>
     <NotAuthorized>
-        <div class="container mt-5">
-            <div class="alert alert-warning">
-                <h4>Authentication Required</h4>
-                <p>You must be logged in to upload files.</p>
-                <a href="/login" class="btn btn-primary">
-                    <i class="bi bi-box-arrow-in-right me-1"></i>Login
-                </a>
-                <a href="/register" class="btn btn-secondary ms-2">
-                    <i class="bi bi-person-plus me-1"></i>Register
-                </a>
-            </div>
-        </div>
+        <CheckAuthAndRedirect />
     </NotAuthorized>
 </AuthorizeView>
 
@@ -164,9 +163,17 @@
     private TimeSpan _estimatedTimeRemaining;
     private string _errorMessage = "";
     private Guid _completedMailboxId;
+    private Guid? _targetMailboxId;
 
     protected override async Task OnInitializedAsync()
     {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = QueryHelpers.ParseQuery(uri.Query);
+        if (query.TryGetValue("mailboxId", out var mailboxIdParam) && Guid.TryParse(mailboxIdParam, out var mailboxId))
+        {
+            _targetMailboxId = mailboxId;
+        }
+
         // TODO: Get tenant's plan and max file size from API
         // For now, defaulting to Enterprise tier (100GB) for testing
         _maxFileSizeGB = 100;
@@ -213,7 +220,8 @@
             request.Content = JsonContent.Create(new InitiateUploadRequest(
                 _fileName,
                 _totalBytes,
-                _fileType
+                _fileType,
+                _targetMailboxId
             ));
             
             var initiateResponse = await Http.SendAsync(request);
@@ -244,7 +252,8 @@
             var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
             completeRequest.Headers.Add("Authorization", $"Bearer {token}");
             completeRequest.Content = JsonContent.Create(new CompleteUploadRequest(
-                result.Data.MailboxId
+                result.Data.MailboxId,
+                result.Data.UploadId
             ));
             
             var completeResponse = await Http.SendAsync(completeRequest);

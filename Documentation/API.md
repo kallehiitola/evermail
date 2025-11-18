@@ -106,12 +106,27 @@ List all mailboxes for the current user.
     "items": [
       {
         "id": "guid",
+        "displayName": "Personal Gmail",
         "fileName": "gmail-export.mbox",
         "fileSizeBytes": 52428800,
         "status": "Completed",
         "totalEmails": 1523,
         "processedEmails": 1523,
         "failedEmails": 0,
+        "processedBytes": 52428800,
+        "uploadRemoved": false,
+        "isPendingDeletion": false,
+        "latestUpload": {
+          "id": "guid",
+          "fileName": "gmail-export.mbox",
+          "fileSizeBytes": 52428800,
+          "status": "Completed",
+          "keepEmails": false,
+          "createdAt": "2025-11-10T15:30:00Z",
+          "processingStartedAt": "2025-11-10T15:31:00Z",
+          "processingCompletedAt": "2025-11-10T15:35:00Z",
+          "deletedAt": null
+        },
         "createdAt": "2025-11-10T15:30:00Z",
         "processingCompletedAt": "2025-11-10T15:35:00Z"
       }
@@ -135,6 +150,7 @@ Upload a new .mbox file.
   "success": true,
   "data": {
     "mailboxId": "guid",
+    "uploadId": "guid",
     "fileName": "archive.mbox",
     "status": "Pending",
     "message": "Upload successful. Processing will begin shortly."
@@ -165,12 +181,139 @@ Get mailbox details.
 }
 ```
 
+### PATCH /mailboxes/{id}
+Rename an existing mailbox (cosmetic only).
+
+**Request Body**:
+```json
+{
+  "displayName": "Client Archive (2019-2024)"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "guid",
+    "displayName": "Client Archive (2019-2024)"
+  }
+}
+```
+
+### GET /mailboxes/{id}/uploads
+List upload/re-import history for a mailbox.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "guid",
+      "fileName": "gmail-export.mbox",
+      "fileSizeBytes": 52428800,
+      "status": "Completed",
+      "uploadedAt": "2025-11-10T15:30:00Z",
+      "keepEmails": false,
+      "deletedAt": null
+    }
+  ]
+}
+```
+
+### POST /mailboxes/{id}/uploads
+Re-import emails into an existing mailbox. This is a convenience wrapper that internally calls `POST /upload/initiate` with `mailboxId` and then `POST /upload/complete` using the returned `uploadId`. Duplicate emails are skipped using the per-message `ContentHash`.
+
+**Response (202 Accepted)** mirrors `POST /mailboxes` and includes `uploadId`.
+
+### POST /mailboxes/{id}/delete
+Soft-delete mailbox data with granular options. Payload determines whether to remove the uploaded blob, indexed emails, or both. Unless `purgeNow` is `true` and the caller is a SuperAdmin, the request is scheduled in the recycle bin for 30 days.
+
+**Request Body**:
+```json
+{
+  "deleteUpload": true,
+  "deleteEmails": false,
+  "purgeNow": false
+}
+```
+
+**Response (202 Accepted)**:
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "guid",
+    "executeAfter": "2025-12-18T00:00:00Z",
+    "status": "Scheduled"
+  }
+}
+```
+
 ### DELETE /mailboxes/{id}
-Delete a mailbox and all associated emails/attachments.
+Immediate hard-delete of a mailbox. Restricted to SuperAdmins and bypasses the recycle bin. Normal users should call `POST /mailboxes/{id}/delete`.
 
 **Response (204 No Content)**
 
 ---
+
+## Upload Workflow (Client Handshake)
+
+Uploading large .mbox files happens in two steps so that the browser can stream directly to Azure Blob Storage while the API tracks `MailboxUpload` metadata.
+
+### POST /upload/initiate
+Request a short-lived SAS URL for uploading a file.
+
+**Request Body**:
+```json
+{
+  "fileName": "gmail-export.mbox",
+  "fileSizeBytes": 52428800,
+  "fileType": "mbox",
+  "mailboxId": "guid (optional when re-importing)"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://storage.blob.core.windows.net/mbox-archives/...sig...",
+    "blobPath": "mbox-archives/{tenantId}/{mailboxId}/original.mbox",
+    "mailboxId": "guid",
+    "uploadId": "guid",
+    "expiresAt": "2025-11-18T18:30:00Z"
+  }
+}
+```
+
+### POST /upload/complete
+Tell the API the browser finished uploading the blob so it can enqueue processing.
+
+**Request Body**:
+```json
+{
+  "mailboxId": "guid",
+  "uploadId": "guid"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "mailboxId": "guid",
+    "uploadId": "guid",
+    "status": "Queued"
+  }
+}
+```
+
+If the client calls `/mailboxes/{id}/uploads` the server wraps both steps and returns the same payload.
 
 ## Emails
 
@@ -186,12 +329,14 @@ Search emails with full-text query.
 - `hasAttachments` (optional): `true` or `false`
 - `page` (default: 1)
 - `pageSize` (default: 50, max: 100)
-- `sortBy` (default: `date`): `date`, `subject`, `from`
+- `sortBy` (default: `rank` when `q` provided, otherwise `date`): `rank`, `date`, `subject`, `from`
 - `sortOrder` (default: `desc`): `asc`, `desc`
+- `stopWords` (optional): Comma-separated list of terms to ignore when executing full-text search (e.g., `stopWords=the,and,or`)
+- `useInflectionalForms` (optional, default: `false`): When `true`, wraps each token in `FORMSOF(INFLECTIONAL, ...)` so `plan` also matches `planned`, `planning`, etc.
 
 **Example Request**:
 ```
-GET /emails/search?q=invoice&dateFrom=2025-01-01&hasAttachments=true&page=1&pageSize=20
+GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,and&useInflectionalForms=true&sortBy=rank&page=1&pageSize=20
 ```
 
 **Response (200 OK)**:
@@ -210,7 +355,9 @@ GET /emails/search?q=invoice&dateFrom=2025-01-01&hasAttachments=true&page=1&page
         "snippet": "Thank you for your payment. Attached is your invoice...",
         "hasAttachments": true,
         "attachmentCount": 1,
-        "isRead": false
+        "isRead": false,
+        "firstAttachmentId": "fd0a21c5-1815-4c9d-a8f6-4e34cd0f57e8",
+        "rank": 765
       }
     ],
     "totalCount": 42,
@@ -220,6 +367,8 @@ GET /emails/search?q=invoice&dateFrom=2025-01-01&hasAttachments=true&page=1&page
   }
 }
 ```
+
+When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can surface relevance. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
 
 ### GET /emails/{id}
 Get full email details.

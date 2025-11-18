@@ -1,0 +1,26 @@
+{
+  "$schema": "https://cursor.com/schemas/worktrees.json",
+  "setup-worktree-unix": [
+    "echo '🔍 Checking Docker (Aspire containers need a running OCI runtime)...'",
+    "if command -v docker >/dev/null 2>&1; then if docker info >/dev/null 2>&1; then echo '✅ Docker Desktop is running.'; else echo '⚠️ Docker is installed but not running. Start it for Aspire SQL/Azurite containers.'; fi else echo '⚠️ Docker CLI not found. Install per https://learn.microsoft.com/dotnet/aspire/fundamentals/setup-tooling#install-aspire-prerequisites'; fi",
+    "echo '🔧 Restoring .NET workloads (global.json guided)...'",
+    "dotnet workload restore",
+    "echo '📦 Restoring Evermail solution packages...'",
+    "dotnet restore Evermail/Evermail.sln",
+    "echo '🚀 Building AppHost to validate Aspire orchestration...'",
+    "dotnet build Evermail/Evermail.AppHost/Evermail.AppHost.csproj",
+    "echo '✅ Worktree ready for Evermail Aspire development.'"
+  ],
+  "setup-worktree-windows": [
+    "echo Checking Docker (Aspire containers need a running OCI runtime)...",
+    "if (Get-Command docker -ErrorAction SilentlyContinue) { try { docker info | Out-Null; Write-Host '✅ Docker Desktop is running.' } catch { Write-Warning 'Docker installed but not running. Start it for Aspire SQL/Azurite containers.' } } else { Write-Warning 'Docker CLI not found. Install per https://learn.microsoft.com/dotnet/aspire/fundamentals/setup-tooling#install-aspire-prerequisites' }",
+    "echo Restoring .NET workloads (global.json guided)...",
+    "dotnet workload restore",
+    "echo Restoring Evermail solution packages...",
+    "dotnet restore Evermail\\Evermail.sln",
+    "echo Building AppHost to validate Aspire orchestration...",
+    "dotnet build Evermail\\Evermail.AppHost\\Evermail.AppHost.csproj",
+    "echo Worktree ready for Evermail Aspire development."
+  ]
+}
+

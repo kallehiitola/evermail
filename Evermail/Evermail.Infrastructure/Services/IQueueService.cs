@@ -3,8 +3,13 @@ namespace Evermail.Infrastructure.Services;
 public interface IQueueService
 {
     /// <summary>
-    /// Enqueues a mailbox for background processing by the IngestionWorker.
+    /// Enqueues a mailbox upload for background processing by the IngestionWorker.
     /// </summary>
-    Task EnqueueMailboxProcessingAsync(Guid mailboxId);
+    Task EnqueueMailboxProcessingAsync(Guid mailboxId, Guid mailboxUploadId);
+
+    /// <summary>
+    /// Enqueues a mailbox deletion job for background processing.
+    /// </summary>
+    Task EnqueueMailboxDeletionAsync(Guid deletionJobId, Guid mailboxId);
 }
 

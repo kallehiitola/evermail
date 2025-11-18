@@ -12,8 +12,10 @@ public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
     private readonly IServiceProvider _serviceProvider;
-    private readonly QueueClient _queueClient;
-    private const string QueueName = "mailbox-processing";
+    private readonly QueueClient _ingestionQueue;
+    private readonly QueueClient _deletionQueue;
+    private const string IngestionQueueName = "mailbox-ingestion";
+    private const string DeletionQueueName = "mailbox-deletion";
 
     public Worker(
         ILogger<Worker> logger,
@@ -22,97 +24,182 @@ public class Worker : BackgroundService
     {
         _logger = logger;
         _serviceProvider = serviceProvider;
-        _queueClient = queueServiceClient.GetQueueClient(QueueName);
+        _ingestionQueue = queueServiceClient.GetQueueClient(IngestionQueueName);
+        _deletionQueue = queueServiceClient.GetQueueClient(DeletionQueueName);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Mailbox processing worker started");
+        _logger.LogInformation("Mailbox worker started");
 
-        // Ensure queue exists
-        await _queueClient.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
+        await _ingestionQueue.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
+        await _deletionQueue.CreateIfNotExistsAsync(cancellationToken: stoppingToken);
 
-        while (!stoppingToken.IsCancellationRequested)
+        var ingestionTask = ProcessIngestionQueueAsync(stoppingToken);
+        var deletionTask = ProcessDeletionQueueAsync(stoppingToken);
+
+        await Task.WhenAll(ingestionTask, deletionTask);
+    }
+
+    private async Task ProcessIngestionQueueAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                // Poll queue for messages (receive up to 10 messages at a time)
-                var response = await _queueClient.ReceiveMessagesAsync(
+                var response = await _ingestionQueue.ReceiveMessagesAsync(
                     maxMessages: 10,
-                    cancellationToken: stoppingToken);
+                    cancellationToken: cancellationToken);
 
-                if (response.Value != null && response.Value.Length > 0)
+                if (response.Value is { Length: > 0 })
                 {
-                    _logger.LogInformation("Received {Count} messages from queue", response.Value.Length);
-
                     foreach (var message in response.Value)
                     {
-                        await ProcessMessageAsync(message, stoppingToken);
+                        await ProcessMailboxMessageAsync(message, cancellationToken);
                     }
                 }
                 else
                 {
-                    // No messages, wait before polling again
-                    await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                    await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error polling queue");
-                await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
+                _logger.LogError(ex, "Error polling ingestion queue");
+                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
             }
         }
     }
 
-    private async Task ProcessMessageAsync(
+    private async Task ProcessDeletionQueueAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var response = await _deletionQueue.ReceiveMessagesAsync(
+                    maxMessages: 5,
+                    cancellationToken: cancellationToken);
+
+                if (response.Value is { Length: > 0 })
+                {
+                    foreach (var message in response.Value)
+                    {
+                        await ProcessDeletionMessageAsync(message, cancellationToken);
+                    }
+                }
+                else
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error polling deletion queue");
+                await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
+            }
+        }
+    }
+
+    private async Task ProcessMailboxMessageAsync(
         Azure.Storage.Queues.Models.QueueMessage message,
         CancellationToken cancellationToken)
     {
         Guid mailboxId = Guid.Empty;
+        Guid uploadId = Guid.Empty;
 
         try
         {
-            // Deserialize queue message
             var queueData = JsonSerializer.Deserialize<MailboxQueueMessage>(message.MessageText);
-            if (queueData == null || queueData.MailboxId == Guid.Empty)
+            if (queueData == null || queueData.MailboxId == Guid.Empty || queueData.UploadId == Guid.Empty)
             {
-                _logger.LogWarning("Invalid queue message: {MessageText}", message.MessageText);
-                await _queueClient.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+                _logger.LogWarning("Invalid ingestion queue message: {MessageText}", message.MessageText);
+                await _ingestionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
                 return;
             }
 
             mailboxId = queueData.MailboxId;
-            _logger.LogInformation("Processing mailbox {MailboxId}", mailboxId);
+            uploadId = queueData.UploadId;
+            _logger.LogInformation("Processing mailbox {MailboxId} upload {UploadId}", mailboxId, uploadId);
 
-            // Create a scope for this processing operation
             using var scope = _serviceProvider.CreateScope();
             var processingService = scope.ServiceProvider.GetRequiredService<MailboxProcessingService>();
 
-            // Process the mailbox
-            await processingService.ProcessMailboxAsync(mailboxId, cancellationToken);
+            await processingService.ProcessMailboxAsync(mailboxId, uploadId, cancellationToken);
 
-            // Delete message from queue after successful processing
-            await _queueClient.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+            await _ingestionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
 
-            _logger.LogInformation("Successfully processed mailbox {MailboxId}", mailboxId);
+            _logger.LogInformation("Successfully processed mailbox {MailboxId} upload {UploadId}", mailboxId, uploadId);
         }
         catch (Exception ex)
         {
             _logger.LogError(
                 ex,
-                "Failed to process mailbox {MailboxId}. Message will remain in queue for retry.",
-                mailboxId
+                "Failed to process mailbox {MailboxId} upload {UploadId}. Message will remain in queue for retry.",
+                mailboxId,
+                uploadId
             );
-
-            // Message will remain in queue and become visible again after visibility timeout
-            // This allows for automatic retry
-            // In production, you might want to implement dead-letter queue after N retries
         }
     }
 
-    private record MailboxQueueMessage
+    private async Task ProcessDeletionMessageAsync(
+        Azure.Storage.Queues.Models.QueueMessage message,
+        CancellationToken cancellationToken)
     {
-        public Guid MailboxId { get; init; }
-        public DateTime EnqueuedAt { get; init; }
+        Guid jobId = Guid.Empty;
+        try
+        {
+            var queueData = JsonSerializer.Deserialize<MailboxDeletionMessage>(message.MessageText);
+            if (queueData == null || queueData.JobId == Guid.Empty)
+            {
+                _logger.LogWarning("Invalid deletion queue message: {MessageText}", message.MessageText);
+                await _deletionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+                return;
+            }
+
+            jobId = queueData.JobId;
+
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<EvermailDbContext>();
+            var job = await context.MailboxDeletionQueue
+                .AsNoTracking()
+                .FirstOrDefaultAsync(j => j.Id == jobId, cancellationToken);
+
+            if (job == null)
+            {
+                _logger.LogWarning("Deletion job {JobId} not found, removing message", jobId);
+                await _deletionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+                return;
+            }
+
+            if (job.ExecuteAfter > DateTime.UtcNow)
+            {
+                var delay = job.ExecuteAfter - DateTime.UtcNow;
+                if (delay < TimeSpan.FromMinutes(1))
+                {
+                    delay = TimeSpan.FromMinutes(1);
+                }
+
+                await _deletionQueue.UpdateMessageAsync(
+                    message.MessageId,
+                    message.PopReceipt,
+                    message.MessageText,
+                    delay,
+                    cancellationToken);
+                return;
+            }
+
+            var deletionService = scope.ServiceProvider.GetRequiredService<MailboxDeletionService>();
+            await deletionService.ExecuteDeletionJobAsync(jobId, cancellationToken);
+
+            await _deletionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process deletion job {JobId}", jobId);
+        }
     }
+
+    private record MailboxQueueMessage(Guid MailboxId, Guid UploadId, DateTime EnqueuedAt);
+    private record MailboxDeletionMessage(Guid JobId, Guid MailboxId, DateTime EnqueuedAt);
 }

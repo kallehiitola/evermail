@@ -51,6 +51,7 @@ builder.Services.AddSingleton(sp =>
 
 // Services
 builder.Services.AddScoped<MailboxProcessingService>();
+builder.Services.AddScoped<MailboxDeletionService>();
 
 // Worker
 builder.Services.AddHostedService<Worker>();

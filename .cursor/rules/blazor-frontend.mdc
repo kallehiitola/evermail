@@ -133,13 +133,19 @@ For 90% of Evermail pages: Use InteractiveServer
 ```razor
 @page "/admin/dashboard"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin")]
 @inject ITenantService TenantService
 
-<MudDataGrid Items="@_tenants" 
-             @bind-SelectedItem="_selectedTenant">
-    @* Real-time tenant management *@
-</MudDataGrid>
+<AuthorizeView Roles="Admin,SuperAdmin">
+    <Authorized>
+        <MudDataGrid Items="@_tenants" 
+                     @bind-SelectedItem="_selectedTenant">
+            @* Real-time tenant management *@
+        </MudDataGrid>
+    </Authorized>
+    <NotAuthorized>
+        <CheckAuthAndRedirect />
+    </NotAuthorized>
+</AuthorizeView>
 
 @code {
     // Real-time data updates, complex interactions
@@ -194,6 +200,23 @@ For 90% of Evermail pages: Use InteractiveServer
 2. Can use different interactive modes for **sibling** components
 3. **CANNOT** switch interactive render mode in child components
 4. Parameters from Static→Interactive must be JSON serializable (no RenderFragment)
+
+### Authorization Pattern (Blazor)
+
+**Do NOT use `@attribute [Authorize]` on Razor components.** It short-circuits the router and prevents redirects/404 pages.
+
+Instead:
+
+1. **Router-level guard** (`Components/Routes.razor`)
+   - `<AuthorizeRouteView>` renders `<RedirectToLogin />` when unauthorized.
+2. **Page-level guard**
+   - Wrap every protected page in `<AuthorizeView>` with `<CheckAuthAndRedirect />` inside `<NotAuthorized>`.
+   - Optionally set `Roles="..."` on `<AuthorizeView>` for role-specific pages.
+3. **Shared components**
+   - `<RedirectToLogin />` uses `Navigation.NavigateTo("/login?returnUrl=...")`.
+   - `<CheckAuthAndRedirect />` verifies client-side auth after hydration and shows `<RequiresAuth />` fallback UI.
+
+This pattern keeps HTTP responses 200 (so the Blazor app can render), ensures consistent redirects, and avoids `401` HTML pages for interactive routes.
 
 ### HttpClient Configuration by Render Mode
 

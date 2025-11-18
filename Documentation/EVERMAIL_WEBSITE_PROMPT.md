@@ -18,6 +18,41 @@
 - **Light Gray**: `#F1F5F9` - Section backgrounds, cards
 - **Dark Charcoal**: `#1E293B` - Dark sections, footers
 
+### Theme System (Light & Dark)
+To align the product experience with the marketing reference layout, Evermail now ships with an explicit light/dark mode vocabulary. Use the following CSS tokens (defined in `wwwroot/app.css`) anywhere UI colors are needed.
+
+| Token | Light Mode | Dark Mode | Usage |
+|-------|------------|-----------|-------|
+| `--color-brand-primary` | `#2563EB` | `#7AB8FF` | Primary CTAs, key icons |
+| `--color-brand-accent` | `#06B6D4` | `#5DE1D6` | Secondary buttons, links, highlights |
+| `--color-brand-deep` | `#0F172A` | `#E2E8F0` | Headlines, logo wordmark |
+| `--color-surface` | `#FFFFFF` | `#0B1120` | Cards, panels, hero blocks |
+| `--color-surface-muted` | `#F1F5F9` | `#111827` | Section backgrounds, alternating rows |
+| `--color-border` | `#E2E8F0` | `#1F2937` | Dividers, card borders |
+| `--color-text-primary` | `#0F172A` | `#F8FAFC` | Body text |
+| `--color-text-secondary` | `#475569` | `#94A3B8` | Captions, helper text |
+| `--color-progress-success` | `#10B981` | `#34D399` | Positive bars/badges |
+| `--color-progress-warning` | `#F97316` | `#FB923C` | Warnings, quota alerts |
+
+**Background Layers**
+- **Base** (`--color-app-bg`): `#F8FAFC` light / `#020617` dark. Applied to `<body>`.
+- **Surface** (`--color-surface`): use for hero cards, dashboard tiles.
+- **Elevated Surface**: apply `box-shadow: 0 20px 45px rgba(15, 23, 42, 0.15)` in light or `rgba(2, 6, 23, 0.8)` in dark.
+
+**Gradient Accent**
+- `--color-brand-gradient`: `linear-gradient(120deg, #2563EB 0%, #06B6D4 70%)`. Use for CTA backgrounds, progress highlights, and the infinity logo stroke when rendered as a vector.
+
+**Logo Usage**
+- **Light backgrounds**: Use the transparent PNG/SVG with Deep Blue symbol + Cyan wordmark.
+- **Dark backgrounds** (hero/footer): Use the black background or invert the wordmark so the infinity loop is Cyan→Blue and the word “evermail” is `#A5F3FC`.
+- Maintain minimum padding equal to the height of the infinity loop on all sides.
+- Do not recolor the loop outside of the gradient unless accessibility requires a solid white version.
+
+**Implementation Notes**
+- The Blazor app stores the preferred theme in `localStorage` (`evermail-theme`) and mirrors it to `data-theme` on `<html>` for instant styling.
+- Users can toggle light/dark mode via the new header toggle (moon/sun icon). When no preference is stored we fall back to `prefers-color-scheme`.
+- Gradients and tokens are centralized in CSS so the marketing site (Framer) and in-app UI can share the same palette.
+
 ### Usage Guidelines
 - Primary CTAs: Deep Blue (#2563EB) with white text
 - Hover states: Bright Cyan (#06B6D4)

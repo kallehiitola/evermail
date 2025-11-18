@@ -221,6 +221,30 @@ public class PlatformAdminController : ControllerBase
 }
 ```
 
+### Blazor UI Authorization Pattern
+- ❌ Do **not** add `@attribute [Authorize]` to Razor components. HTTP middleware must stay open so the Blazor router can render redirects and 404s.
+- ✅ Global guard lives in `Components/Routes.razor` via `<AuthorizeRouteView>` and `<RedirectToLogin />`.
+- ✅ Every protected page wraps its content with `<AuthorizeView>` (set `Roles="..."` when needed) and renders `<CheckAuthAndRedirect />` for `<NotAuthorized>`. This component re-checks auth client-side after hydration and sends the user to `/login?returnUrl=...`.
+- ✅ `<RequiresAuth />` is the visual fallback while the redirect is happening.
+
+This keeps UX consistent (always redirect to login) and avoids raw 401 HTML responses for interactive routes.
+
+### Development-Only AI Impersonation Helper
+- Purpose: let the `@Browser` automation inspect protected UI screens without performing the entire OAuth/password flow.
+- Scope: **Development environment only**. The middleware is short-circuited automatically when `IHostEnvironment.IsDevelopment()` is `false`.
+- Trigger: append `?ai=1` (configurable via `AiImpersonation:TriggerQueryKey/TriggerValue`) to any local URL, for example `https://localhost:7136/mailboxes?ai=1`.
+- Behavior: after `UseAuthentication` runs, the middleware loads the configured user (default `kalle.hiitola@gmail.com`), builds the usual claims (`sub`, `tenant_id`, roles, etc.), and assigns them to `HttpContext.User` so TenantContext and RBAC continue to function normally.
+- Configuration (add only to `appsettings.Development.json`):
+  ```json
+  "AiImpersonation": {
+    "Enabled": true,
+    "TriggerQueryKey": "ai",
+    "TriggerValue": "1",
+    "UserEmail": "kalle.hiitola@gmail.com"
+  }
+  ```
+- Safety: leave `Enabled` as `false` (or remove the section entirely) in any shared dev/staging/prod environment to avoid accidental bypasses. The helper never runs in production, but still avoid merging the configuration section outside local dev.
+
 ## Data Protection
 
 ### Encryption at Rest
@@ -437,6 +461,8 @@ public string SanitizeHtmlBody(string html)
 }
 ```
 
+> **Ingestion note**: `MailboxProcessingService` stores both the `TextBody` and raw `HtmlBody` that MimeKit extracts so the viewer can render the original context. Treat every stored HTML fragment as untrusted input—always run it through the sanitizer above (or an equivalent CSP-safe renderer) before using `MarkupString`, otherwise hostile emails could persistently inject scripts into the UI.
+
 ### File Upload Security
 
 #### .mbox File Validation
@@ -559,6 +585,13 @@ Users can delete their account via `/api/users/me` (DELETE):
 4. Anonymize audit logs (replace `UserId` with `[deleted]`)
 5. Cancel Stripe subscription
 6. Wait 30 days, then hard-delete user record
+
+### Mailbox Deletion Workflow
+- UI/API actions (`rename`, `delete upload`, `delete emails`, `purge`) write to `MailboxDeletionQueue` (DB) and enqueue a message on the `mailbox-deletion` Azure Storage Queue.
+- Worker processes queue messages using tenant-scoped credentials, deletes blobs first, then database rows, finally writes structured `AuditLogs` entries (`MailboxUploadDeleted`, `MailboxEmailsDeleted`, `MailboxPurged`).
+- Default retention window: 30 days (`ExecuteAfter = RequestedAt + 30d`). SuperAdmins may pass `purgeNow=true` to bypass the retention window (still audited).
+- Mailboxes stay visible while emails remain. Once both upload + emails are deleted, worker marks the mailbox as `SoftDeletedAt` and schedules hard delete.
+- Deduplication (`ContentHash`) prevents re-importing duplicates. Each re-import is logged via `MailboxReimported`.
 
 ### Data Retention Policies
 - **Free Tier**: 30 days

@@ -61,10 +61,7 @@
             </div>
         </Authorized>
         <NotAuthorized>
-            <div class="alert alert-warning">
-                You must be logged in to view this page.
-                <a href="/login" class="alert-link">Please login</a>.
-            </div>
+            <CheckAuthAndRedirect />
         </NotAuthorized>
     </AuthorizeView>
 </div>

@@ -4,6 +4,9 @@ using Evermail.Infrastructure.Services;
 using Evermail.WebApp.Client.Pages;
 using Evermail.WebApp.Components;
 using Evermail.WebApp.Endpoints;
+using Evermail.WebApp.Configuration;
+using Evermail.WebApp.Middleware;
+using Evermail.WebApp.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -16,6 +19,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults (Aspire telemetry, service discovery)
 builder.AddServiceDefaults();
+
+builder.Services.Configure<AiImpersonationOptions>(
+    builder.Configuration.GetSection(AiImpersonationOptions.SectionName));
 
 // Load secrets from Azure Key Vault
 // - In production: Uses managed identity (automatic)
@@ -78,11 +84,30 @@ builder.Services.AddScoped<IJwtTokenService>(sp =>
 
 var authBuilder = builder.Services.AddAuthentication(options =>
 {
+    // JWT Bearer is used for API endpoints
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
     options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
 })
 .AddJwtBearer(options =>
 {
+    // Only challenge (return 401) for API routes, not Blazor routes
+    options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+    {
+        OnChallenge = context =>
+        {
+            // If this is a Blazor route (not /api/*), suppress the challenge
+            // This allows Blazor routes to render and handle authorization at component level
+            var path = context.Request.Path.Value ?? "";
+            if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+            {
+                context.HandleResponse();
+                return Task.CompletedTask;
+            }
+            // For API routes, let the default challenge behavior proceed (return 401)
+            return Task.CompletedTask;
+        }
+    };
+    
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -134,7 +159,12 @@ else
     Console.WriteLine("⚠️  Microsoft OAuth not configured (missing credentials)");
 }
 
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    // Don't set a fallback policy - let Blazor components handle authorization
+    // This allows anonymous access at HTTP level, authorization happens at component level
+    options.FallbackPolicy = null;
+});
 
 // Add 2FA service
 builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
@@ -167,6 +197,7 @@ builder.Services.AddScoped<IQueueService, QueueService>();
 builder.Services.AddScoped<Evermail.WebApp.Services.IAuthenticationStateService, Evermail.WebApp.Services.AuthenticationStateService>();
 builder.Services.AddScoped<AuthenticationStateProvider, Evermail.WebApp.Services.CustomAuthenticationStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
+builder.Services.AddScoped<ThemeService>();
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>
@@ -250,15 +281,18 @@ app.MapStaticAssets();
 app.UseAntiforgery();
 
 app.UseAuthentication();
-app.UseAuthorization();
+app.UseMiddleware<AiImpersonationMiddleware>();
 
 // Map API endpoints
 var api = app.MapGroup("/api/v1");
-api.MapGroup("/auth").MapAuthEndpoints().MapOAuthEndpoints();
-api.MapGroup("/upload").MapUploadEndpoints();
-api.MapGroup("/mailboxes").MapMailboxEndpoints();
-api.MapGroup("/emails").MapEmailEndpoints();
-api.MapGroup("/attachments").MapAttachmentEndpoints();
+// Auth endpoints allow anonymous (login, register, OAuth)
+var authApi = api.MapGroup("/auth").AllowAnonymous();
+authApi.MapAuthEndpoints().MapOAuthEndpoints();
+// Other API endpoints require authorization
+api.MapGroup("/upload").MapUploadEndpoints().RequireAuthorization();
+api.MapGroup("/mailboxes").MapMailboxEndpoints().RequireAuthorization();
+api.MapGroup("/emails").MapEmailEndpoints().RequireAuthorization();
+api.MapGroup("/attachments").MapAttachmentEndpoints().RequireAuthorization();
 
 // Development-only endpoints (disabled in production)
 if (app.Environment.IsDevelopment())
@@ -266,7 +300,10 @@ if (app.Environment.IsDevelopment())
     api.MapGroup("/dev").MapDevEndpoints();
 }
 
-// Map Razor components
+// Map Razor components (allow anonymous - authorization handled by AuthorizeRouteView)
+// Blazor pages handle authorization at the component level, not HTTP middleware level
+// JWT Bearer authentication is configured to skip Blazor routes (see OnChallenge handler above)
+app.UseAuthorization();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()

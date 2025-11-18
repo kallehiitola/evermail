@@ -13,6 +13,7 @@
 @inject NavigationManager Navigation
 @inject IAuthenticationStateService AuthStateService
 @inject IJSRuntime JSRuntime
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>My Emails - Evermail</PageTitle>
 
@@ -54,6 +55,49 @@
                         <button type="submit" class="btn btn-primary w-100">
                             <i class="bi bi-search"></i> Search
                         </button>
+                    </div>
+                </div>
+                <div class="row g-3 mt-2 align-items-end">
+                    <div class="col-md-5">
+                        <label class="form-label mb-1">Ignored stop words</label>
+                        <input type="text"
+                               class="form-control"
+                               placeholder="Comma-separated words to skip (e.g. the,and,or)"
+                               @bind="_stopWords" />
+                        <div class="form-text">Helps trim noise for relevance scoring.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-1">Sort by</label>
+                        <select class="form-select"
+                                value="@_sortBy"
+                                @onchange="OnSortByChanged">
+                            <option value="rank">Relevance</option>
+                            <option value="date">Date</option>
+                            <option value="subject">Subject</option>
+                            <option value="from">Sender</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label mb-1">Order</label>
+                        <select class="form-select"
+                                value="@_sortOrder"
+                                @onchange="OnSortOrderChanged">
+                            <option value="desc">Newest first</option>
+                            <option value="asc">Oldest first</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="inflectionalToggle"
+                                   checked="@_useInflectionalForms"
+                                   @onchange="OnInflectionalToggleChanged" />
+                            <label class="form-check-label" for="inflectionalToggle">
+                                Match inflectional forms
+                            </label>
+                            <div class="form-text">Plan → planned, planning, etc.</div>
+                        </div>
                     </div>
                 </div>
             </form>
@@ -168,9 +212,17 @@
                                         }
                                     }
                                 </div>
-                                <p class="mb-1">
-                                    <strong>@(email.Subject ?? "(No Subject)")</strong>
-                                </p>
+                                <div class="d-flex align-items-center mb-1">
+                                    <p class="mb-0 flex-grow-1">
+                                        <strong>@(email.Subject ?? "(No Subject)")</strong>
+                                    </p>
+                                    @if (email.Rank.HasValue)
+                                    {
+                                        <span class="badge bg-info text-dark ms-2" title="Higher score = more relevant">
+                                            Rank @Math.Round(email.Rank.Value)
+                                        </span>
+                                    }
+                                </div>
                                 @if (!string.IsNullOrEmpty(email.Snippet))
                                 {
                                     <p class="mb-1 text-muted small">@email.Snippet</p>
@@ -210,8 +262,16 @@
 </div>
     </Authorized>
     <NotAuthorized>
-        <RequiresAuth />
+        <CheckAuthAndRedirect />
     </NotAuthorized>
+    <Authorizing>
+        <div class="container mt-5 text-center">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3 text-muted">Verifying your credentials...</p>
+        </div>
+    </Authorizing>
 </AuthorizeView>
 
 @code {
@@ -226,12 +286,37 @@
     private int _totalCount = 0;
     private int _totalPages = 1;
     private double? _queryTime;
+    private string _stopWords = string.Empty;
+    private bool _useInflectionalForms;
+    private string _sortBy = "date";
+    private string _sortOrder = "desc";
 
     protected override async Task OnInitializedAsync()
     {
+        // Wait for client-side hydration before checking authentication
+        // During SSR, localStorage isn't available, so we need to wait
+        try
+        {
+            // Try to read token - if JSRuntime isn't available (SSR), this will throw
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                // No token - redirect to login
+                Navigation.NavigateTo("/login?returnUrl=emails", forceLoad: true);
+                return;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // SSR - wait for client-side hydration
+            // The AuthorizeView will handle this
+            return;
+        }
+
         // Read URL parameters to preserve mailbox filter
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         var queryParams = QueryHelpers.ParseQuery(uri.Query);
+        var sortByFromQuery = false;
         
         if (queryParams.TryGetValue("mailbox", out var mailboxParam) && 
             Guid.TryParse(mailboxParam, out var mailboxId))
@@ -243,11 +328,38 @@
         {
             _searchQuery = searchParam.ToString();
         }
+
+        if (queryParams.TryGetValue("stopWords", out var stopWordsParam))
+        {
+            _stopWords = stopWordsParam.ToString();
+        }
+
+        if (queryParams.TryGetValue("useInflectionalForms", out var inflectionParam) &&
+            bool.TryParse(inflectionParam, out var inflectionFlag))
+        {
+            _useInflectionalForms = inflectionFlag;
+        }
+
+        if (queryParams.TryGetValue("sortBy", out var sortByParam))
+        {
+            _sortBy = sortByParam.ToString();
+            sortByFromQuery = true;
+        }
+
+        if (queryParams.TryGetValue("sortOrder", out var sortOrderParam))
+        {
+            _sortOrder = sortOrderParam.ToString();
+        }
         
         if (queryParams.TryGetValue("page", out var pageParam) && 
             int.TryParse(pageParam, out var page))
         {
             _currentPage = page;
+        }
+
+        if (!sortByFromQuery && !string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            _sortBy = "rank";
         }
 
         await LoadMailboxes();
@@ -311,6 +423,27 @@
                 url += $"&mailboxId={_selectedMailboxId.Value}";
             }
 
+            var trimmedStopWords = _stopWords?.Trim();
+            if (!string.IsNullOrWhiteSpace(trimmedStopWords))
+            {
+                url += $"&stopWords={Uri.EscapeDataString(trimmedStopWords)}";
+            }
+
+            if (_useInflectionalForms)
+            {
+                url += "&useInflectionalForms=true";
+            }
+
+            if (!string.IsNullOrWhiteSpace(_sortBy))
+            {
+                url += $"&sortBy={Uri.EscapeDataString(_sortBy)}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(_sortOrder))
+            {
+                url += $"&sortOrder={Uri.EscapeDataString(_sortOrder)}";
+            }
+
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Authorization", $"Bearer {token}");
 
@@ -362,6 +495,36 @@
         await LoadEmails(1);
     }
 
+    private async Task OnSortByChanged(ChangeEventArgs e)
+    {
+        var selectedValue = e.Value?.ToString();
+        _sortBy = string.IsNullOrWhiteSpace(selectedValue)
+            ? (string.IsNullOrWhiteSpace(_searchQuery) ? "date" : "rank")
+            : selectedValue!;
+        await HandleSearch();
+    }
+
+    private async Task OnSortOrderChanged(ChangeEventArgs e)
+    {
+        var selectedValue = e.Value?.ToString();
+        _sortOrder = string.IsNullOrWhiteSpace(selectedValue) ? "desc" : selectedValue!;
+        await HandleSearch();
+    }
+
+    private async Task OnInflectionalToggleChanged(ChangeEventArgs e)
+    {
+        if (e.Value is bool boolValue)
+        {
+            _useInflectionalForms = boolValue;
+        }
+        else
+        {
+            var valueString = e.Value?.ToString();
+            _useInflectionalForms = bool.TryParse(valueString, out var flag) && flag;
+        }
+        await HandleSearch();
+    }
+
     private async Task HandleSearch()
     {
         _currentPage = 1;
@@ -381,6 +544,27 @@
         if (!string.IsNullOrWhiteSpace(_searchQuery))
         {
             queryParams["q"] = _searchQuery;
+        }
+
+        var trimmedStopWords = _stopWords?.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedStopWords))
+        {
+            queryParams["stopWords"] = trimmedStopWords;
+        }
+
+        if (_useInflectionalForms)
+        {
+            queryParams["useInflectionalForms"] = "true";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_sortBy))
+        {
+            queryParams["sortBy"] = _sortBy;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_sortOrder))
+        {
+            queryParams["sortOrder"] = _sortOrder;
         }
         
         if (_currentPage > 1)

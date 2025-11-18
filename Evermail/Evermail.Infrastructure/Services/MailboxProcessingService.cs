@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Azure.Storage.Blobs;
 using Evermail.Domain.Entities;
@@ -32,6 +34,7 @@ public class MailboxProcessingService
 
     public async Task ProcessMailboxAsync(
         Guid mailboxId,
+        Guid mailboxUploadId,
         CancellationToken cancellationToken = default)
     {
         // Get mailbox from database (need tracking for updates)
@@ -44,10 +47,23 @@ public class MailboxProcessingService
             throw new InvalidOperationException($"Mailbox {mailboxId} not found");
         }
 
+        var upload = await _context.MailboxUploads
+            .FirstOrDefaultAsync(u => u.Id == mailboxUploadId && u.MailboxId == mailboxId, cancellationToken);
+
+        if (upload == null)
+        {
+            _logger.LogError("Mailbox upload {UploadId} not found for mailbox {MailboxId}", mailboxUploadId, mailboxId);
+            throw new InvalidOperationException($"Mailbox upload {mailboxUploadId} not found");
+        }
+
         // Update status to Processing
         mailbox.Status = "Processing";
         mailbox.ProcessingStartedAt = DateTime.UtcNow;
         mailbox.UpdatedAt = DateTime.UtcNow;
+        mailbox.LatestUploadId = mailboxUploadId;
+
+        upload.Status = "Processing";
+        upload.ProcessingStartedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
 
         try
@@ -68,13 +84,26 @@ public class MailboxProcessingService
             var blobProperties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
             var totalFileSize = blobProperties.Value.ContentLength;
             
-            await ParseMboxStreamAsync(stream, mailbox, totalFileSize, cancellationToken);
+            var existingHashes = await _context.EmailMessages
+                .Where(e => e.MailboxId == mailboxId && e.ContentHash != null)
+                .Select(e => e.ContentHash!)
+                .ToListAsync(cancellationToken);
+            
+            var hashSet = new HashSet<string>(existingHashes.Select(Convert.ToHexString), StringComparer.Ordinal);
+            
+            await ParseMboxStreamAsync(stream, mailbox, upload, totalFileSize, hashSet, cancellationToken);
 
             // Update status to Completed
             mailbox.Status = "Completed";
             mailbox.ProcessingCompletedAt = DateTime.UtcNow;
             mailbox.UpdatedAt = DateTime.UtcNow;
-            _context.Mailboxes.Update(mailbox);
+
+            upload.Status = "Completed";
+            upload.ProcessingCompletedAt = DateTime.UtcNow;
+            upload.TotalEmails = mailbox.TotalEmails;
+            upload.ProcessedEmails = mailbox.ProcessedEmails;
+            upload.FailedEmails = mailbox.FailedEmails;
+
             await _context.SaveChangesAsync(cancellationToken);
 
             _logger.LogInformation(
@@ -93,7 +122,10 @@ public class MailboxProcessingService
             mailbox.ErrorMessage = ex.Message;
             mailbox.ProcessingCompletedAt = DateTime.UtcNow;
             mailbox.UpdatedAt = DateTime.UtcNow;
-            _context.Mailboxes.Update(mailbox);
+
+            upload.Status = "Failed";
+            upload.ErrorMessage = ex.Message;
+            upload.ProcessingCompletedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync(cancellationToken);
 
             throw;
@@ -103,7 +135,9 @@ public class MailboxProcessingService
     private async Task ParseMboxStreamAsync(
         Stream stream,
         Mailbox mailbox,
+        MailboxUpload upload,
         long totalFileSizeBytes,
+        HashSet<string> existingHashes,
         CancellationToken cancellationToken)
     {
         var parser = new MimeParser(stream, MimeFormat.Mbox);
@@ -118,7 +152,17 @@ public class MailboxProcessingService
             try
             {
                 var mimeMessage = await parser.ParseMessageAsync(cancellationToken);
-                var emailMessage = MapToEmailMessage(mimeMessage, mailbox);
+                var emailMessage = MapToEmailMessage(mimeMessage, mailbox, upload);
+                var contentHash = ComputeContentHash(mailbox.Id, mimeMessage, emailMessage);
+                var hashKey = Convert.ToHexString(contentHash);
+
+                if (existingHashes.Contains(hashKey))
+                {
+                    continue;
+                }
+
+                existingHashes.Add(hashKey);
+                emailMessage.ContentHash = contentHash;
                 batch.Add((emailMessage, mimeMessage));
 
                 totalProcessed++;
@@ -133,6 +177,7 @@ public class MailboxProcessingService
                     await SaveBatchWithAttachmentsAsync(
                         batch, 
                         mailbox, 
+                        upload,
                         totalProcessed, 
                         successfulCount, 
                         bytesProcessed,
@@ -166,6 +211,7 @@ public class MailboxProcessingService
             await SaveBatchWithAttachmentsAsync(
                 batch, 
                 mailbox, 
+                upload,
                 totalProcessed, 
                 successfulCount,
                 finalPosition,
@@ -181,7 +227,7 @@ public class MailboxProcessingService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
-    private EmailMessage MapToEmailMessage(MimeMessage mimeMessage, Mailbox mailbox)
+    private EmailMessage MapToEmailMessage(MimeMessage mimeMessage, Mailbox mailbox, MailboxUpload upload)
     {
         // Extract text and HTML bodies
         var textBody = mimeMessage.TextBody ?? string.Empty;
@@ -242,7 +288,8 @@ public class MailboxProcessingService
             HasAttachments = mimeMessage.Attachments.Any(),
             AttachmentCount = mimeMessage.Attachments.Count(),
 
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow,
+            MailboxUploadId = upload.Id
         };
     }
 
@@ -314,6 +361,7 @@ public class MailboxProcessingService
     private async Task SaveBatchWithAttachmentsAsync(
         List<(EmailMessage Email, MimeMessage Mime)> batch,
         Mailbox mailbox,
+        MailboxUpload upload,
         int totalProcessed,
         int successfulCount,
         long bytesProcessed,
@@ -345,7 +393,25 @@ public class MailboxProcessingService
         mailbox.ProcessedEmails = successfulCount;
         mailbox.ProcessedBytes = bytesProcessed;
         mailbox.UpdatedAt = DateTime.UtcNow;
+        upload.ProcessedEmails = successfulCount;
+        upload.TotalEmails = totalProcessed;
+        upload.ProcessedBytes = bytesProcessed;
         await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    private static byte[] ComputeContentHash(Guid mailboxId, MimeMessage mimeMessage, EmailMessage email)
+    {
+        var builder = new StringBuilder();
+        builder.Append(mailboxId);
+        builder.Append(mimeMessage.MessageId ?? string.Empty);
+        builder.Append(mimeMessage.Subject ?? string.Empty);
+        builder.Append(mimeMessage.Date.UtcDateTime.ToString("O"));
+        builder.Append(email.FromAddress);
+        builder.Append(email.Snippet ?? string.Empty);
+        builder.Append(email.TextBody ?? string.Empty);
+        builder.Append(email.HtmlBody ?? string.Empty);
+
+        return SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString()));
     }
 }
 

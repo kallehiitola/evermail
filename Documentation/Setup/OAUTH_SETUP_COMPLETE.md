@@ -262,7 +262,6 @@ if (AuthStateProvider is CustomAuthenticationStateProvider provider)
 ```razor
 @page "/emails"
 @rendermode InteractiveServer
-@attribute [Authorize]  ← Requires authentication
 
 <AuthorizeView>
     <Authorized>
@@ -270,7 +269,7 @@ if (AuthStateProvider is CustomAuthenticationStateProvider provider)
         <p>Welcome, @context.User.Identity?.Name</p>
     </Authorized>
     <NotAuthorized>
-        <p>Please <a href="/login">login</a>.</p>
+        <CheckAuthAndRedirect />
     </NotAuthorized>
 </AuthorizeView>
 ```

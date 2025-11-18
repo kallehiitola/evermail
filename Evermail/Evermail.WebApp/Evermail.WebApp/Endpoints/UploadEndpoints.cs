@@ -21,12 +21,15 @@ public static class UploadEndpoints
         return group;
     }
 
-    private static async Task<IResult> InitiateUploadAsync(
+    internal static async Task<IResult> InitiateUploadInternalAsync(
         InitiateUploadRequest request,
+        Guid? overrideMailboxId,
         IBlobStorageService blobService,
         EvermailDbContext context,
         TenantContext tenantContext)
     {
+        var mailboxIdOverride = overrideMailboxId ?? request.MailboxId;
+        
         // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
         {
@@ -76,14 +79,8 @@ public static class UploadEndpoints
             ));
         }
         
-        // 4. Create Mailbox record (Pending status)
-        // Log values for debugging
-        Console.WriteLine($"DEBUG: Creating mailbox with TenantId={tenantContext.TenantId}, UserId={tenantContext.UserId}");
-        
-        // Verify user exists
+        // Ensure user exists
         var userExists = await context.Users.AnyAsync(u => u.Id == tenantContext.UserId);
-        Console.WriteLine($"DEBUG: User exists in database: {userExists}");
-        
         if (!userExists)
         {
             return Results.BadRequest(new ApiResponse<object>(
@@ -91,20 +88,72 @@ public static class UploadEndpoints
                 Error: $"User not found. UserId: {tenantContext.UserId}"
             ));
         }
-        
-        var mailbox = new Mailbox
+
+        Mailbox? mailboxEntity;
+        if (mailboxIdOverride is Guid targetMailboxId)
+        {
+            mailboxEntity = await context.Mailboxes
+                .FirstOrDefaultAsync(m => m.Id == targetMailboxId && m.TenantId == tenantContext.TenantId);
+
+            if (mailboxEntity == null)
+            {
+                return Results.NotFound(new ApiResponse<object>(
+                    Success: false,
+                    Error: "Mailbox not found"
+                ));
+            }
+        }
+        else
+        {
+            mailboxEntity = new Mailbox
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantContext.TenantId,
+                UserId = tenantContext.UserId,
+                DisplayName = request.FileName,
+                FileName = request.FileName,
+                FileSizeBytes = request.FileSizeBytes,
+                BlobPath = string.Empty,
+                Status = "Pending",
+                CreatedAt = DateTime.UtcNow
+            };
+
+            context.Mailboxes.Add(mailboxEntity);
+            await context.SaveChangesAsync();
+        }
+
+        var mailbox = mailboxEntity;
+        if (mailbox == null)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Mailbox could not be resolved"
+            ));
+        }
+
+        // 4. Create MailboxUpload record
+        var upload = new MailboxUpload
         {
             Id = Guid.NewGuid(),
             TenantId = tenantContext.TenantId,
-            UserId = tenantContext.UserId,
+            MailboxId = mailbox.Id,
+            UploadedByUserId = tenantContext.UserId,
             FileName = request.FileName,
             FileSizeBytes = request.FileSizeBytes,
-            BlobPath = string.Empty, // Will be set after blob path is generated
+            BlobPath = string.Empty,
             Status = "Pending",
             CreatedAt = DateTime.UtcNow
         };
-        
-        context.Mailboxes.Add(mailbox);
+
+        context.MailboxUploads.Add(upload);
+        mailbox.FileName = request.FileName;
+        mailbox.FileSizeBytes = request.FileSizeBytes;
+        mailbox.Status = "Pending";
+        mailbox.LatestUploadId = upload.Id;
+        mailbox.UploadRemovedAt = null;
+        mailbox.UploadRemovedByUserId = null;
+        mailbox.IsPendingDeletion = false;
+        mailbox.PurgeAfter = null;
         await context.SaveChangesAsync();
         
         // 5. Generate SAS token (2 hours validity for large uploads)
@@ -117,6 +166,7 @@ public static class UploadEndpoints
         
         // 6. Update mailbox with blob path
         mailbox.BlobPath = sasInfo.BlobPath;
+        upload.BlobPath = sasInfo.BlobPath;
         await context.SaveChangesAsync();
         
         return Results.Ok(new ApiResponse<InitiateUploadResponse>(
@@ -125,10 +175,18 @@ public static class UploadEndpoints
                 sasInfo.SasUrl,
                 sasInfo.BlobPath,
                 mailbox.Id,
+                upload.Id,
                 sasInfo.ExpiresAt
             )
         ));
     }
+    
+    private static Task<IResult> InitiateUploadAsync(
+        InitiateUploadRequest request,
+        IBlobStorageService blobService,
+        EvermailDbContext context,
+        TenantContext tenantContext)
+        => InitiateUploadInternalAsync(request, null, blobService, context, tenantContext);
 
     private static async Task<IResult> CompleteUploadAsync(
         CompleteUploadRequest request,
@@ -160,12 +218,39 @@ public static class UploadEndpoints
         await context.SaveChangesAsync();
         
         // Send message to queue for background processing
-        await queueService.EnqueueMailboxProcessingAsync(mailbox.Id);
+        if (request.UploadId == Guid.Empty)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "UploadId is required"
+            ));
+        }
+
+        var upload = await context.MailboxUploads
+            .FirstOrDefaultAsync(u => u.Id == request.UploadId && u.MailboxId == mailbox.Id && u.TenantId == tenantContext.TenantId);
+
+        if (upload == null)
+        {
+            return Results.NotFound(new ApiResponse<object>(
+                Success: false,
+                Error: "Upload not found or you don't have permission to access it"
+            ));
+        }
+
+        upload.Status = "Queued";
+        upload.ProcessingStartedAt = null;
+        mailbox.LatestUploadId = upload.Id;
+
+        await context.SaveChangesAsync();
+
+        // Send message to queue for background processing
+        await queueService.EnqueueMailboxProcessingAsync(mailbox.Id, upload.Id);
         
         return Results.Ok(new ApiResponse<CompleteUploadResponse>(
             Success: true,
             Data: new CompleteUploadResponse(
                 mailbox.Id,
+                upload.Id,
                 "Queued"
             )
         ));

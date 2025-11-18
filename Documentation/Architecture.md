@@ -129,11 +129,33 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
      - Attachments: Save to Blob Storage, store reference in DB
   5. **Store in Database**
      - Bulk insert in batches for performance
-     - Update mailbox processing status
+     - Update mailbox processing status + `MailboxUpload` progress
   6. **Error Handling**
      - Retry failed jobs (exponential backoff)
      - Mark mailbox as "Failed" after 3 attempts
      - Notify user via email
+
+#### Migration Service (Evermail.MigrationService)
+- **Purpose**: Apply Entity Framework Core migrations before any other Aspire project starts.
+- **Lifecycle**:
+  1. Aspire’s AppHost launches the `migrations` project first.
+  2. `Evermail.MigrationService` connects to Azure SQL using the same connection string as WebApp/Worker.
+  3. `dotnet ef database update` equivalent runs automatically and exits on success.
+  4. AppHost waits for the process to report `Finished waiting for resource 'migrations'` before starting WebApp, Worker, Admin.
+- **Why it matters**: all schema additions (`MailboxUploads`, `MailboxDeletionQueue`, `ContentHash` indexes, etc.) ship in migrations and are guaranteed to exist in every environment without manual SQL.
+- **Manual run** (for troubleshooting): `dotnet run --project Evermail.MigrationService` from repository root.
+
+#### Mailbox Lifecycle & Deletion Services
+- **Components**:
+  - `Evermail.Infrastructure.Services.QueueService` publishes to two queues: `mailbox-ingestion` (parse uploads) and `mailbox-deletion` (recycle-bin cleanup).
+  - `MailboxProcessingService` now receives `{ MailboxId, UploadId }`, computes a SHA-256 `ContentHash`, and skips duplicates per mailbox/upload pair.
+  - `MailboxDeletionService` executes jobs from `MailboxDeletionQueue`, scrubs blobs, optionally keeps indexed emails, and records audit events.
+- **Workflow**:
+  1. WebApp creates a `MailboxUpload` row for every upload or re-import.
+  2. `mailbox-ingestion` queue triggers the worker, which streams the blob, batches inserts (500), uploads attachments, and updates both `Mailbox` and `MailboxUpload` statistics.
+  3. Users schedule cleanup via `POST /mailboxes/{id}/delete`. A `MailboxDeletionQueue` row is created and a message is placed on `mailbox-deletion`.
+  4. Worker polls `mailbox-deletion`; once `ExecuteAfter` arrives it deletes blobs first, then emails, then optionally the mailbox record (when both upload+emails are gone). Purge windows default to 30 days unless SuperAdmins set `purgeNow`.
+  5. Every state change writes to `AuditLogs`, enabling GDPR traceability.
 
 #### Search Indexer (Optional, Phase 2)
 - **Purpose**: Synchronize database to Azure AI Search
@@ -204,20 +226,34 @@ CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName)
   - Immutable storage for GDPR Archive tier (WORM)
 
 #### Azure Storage Queues
-- **Queue**: `mailbox-ingestion`
-- **Message Format**:
+- **Queues**:
+  - `mailbox-ingestion` – drives mbox parsing/indexing
+  - `mailbox-deletion` – drives recycle-bin cleanup and hard deletion
+- **Ingestion Message Format**:
 ```json
 {
   "tenantId": "tenant-123",
   "userId": "user-456",
   "mailboxId": "guid",
+  "uploadId": "guid",
   "blobPath": "mbox-archives/tenant-123/mailbox-guid/original.mbox",
   "fileSizeBytes": 10485760,
   "enqueuedAt": "2025-11-11T10:30:00Z"
 }
 ```
-- **Processing**: Ingestion Worker with visibility timeout of 5 minutes
-- **Retry Policy**: Max 3 attempts with exponential backoff
+- **Deletion Message Format**:
+```json
+{
+  "tenantId": "tenant-123",
+  "mailboxId": "guid",
+  "uploadId": "guid-or-null",
+  "deleteUpload": true,
+  "deleteEmails": false,
+  "requestedBy": "user-456",
+  "jobId": "guid"
+}
+```
+- **Processing**: Worker service polls both queues with 5-minute visibility timeout, max 3 retries (poison queue after that). Azure Container Apps horizontal scaling (KEDA) can fan out to hundreds/thousands of worker replicas because the queues decouple work from HTTP traffic.
 
 ### 4. External Integrations
 
@@ -408,6 +444,17 @@ public class EmailRepository : IEmailRepository
 2. **Tenant Level**: Automatic filtering via EF Core query filters
 3. **Resource Level**: Check ownership before operations
 4. **Role Level**: Admin-only endpoints use `[Authorize(Roles = "Admin")]`
+
+#### Blazor Authorization Flow (UI)
+- ❌ Do **not** use `@attribute [Authorize]` on Blazor components. It prevents the router from rendering redirects and 404 pages.
+- ✅ `Components/Routes.razor` wraps the app in `<AuthorizeRouteView>` and renders `<RedirectToLogin />` whenever authentication fails.
+- ✅ Each protected page/component must:
+  - Set an appropriate `@rendermode` (usually `InteractiveServer`).
+  - Wrap its content in `<AuthorizeView>` (optionally with `Roles="..."`).
+  - Render `<CheckAuthAndRedirect />` inside `<NotAuthorized>` so anonymous users are redirected to `/login?returnUrl=...`.
+- ✅ `<CheckAuthAndRedirect />` handles client-side token validation after hydration and shows `<RequiresAuth />` as a fallback.
+
+This pattern keeps HTTP responses at 200 for interactive routes, lets the Blazor app issue consistent redirects, and ensures the router can still display proper 404 pages.
 
 ### Data Protection
 - **In Transit**: TLS 1.3 for all connections

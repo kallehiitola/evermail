@@ -18,12 +18,15 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
     public DbSet<Tenant> Tenants => Set<Tenant>();
     // ApplicationUser is accessed via Users property from IdentityDbContext
     public DbSet<Mailbox> Mailboxes => Set<Mailbox>();
+    public DbSet<MailboxUpload> MailboxUploads => Set<MailboxUpload>();
+    public DbSet<MailboxDeletionQueue> MailboxDeletionQueue => Set<MailboxDeletionQueue>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<FullTextSearchResult> FullTextSearchResults => Set<FullTextSearchResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +43,12 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
 
             modelBuilder.Entity<Attachment>()
                 .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
+            
+            modelBuilder.Entity<MailboxUpload>()
+                .HasQueryFilter(mu => mu.TenantId == _tenantContext.TenantId);
+            
+            modelBuilder.Entity<MailboxDeletionQueue>()
+                .HasQueryFilter(mdq => mdq.TenantId == _tenantContext.TenantId);
 
             modelBuilder.Entity<AuditLog>()
                 .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
@@ -73,6 +82,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasKey(m => m.Id);
             entity.HasIndex(m => new { m.TenantId, m.UserId });
             entity.HasIndex(m => m.Status);
+            entity.HasIndex(m => new { m.IsPendingDeletion, m.PurgeAfter });
 
             entity.HasOne(m => m.Tenant)
                 .WithMany(t => t.Mailboxes)
@@ -83,6 +93,37 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany(u => u.Mailboxes)
                 .HasForeignKey(m => m.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
+            
+            entity.HasOne(m => m.LatestUpload)
+                .WithMany()
+                .HasForeignKey(m => m.LatestUploadId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // MailboxUpload
+        modelBuilder.Entity<MailboxUpload>(entity =>
+        {
+            entity.HasKey(mu => mu.Id);
+            entity.HasIndex(mu => mu.MailboxId);
+            entity.HasIndex(mu => mu.Status);
+            entity.HasIndex(mu => mu.TenantId);
+
+            entity.HasOne(mu => mu.Mailbox)
+                .WithMany(m => m.Uploads)
+                .HasForeignKey(mu => mu.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // MailboxDeletionQueue
+        modelBuilder.Entity<MailboxDeletionQueue>(entity =>
+        {
+            entity.HasKey(mdq => mdq.Id);
+            entity.HasIndex(mdq => new { mdq.Status, mdq.ExecuteAfter });
+
+            entity.HasOne(mdq => mdq.Mailbox)
+                .WithMany()
+                .HasForeignKey(mdq => mdq.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // EmailMessage
@@ -93,6 +134,8 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasIndex(e => e.MailboxId);
             entity.HasIndex(e => e.Date);
             entity.HasIndex(e => e.FromAddress);
+            entity.HasIndex(e => e.MessageId);
+            entity.HasIndex(e => new { e.MailboxId, e.ContentHash }).IsUnique().HasFilter("[ContentHash] IS NOT NULL");
 
             entity.HasOne(e => e.Tenant)
                 .WithMany()
@@ -108,6 +151,11 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany(m => m.EmailMessages)
                 .HasForeignKey(e => e.MailboxId)
                 .OnDelete(DeleteBehavior.Cascade);
+            
+            entity.HasOne(e => e.MailboxUpload)
+                .WithMany()
+                .HasForeignKey(e => e.MailboxUploadId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
 
         // Attachment
@@ -196,6 +244,15 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany()
                 .HasForeignKey(al => al.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // Full-text search helper (keyless)
+        modelBuilder.Entity<FullTextSearchResult>(entity =>
+        {
+            entity.HasNoKey();
+            entity.ToView(null); // Not mapped to a table/view
+            entity.Property(e => e.EmailId).HasColumnName("EmailId");
+            entity.Property(e => e.Rank).HasColumnName("Rank");
         });
     }
 }

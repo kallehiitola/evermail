@@ -209,14 +209,32 @@ az role assignment create \
 
 **Note:** The application automatically loads secrets from Key Vault when deployed to Azure (using `DefaultAzureCredential` with managed identity). Local development continues to use user secrets.
 
-#### 4. Deploy Applications
+#### 4. Create Azure Storage Queues
+
+Two queues are required: one for ingestion, another for deletion jobs.
+
+```bash
+STORAGE_ACCOUNT=evermailstorage
+
+az storage queue create --account-name $STORAGE_ACCOUNT --name mailbox-ingestion
+az storage queue create --account-name $STORAGE_ACCOUNT --name mailbox-deletion
+```
+
+> The same storage account/connection string is reused for both queues. The worker listens to both queues concurrently.
+
+#### 5. Deploy Applications
 ```bash
 azd deploy
 ```
 
-#### 5. Database Migrations
+#### 6. Database Migrations
 
 **Migrations run automatically** via `Evermail.MigrationService` when deployed via Aspire. The MigrationService runs before other services start, ensuring the database schema is up-to-date.
+
+**Verify the migration step**:
+- AppHost logs will show `Waiting for resource 'migrations'` followed by `Finished waiting for resource 'migrations'`.
+- `Evermail.MigrationService` exits immediately after `dotnet ef database update` succeeds; any failure keeps the other services from starting so you can fix the schema before traffic hits.
+- To rerun locally without the full AppHost, execute `dotnet run --project Evermail.MigrationService`.
 
 **If you need to apply migrations manually** (e.g., for troubleshooting or when not using Aspire deployment):
 ```bash
@@ -438,7 +456,7 @@ az monitor app-insights component show \
 **Key Metrics to Monitor**:
 - Request latency (p50, p95, p99)
 - Exception rate
-- Queue depth
+- Queue depth (mailbox-ingestion + mailbox-deletion)
 - Database DTU percentage
 - Blob storage operations
 
@@ -462,7 +480,7 @@ curl https://evermail-worker.azurecontainerapps.io/health
 ### Alerts
 Set up Azure Monitor alerts for:
 - High error rate (>5% in 5 minutes)
-- Queue depth >1000 for >10 minutes
+- Queue depth >1000 for >10 minutes (evaluate both mailbox-ingestion and mailbox-deletion)
 - Database DTU >80% for >15 minutes
 - Container app crashed (restart count >3)
 
@@ -496,9 +514,17 @@ az containerapp update \
   --resource-group evermail-prod-rg \
   --min-replicas 0 \
   --max-replicas 5 \
-  --scale-rule-name queue-depth \
+  --scale-rule-name ingestion-queue \
   --scale-rule-type azure-queue \
   --scale-rule-metadata queueName=mailbox-ingestion accountName=evermailstorage queueLength=10 \
+  --scale-rule-auth secretRef=storage-connection-string
+
+az containerapp update \
+  --name evermail-worker \
+  --resource-group evermail-prod-rg \
+  --scale-rule-name deletion-queue \
+  --scale-rule-type azure-queue \
+  --scale-rule-metadata queueName=mailbox-deletion accountName=evermailstorage queueLength=10 \
   --scale-rule-auth secretRef=storage-connection-string
 ```
 

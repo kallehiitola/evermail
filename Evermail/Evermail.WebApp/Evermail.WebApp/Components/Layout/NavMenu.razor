@@ -1,7 +1,11 @@
 ﻿@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
 
 <div class="top-row ps-3 navbar navbar-dark">
-    <a class="navbar-brand" href="">Evermail</a>
+    <a class="navbar-brand evermail-logo" href="">
+        <span class="evermail-logo__mark" aria-hidden="true"></span>
+        <span class="evermail-logo__word">evermail</span>
+    </a>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
@@ -15,6 +19,9 @@
         </div>
 
         <AuthorizeView>
+            <Authorizing>
+                @* Show nothing while determining auth state *@
+            </Authorizing>
             <Authorized>
                 <div class="nav-item px-3">
                     <NavLink class="nav-link" href="mailboxes">
@@ -49,25 +56,21 @@
                 </AuthorizeView>
                 
                 <!-- Dev-only links -->
-                <AuthorizeView>
-                    <Authorized>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="dev/admin-roles">
-                                <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
-                            </NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="dev/auth-status">
-                                <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status
-                            </NavLink>
-                        </div>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="dev/test-keyvault">
-                                <i class="bi bi-key" aria-hidden="true"></i> Dev: Key Vault Test
-                            </NavLink>
-                        </div>
-                    </Authorized>
-                </AuthorizeView>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="dev/admin-roles">
+                        <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="dev/auth-status">
+                        <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status
+                    </NavLink>
+                </div>
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="dev/test-keyvault">
+                        <i class="bi bi-key" aria-hidden="true"></i> Dev: Key Vault Test
+                    </NavLink>
+                </div>
             </Authorized>
             <NotAuthorized>
                 <div class="nav-item px-3">

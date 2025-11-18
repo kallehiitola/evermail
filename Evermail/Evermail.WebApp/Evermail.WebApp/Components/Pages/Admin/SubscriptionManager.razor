@@ -1,5 +1,6 @@
 @page "/admin/subscriptions"
 @rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,SuperAdmin")]
 @using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Authorization
 @inject Evermail.Infrastructure.Data.EvermailDbContext DbContext
@@ -87,13 +88,7 @@
         </div>
     </Authorized>
     <NotAuthorized>
-        <div class="container mt-5">
-            <div class="alert alert-danger">
-                <h4>🔒 Access Denied</h4>
-                <p>You need Admin or SuperAdmin role to access this page.</p>
-                <a href="/dev/admin-roles" class="btn btn-primary">Add Admin Role</a>
-            </div>
-        </div>
+        <CheckAuthAndRedirect />
     </NotAuthorized>
 </AuthorizeView>
 

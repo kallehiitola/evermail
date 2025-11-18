@@ -5,28 +5,42 @@ namespace Evermail.Infrastructure.Services;
 
 public class QueueService : IQueueService
 {
-    private readonly QueueClient _queueClient;
-    private const string QueueName = "mailbox-processing";
+    private readonly QueueClient _ingestionQueue;
+    private readonly QueueClient _deletionQueue;
+    private const string IngestionQueueName = "mailbox-ingestion";
+    private const string DeletionQueueName = "mailbox-deletion";
 
     public QueueService(QueueServiceClient queueServiceClient)
     {
-        _queueClient = queueServiceClient.GetQueueClient(QueueName);
+        _ingestionQueue = queueServiceClient.GetQueueClient(IngestionQueueName);
+        _deletionQueue = queueServiceClient.GetQueueClient(DeletionQueueName);
     }
 
-    public async Task EnqueueMailboxProcessingAsync(Guid mailboxId)
+    public async Task EnqueueMailboxProcessingAsync(Guid mailboxId, Guid mailboxUploadId)
     {
-        // Create queue if it doesn't exist
-        await _queueClient.CreateIfNotExistsAsync();
-        
-        // Create message with mailbox ID and timestamp
-        var message = JsonSerializer.Serialize(new
-        {
-            MailboxId = mailboxId,
-            EnqueuedAt = DateTime.UtcNow
-        });
-        
-        // Send message to queue
-        await _queueClient.SendMessageAsync(message);
+        await _ingestionQueue.CreateIfNotExistsAsync();
+
+        var message = JsonSerializer.Serialize(new MailboxProcessingMessage(
+            mailboxId,
+            mailboxUploadId,
+            DateTime.UtcNow));
+
+        await _ingestionQueue.SendMessageAsync(message);
     }
+
+    public async Task EnqueueMailboxDeletionAsync(Guid deletionJobId, Guid mailboxId)
+    {
+        await _deletionQueue.CreateIfNotExistsAsync();
+
+        var message = JsonSerializer.Serialize(new MailboxDeletionMessage(
+            deletionJobId,
+            mailboxId,
+            DateTime.UtcNow));
+
+        await _deletionQueue.SendMessageAsync(message);
+    }
+
+    private record MailboxProcessingMessage(Guid MailboxId, Guid UploadId, DateTime EnqueuedAt);
+    private record MailboxDeletionMessage(Guid JobId, Guid MailboxId, DateTime EnqueuedAt);
 }
 

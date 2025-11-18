@@ -14,6 +14,7 @@ public class EmailMessage
     
     [Required]
     public Guid MailboxId { get; set; }
+    public Guid? MailboxUploadId { get; set; }
     
     // Email Headers
     [MaxLength(512)]
@@ -56,6 +57,7 @@ public class EmailMessage
     public bool HasAttachments { get; set; }
     public int AttachmentCount { get; set; }
     public bool IsRead { get; set; }
+    public byte[]? ContentHash { get; set; }
     
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -64,6 +66,7 @@ public class EmailMessage
     public Tenant Tenant { get; set; } = null!;
     public ApplicationUser User { get; set; } = null!;
     public Mailbox Mailbox { get; set; } = null!;
+    public MailboxUpload? MailboxUpload { get; set; }
     public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
 }
 

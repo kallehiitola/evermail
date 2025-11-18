@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-14  
+> **Last Updated**: 2025-11-18  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -241,6 +241,32 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-18 - AI Browser Impersonation Helper
+
+- 🛰️ Added a dev-only middleware that impersonates `kalle.hiitola@gmail.com` whenever `?ai=1` is present so the Browser tool can render protected Blazor pages without manual sign-in.
+- 🛡️ Guarded the helper behind `IHostEnvironment.IsDevelopment()` plus a new `AiImpersonation` config section (disabled by default outside `appsettings.Development.json`).
+- 📚 Documented the workflow and safety guidelines inside `Documentation/Security.md`.
+
+### 2025-11-18 - Mailbox Lifecycle Spec
+
+- 📦 Designed mailbox deletion/re-import/rename workflow (upload-only delete, delete emails, hard purge)
+- 🗄️ Updated `DatabaseSchema.md` with `MailboxUploads`, `MailboxDeletionQueue`, `ContentHash` dedupe, and audit requirements
+- 🔌 Extended `API.md` with rename endpoint, upload history/re-import routes, and granular delete API
+- 🧱 Logged threaded email support as a planned `EmailThreads` table for future UI work
+
+### 2025-11-18 - Mailbox Lifecycle Implementation
+
+- 🚚 Implemented queue-driven ingestion + deletion: `mailbox-ingestion` now carries `{ mailboxId, uploadId }` and `mailbox-deletion` drains `MailboxDeletionQueue` with recycle-bin semantics.
+- 🧾 Added `MailboxUpload`/`MailboxDeletionQueue` entities, automatic dedupe via `ContentHash`, and exposed rename/re-import/delete endpoints guarded by tenant + role rules.
+- 🖥️ Updated Blazor UI: mailboxes list shows lifecycle badges, attachment icons respect state, modals for rename/delete, and `/upload?mailboxId=...` supports re-import flows.
+- 🔁 Documented & wired `Evermail.MigrationService` so Aspire applies migrations before WebApp/Worker boot in every environment.
+
+### 2025-11-18 - Blazor Authorization Redirect Standard
+
+- 🚦 Removed `@attribute [Authorize]` from all Blazor pages so the router can render redirects/404s while APIs remain protected via endpoint `.RequireAuthorization()`.
+- 🔁 Unified the client-side pattern: every protected page now wraps content in `<AuthorizeView>` with `<CheckAuthAndRedirect />`, and `Routes.razor` keeps `<AuthorizeRouteView>` + `<RedirectToLogin />` as the single entry point.
+- 📚 Updated `.cursor/rules/blazor-frontend.mdc`, `Documentation/BLAZOR_RENDER_MODE_STANDARD.md`, `Architecture.md`, `Security.md`, and `Setup/OAUTH_SETUP_COMPLETE.md` to codify the no-`@attribute [Authorize]` rule for UI components.
+
 ### 2025-11-14 - Authentication Complete
 
 - ✅ Complete authentication system implemented
@@ -263,11 +289,12 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Next Steps
 
-1. **Microsoft OAuth Credentials** - Complete OAuth setup
-2. **Email Parsing** - Implement MimeKit mbox processing
-3. **Blob Storage Integration** - File upload and storage
-4. **Email Search** - Full-text search implementation
-5. **Stripe Integration** - Payment processing setup
+1. **Lifecycle QA & automation** - Add integration tests for rename/re-import/delete flows and worker queue handlers.
+2. **Microsoft OAuth Credentials** - Complete OAuth setup
+3. **Email Parsing Enhancements** - Expand attachment coverage (inline images, large binaries) + add metrics
+4. **Blob Storage Integration** - Harden upload JS (resume/cancel, chunk retries)
+5. **Email Search** - Full-text search implementation
+6. **Stripe Integration** - Payment processing setup
 
 ---
 

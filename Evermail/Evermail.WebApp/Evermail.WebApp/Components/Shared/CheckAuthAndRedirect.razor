@@ -1,0 +1,39 @@
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Services
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject ILogger<CheckAuthAndRedirect> Logger
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Wait for client-side hydration
+            await Task.Delay(200);
+            
+            // Re-check authentication state after hydration
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            
+            if (authState.User.Identity?.IsAuthenticated == true)
+            {
+                // User is authenticated - notify state change to re-render
+                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                {
+                    customProvider.NotifyAuthenticationStateChanged();
+                }
+            }
+            else
+            {
+                // Still not authenticated - redirect to login
+                Logger.LogWarning("🔴 CheckAuthAndRedirect - User not authenticated, redirecting to login");
+                var returnUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
+                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+            }
+        }
+    }
+}
+
+<RequiresAuth />
+

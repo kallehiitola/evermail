@@ -1,5 +1,9 @@
 ﻿@page "/"
 @rendermode InteractiveServer
+@using System.Net.Http.Json
+@using System.Linq
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Mailbox
 @using Microsoft.AspNetCore.Components.Authorization
 @using Evermail.WebApp.Services
 @using Evermail.WebApp.Extensions
@@ -7,140 +11,252 @@
 @inject IAuthenticationStateService AuthStateService
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
+@inject HttpClient Http
 @inject ILogger<Home> Logger
 
-<PageTitle>Evermail - Email Archive Platform</PageTitle>
+<PageTitle>Evermail · Email Intelligence</PageTitle>
 
-<div class="container mt-5">
-    <div class="row">
-        <div class="col-md-12">
-            <div class="text-center mb-5">
-                <h1 class="display-4 fw-bold">Welcome to Evermail</h1>
-                <p class="lead text-muted">Transform your email archives into searchable knowledge</p>
-            </div>
-
+<div class="home-wrapper">
+    <section class="hero-section">
+        <div>
+            <p class="hero-eyebrow mb-2">Effortless Email Archiving</p>
+            <h1>Effortless Email Archiving. Instant Search.</h1>
+            <p>
+                evermail helps businesses securely archive, manage, and instantly search years of email history with unrivalled ease.
+                Ship faster with trustworthy retrieval, zero data leaks, and modern UX.
+            </p>
             <AuthorizeView>
                 <Authorized>
-                    <div class="alert alert-success alert-dismissible fade show" role="alert">
-                        <h4 class="alert-heading">
-                            <i class="bi bi-check-circle-fill me-2"></i>You're Logged In!
-                        </h4>
-                        <hr />
-                        <p class="mb-1"><strong>Email:</strong> @context.User.GetEmail()</p>
-                        <p class="mb-1"><strong>User ID:</strong> @context.User.GetUserId()</p>
-                        <p class="mb-0"><strong>Tenant ID:</strong> @context.User.GetTenantId()</p>
-                        <hr />
-                        <div class="d-flex gap-2 mt-3 flex-wrap">
-                            <a href="/emails" class="btn btn-success btn-lg">
-                                <i class="bi bi-envelope-fill me-2"></i>View My Emails
-                            </a>
-                            <a href="/settings" class="btn btn-outline-secondary btn-lg">
-                                <i class="bi bi-gear-fill me-2"></i>Settings
-                            </a>
-                        </div>
-                        <p class="text-muted mt-3 mb-0">
-                            <small>To logout, use the button in the top-right corner</small>
-                        </p>
-                    </div>
-
-                    <div class="card mt-4">
-                        <div class="card-header bg-primary text-white">
-                            <h5 class="mb-0">
-                                <i class="bi bi-info-circle-fill me-2"></i>Quick Start
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <h6>Phase 1 Features (Coming Soon):</h6>
-                            <ul>
-                                <li>Upload .mbox files from Gmail, Outlook, Thunderbird</li>
-                                <li>Automatic email parsing and indexing</li>
-                                <li>Full-text search across all your emails</li>
-                                <li>View attachments</li>
-                                <li>Advanced filters (date, sender, folder)</li>
-                            </ul>
-                            <p class="mb-0 text-muted">
-                                <small>You're using the <strong>Free tier</strong> (1 GB storage, 1 mailbox)</small>
-                            </p>
-                        </div>
+                    <div class="cta-group">
+                        <a href="/mailboxes" class="btn btn-primary">
+                            <i class="bi bi-inbox-fill me-2"></i>View Mailboxes
+                        </a>
+                        <a href="/upload" class="btn btn-success">
+                            <i class="bi bi-cloud-upload-fill me-2"></i>Upload Mailbox
+                        </a>
+                        <a href="/settings" class="btn btn-outline-secondary">
+                            <i class="bi bi-gear-fill me-2"></i>Tenant Settings
+                        </a>
                     </div>
                 </Authorized>
                 <NotAuthorized>
-                    <div class="row g-4 mt-4">
-                        <div class="col-md-6">
-                            <div class="card h-100">
-                                <div class="card-body text-center p-4">
-                                    <h3>
-                                        <i class="bi bi-person-plus-fill text-primary"></i>
-                                    </h3>
-                                    <h5 class="card-title">Create Account</h5>
-                                    <p class="card-text text-muted">
-                                        Get started with Evermail. Sign up with email or use Google/Microsoft.
-                                    </p>
-                                    <a href="/register" class="btn btn-primary w-100">
-                                        <i class="bi bi-person-plus me-2"></i>Register Now
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <div class="card h-100">
-                                <div class="card-body text-center p-4">
-                                    <h3>
-                                        <i class="bi bi-box-arrow-in-right text-success"></i>
-                                    </h3>
-                                    <h5 class="card-title">Already Have an Account?</h5>
-                                    <p class="card-text text-muted">
-                                        Sign in to access your email archives.
-                                    </p>
-                                    <a href="/login" class="btn btn-success w-100">
-                                        <i class="bi bi-box-arrow-in-right me-2"></i>Login
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="card mt-4">
-                        <div class="card-body">
-                            <h5>Why Evermail?</h5>
-                            <div class="row mt-3">
-                                <div class="col-md-4">
-                                    <h6><i class="bi bi-search text-primary"></i> Powerful Search</h6>
-                                    <p class="text-muted small">Find any email instantly with full-text search</p>
-                                </div>
-                                <div class="col-md-4">
-                                    <h6><i class="bi bi-shield-check text-success"></i> Secure & Private</h6>
-                                    <p class="text-muted small">Your data stays encrypted and isolated</p>
-                                </div>
-                                <div class="col-md-4">
-                                    <h6><i class="bi bi-clock-history text-info"></i> Long-term Archive</h6>
-                                    <p class="text-muted small">Keep your email history forever</p>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="cta-group">
+                        <a href="/register" class="btn btn-primary">
+                            <i class="bi bi-star-fill me-2"></i>Start Free Trial
+                        </a>
+                        <a href="/login" class="btn btn-outline-secondary">
+                            <i class="bi bi-box-arrow-in-right me-2"></i>Login
+                        </a>
+                        <a href="https://learn.microsoft.com/aspnet/core/" target="_blank" class="btn btn-outline-secondary">
+                            <i class="bi bi-play-circle me-2"></i>Watch Demo
+                        </a>
                     </div>
                 </NotAuthorized>
             </AuthorizeView>
+            <p class="text-muted mt-3 mb-0">
+                <small>GDPR-ready · Stripe billing · Azure-native security</small>
+            </p>
         </div>
-    </div>
+        <div class="hero-card">
+            <h5>Live Snapshot</h5>
+            <strong>@_snapshot.TotalEmailsDisplay</strong>
+            <span class="text-muted">Emails indexed</span>
+            <ul class="hero-card__list">
+                <li>
+                    <span class="badge bg-light text-dark">@_snapshot.MailboxesCompleted completed</span>
+                    Mailboxes
+                </li>
+                <li>
+                    <span class="badge bg-light text-dark">@FormatBytes(_snapshot.TotalStorageBytes)</span>
+                    Stored securely
+                </li>
+                <li>
+                    <span class="badge bg-light text-dark">@(_snapshot.LastUploadAt?.ToString("MMM d • HH:mm") ?? "Pending")</span>
+                    Last upload
+                </li>
+            </ul>
+        </div>
+    </section>
+
+    <section>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+            <div>
+                <p class="hero-eyebrow mb-1">Telemetry</p>
+                <h2 class="mb-0">Usage at a glance</h2>
+            </div>
+            <AuthorizeView>
+                <Authorized>
+                    <button class="btn btn-outline-secondary btn-sm"
+                            @onclick="RefreshDashboardAsync"
+                            disabled="@_isDashboardLoading">
+                        @if (_isDashboardLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        Refresh
+                    </button>
+                </Authorized>
+            </AuthorizeView>
+        </div>
+
+        @if (!string.IsNullOrEmpty(_dashboardError))
+        {
+            <div class="alert alert-danger">
+                <strong>Heads up:</strong> @_dashboardError
+            </div>
+        }
+        else if (_isDashboardLoading)
+        {
+            <div class="text-center py-4">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="text-muted mt-3 mb-0">Loading tenant metrics…</p>
+            </div>
+        }
+        else
+        {
+            <div class="stat-grid">
+                @foreach (var stat in _stats)
+                {
+                    <div class="stat-card">
+                        <h3>@stat.Label</h3>
+                        <div class="stat-value">@stat.Value</div>
+                        @if (!string.IsNullOrEmpty(stat.Trend))
+                        {
+                            <div class="stat-trend">@stat.Trend</div>
+                        }
+                        @if (!string.IsNullOrEmpty(stat.Description))
+                        {
+                            <p class="text-muted small mb-0">@stat.Description</p>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </section>
+
+    <section class="resource-panel">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+            <div>
+                <p class="hero-eyebrow mb-1">Resources</p>
+                <h2 class="mb-0">Utilization overview</h2>
+            </div>
+            <span class="text-muted small">
+                Plan: @_planLimits.Name (@FormatBytes(_planLimits.StorageBytes) storage · @_planLimits.MailboxLimit mailbox)
+            </span>
+        </div>
+
+        @foreach (var usage in _resourceUsage)
+        {
+            <div class="usage-row">
+                <div class="usage-header">
+                    <span>@usage.Label</span>
+                    <span class="@(usage.IsWarning ? "text-warning fw-semibold" : "text-muted")">@usage.Description</span>
+                </div>
+                <div class="usage-progress progress" role="progressbar" aria-valuenow="@usage.Percent" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar" style="width:@usage.Percent%"></div>
+                </div>
+            </div>
+        }
+    </section>
+
+    <section class="getting-started">
+        <p class="hero-eyebrow mb-2">Getting started</p>
+        <h2 class="mb-4">From upload to insights in minutes</h2>
+        <ol>
+            @foreach (var step in _steps)
+            {
+                <li>
+                    <strong>@step.Title</strong>
+                    <p class="text-muted">@step.Description</p>
+                    @if (!string.IsNullOrEmpty(step.Href))
+                    {
+                        <a class="btn btn-link p-0" href="@step.Href">Open step →</a>
+                    }
+                </li>
+            }
+        </ol>
+    </section>
+
+    <section class="roadmap">
+        <div class="d-flex flex-column gap-1 mb-4">
+            <p class="hero-eyebrow mb-1">Product roadmap</p>
+            <h2 class="mb-0">Now · Next · Later</h2>
+            <p class="text-muted mb-0">A transparent look at what we’re building for power users.</p>
+        </div>
+        <div class="roadmap-grid">
+            @foreach (var column in _roadmap)
+            {
+                <div class="roadmap-column">
+                    <h4>@column.Title</h4>
+                    @foreach (var item in column.Items)
+                    {
+                        <div class="roadmap-item">
+                            <strong>@item.Title</strong>
+                            <span>@item.Status</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </section>
 </div>
 
 @code {
+    private bool _handledOAuthCallback;
+    private bool _isAuthenticated;
+    private bool _isDashboardLoading;
+    private string? _dashboardError;
+    private DashboardSnapshot _snapshot = DashboardSnapshot.Sample;
+    private IReadOnlyList<DashboardStat> _stats = Array.Empty<DashboardStat>();
+    private IReadOnlyList<ResourceUsageItem> _resourceUsage = Array.Empty<ResourceUsageItem>();
+    private readonly IReadOnlyList<OnboardingStep> _steps =
+    [
+        new("Upload your .mbox archive", "Drag & drop Gmail Takeout or Outlook exports. Up to 5GB per upload today.", "/upload"),
+        new("Let Evermail parse + index", "Our worker extracts metadata, attachments, and normalizes headers for search."),
+        new("Search & share insights", "Use filters, saved searches, and semantic snippets. Invite teammates from Settings.", "/emails")
+    ];
+
+    private readonly IReadOnlyList<RoadmapColumn> _roadmap =
+    [
+        new("Now", new[]
+        {
+            new RoadmapItem("Mailbox processing telemetry", "QA"),
+            new RoadmapItem("Attachment previewer", "In progress"),
+            new RoadmapItem("Tenant usage API", "Implementing"),
+        }),
+        new("Next", new[]
+        {
+            new RoadmapItem("AI-powered search + summaries", "Design"),
+            new RoadmapItem("Shared workspaces", "Research"),
+            new RoadmapItem("Gmail/Outlook direct import", "Auth integration"),
+        }),
+        new("Later", new[]
+        {
+            new RoadmapItem("Compliance tier (immutable storage)", "Planning"),
+            new RoadmapItem("Team insights dashboard", "Planning"),
+            new RoadmapItem("Mobile companion app (.NET MAUI)", "Concept"),
+        })
+    ];
+
+    private PlanLimits _planLimits = PlanLimits.Free;
+
     protected override async Task OnInitializedAsync()
     {
+        EnsureHttpClientBaseAddress();
         Logger.LogInformation("🏠 Home page loading. Current URL: {Url}", Navigation.Uri);
-        
+
         // Handle OAuth redirect with tokens in query string
         var uri = new Uri(Navigation.Uri);
         var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
         var token = queryParams["token"];
         var refreshToken = queryParams["refreshToken"];
 
-        if (!string.IsNullOrEmpty(token))
+        if (!string.IsNullOrEmpty(token) && !_handledOAuthCallback)
         {
-            Logger.LogInformation("🔑 Tokens found in URL. Access token: {Length} chars, Refresh token: {HasRefresh}", 
+            _handledOAuthCallback = true;
+            Logger.LogInformation("🔑 Tokens found in URL. Access token: {Length} chars, Refresh token: {HasRefresh}",
                 token.Length, !string.IsNullOrEmpty(refreshToken));
-            
+
             try
             {
                 // Store both tokens in localStorage
@@ -154,7 +270,7 @@
                 {
                     Logger.LogInformation("✅ Access token stored");
                 }
-                
+
                 // Notify authentication state changed
                 if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                 {
@@ -164,15 +280,18 @@
 
                 // Small delay to ensure state propagation
                 await Task.Delay(100);
-                
+
                 // Redirect to clean URL (removes tokens from address bar)
-                Logger.LogInformation("🔄 Redirecting to clean URL");
-                Navigation.NavigateTo("/", forceLoad: true);
+                Logger.LogInformation("🔄 Redirecting to clean URL (replace history entry)");
+                Navigation.NavigateTo("/", new NavigationOptions
+                {
+                    ReplaceHistoryEntry = true
+                });
+                return;
             }
             catch (Microsoft.AspNetCore.Components.NavigationException)
             {
                 // Expected exception when navigating with forceLoad during initialization
-                // Navigation will complete successfully, no action needed
             }
             catch (Exception ex)
             {
@@ -186,7 +305,7 @@
             if (!string.IsNullOrEmpty(existingToken))
             {
                 Logger.LogInformation("✅ Token found in localStorage. User should be authenticated.");
-                
+
                 // Try to refresh token if it's expiring soon
                 var refreshed = await AuthStateService.RefreshTokenIfNeededAsync();
                 if (refreshed)
@@ -203,22 +322,277 @@
                 Logger.LogInformation("ℹ️ No token found. User is not authenticated.");
             }
         }
+
+        await InitializeDashboardAsync();
+    }
+
+    private async Task InitializeDashboardAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+
+        if (_isAuthenticated)
+        {
+            await LoadDashboardSnapshotAsync();
+        }
+        else
+        {
+            UseSampleData();
+        }
+    }
+
+    private async Task RefreshDashboardAsync()
+    {
+        if (!_isAuthenticated)
+        {
+            UseSampleData();
+            return;
+        }
+
+        await LoadDashboardSnapshotAsync();
+    }
+
+    private async Task LoadDashboardSnapshotAsync()
+    {
+        EnsureHttpClientBaseAddress();
+        _isDashboardLoading = true;
+        _dashboardError = null;
+        StateHasChanged();
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _dashboardError = "You must be signed in to load tenant metrics.";
+                UseSampleDataIfEmpty();
+                return;
+            }
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                new Uri(new Uri(Navigation.BaseUri), "api/v1/mailboxes?page=1&pageSize=50"));
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _dashboardError = "Session expired. Please sign in again to view usage data.";
+                UseSampleDataIfEmpty();
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _dashboardError = $"Unable to load usage data ({(int)response.StatusCode}).";
+                UseSampleDataIfEmpty();
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<PagedMailboxesResponse>>();
+            if (payload?.Success == true && payload.Data is { } data)
+            {
+                var snapshot = BuildSnapshotFromResponse(data);
+                ApplySnapshot(snapshot);
+            }
+            else
+            {
+                _dashboardError = payload?.Error ?? "Unable to load usage data.";
+                UseSampleDataIfEmpty();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load dashboard usage data");
+            _dashboardError = "We couldn't load your stats. Please try again.";
+            UseSampleDataIfEmpty();
+        }
+        finally
+        {
+            _isDashboardLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress is null)
+        {
+            Http.BaseAddress = new Uri(Navigation.BaseUri);
+        }
+    }
+
+    private DashboardSnapshot BuildSnapshotFromResponse(PagedMailboxesResponse response)
+    {
+        var items = response.Items ?? new List<MailboxDto>();
+        var totalSize = items.Sum(m => m.FileSizeBytes);
+        var totalEmails = items.Sum(m => m.ProcessedEmails);
+        var failedEmails = items.Sum(m => m.FailedEmails);
+        var completed = items.Count(m => string.Equals(m.Status, "Completed", StringComparison.OrdinalIgnoreCase));
+        var processing = items.Count(m => string.Equals(m.Status, "Processing", StringComparison.OrdinalIgnoreCase));
+        var lastUpload = items
+            .OrderByDescending(m => m.CreatedAt)
+            .FirstOrDefault()
+            ?.CreatedAt;
+
+        _planLimits = PlanLimits.Free; // TODO: replace with actual tenant plan
+
+        return new DashboardSnapshot(
+            response.TotalCount,
+            completed,
+            processing,
+            totalSize,
+            totalEmails,
+            failedEmails,
+            lastUpload,
+            _planLimits.StorageBytes,
+            _planLimits.MailboxLimit);
+    }
+
+    private void ApplySnapshot(DashboardSnapshot snapshot)
+    {
+        _snapshot = snapshot;
+        _stats = BuildStats(snapshot);
+        _resourceUsage = BuildResourceUsage(snapshot);
+    }
+
+    private IReadOnlyList<DashboardStat> BuildStats(DashboardSnapshot snapshot)
+    {
+        var stats = new List<DashboardStat>
+        {
+            new("Emails Indexed", FormatNumber(snapshot.TotalEmails), TrendText(snapshot), "Total processed emails across all mailboxes."),
+            new("Mailboxes", $"{snapshot.MailboxesCompleted}/{snapshot.MailboxesTotal}", $"{snapshot.MailboxesProcessing} processing", "Completed vs total mailboxes in this tenant."),
+            new("Storage Used", FormatBytes(snapshot.TotalStorageBytes), $"{snapshot.StoragePercent}%", "Blob + database footprint."),
+            new("Failed Messages", FormatNumber(snapshot.FailedEmails), snapshot.FailedEmails == 0 ? "All clear" : "Needs review", "Retries happen automatically; review if failures persist.")
+        };
+
+        return stats;
+    }
+
+    private IReadOnlyList<ResourceUsageItem> BuildResourceUsage(DashboardSnapshot snapshot)
+    {
+        var resources = new List<ResourceUsageItem>
+        {
+            new("Storage", snapshot.StoragePercent, $"{FormatBytes(snapshot.TotalStorageBytes)} of {FormatBytes(snapshot.StorageLimitBytes)} used", snapshot.StoragePercent >= 80),
+            new("Mailbox quota", snapshot.MailboxPercent, $"{snapshot.MailboxesTotal} of {_planLimits.MailboxLimit} mailboxes", snapshot.MailboxPercent >= 80),
+            new("Processing pipeline", Math.Min(100, snapshot.MailboxesProcessing * 25), $"{snapshot.MailboxesProcessing} active ingestion jobs", snapshot.MailboxesProcessing >= 4)
+        };
+
+        return resources;
+    }
+
+    private void UseSampleData()
+    {
+        _snapshot = DashboardSnapshot.Sample;
+        _planLimits = PlanLimits.Free;
+        _stats = BuildStats(_snapshot);
+        _resourceUsage = BuildResourceUsage(_snapshot);
+        StateHasChanged();
+    }
+
+    private void UseSampleDataIfEmpty()
+    {
+        if (_stats.Count == 0)
+        {
+            UseSampleData();
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "0 B";
+        }
+
+        string[] sizes = ["B", "KB", "MB", "GB", "TB"];
+        var order = (int)Math.Floor(Math.Log(bytes, 1024));
+        order = Math.Clamp(order, 0, sizes.Length - 1);
+        var adjusted = bytes / Math.Pow(1024, order);
+        return $"{adjusted:0.#} {sizes[order]}";
+    }
+
+    private static string FormatNumber(long value)
+    {
+        if (value >= 1_000_000)
+        {
+            return $"{value / 1_000_000d:0.#}M";
+        }
+
+        if (value >= 1_000)
+        {
+            return $"{value / 1_000d:0.#}K";
+        }
+
+        return value.ToString("N0");
+    }
+
+    private static string TrendText(DashboardSnapshot snapshot)
+    {
+        if (snapshot.MailboxesProcessing > 0)
+        {
+            return $"{snapshot.MailboxesProcessing} processing now";
+        }
+
+        return "Stable week";
     }
 
     private async Task HandleLogout()
     {
         Logger.LogInformation("🚪 User logging out");
-        
-        // Remove token from localStorage
+
         await AuthStateService.RemoveTokenAsync();
-        
-        // Notify authentication state changed
+
         if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
         {
             customProvider.NotifyAuthenticationStateChanged();
         }
 
-        // Redirect to home
         Navigation.NavigateTo("/", forceLoad: true);
+    }
+
+    private sealed record DashboardSnapshot(
+        int MailboxesTotal,
+        int MailboxesCompleted,
+        int MailboxesProcessing,
+        long TotalStorageBytes,
+        int TotalEmails,
+        int FailedEmails,
+        DateTime? LastUploadAt,
+        long StorageLimitBytes,
+        int MailboxLimit)
+    {
+        public string TotalEmailsDisplay => FormatNumber(TotalEmails);
+        public int StoragePercent => StorageLimitBytes == 0 ? 0 : (int)Math.Min(100, Math.Round((double)TotalStorageBytes / StorageLimitBytes * 100));
+        public int MailboxPercent => MailboxLimit == 0 ? 0 : (int)Math.Min(100, Math.Round((double)MailboxesTotal / MailboxLimit * 100));
+
+        public static DashboardSnapshot Sample => new(
+            MailboxesTotal: 8,
+            MailboxesCompleted: 6,
+            MailboxesProcessing: 1,
+            TotalStorageBytes: 87_000_000_000,
+            TotalEmails: 124_500,
+            FailedEmails: 14,
+            LastUploadAt: DateTime.UtcNow.AddHours(-3),
+            StorageLimitBytes: PlanLimits.Free.StorageBytes,
+            MailboxLimit: PlanLimits.Free.MailboxLimit);
+
+        public static DashboardSnapshot Empty => new(0, 0, 0, 0, 0, 0, null, 0, 0);
+    }
+
+    private sealed record DashboardStat(string Label, string Value, string? Trend, string? Description);
+
+    private sealed record ResourceUsageItem(string Label, int Percent, string Description, bool IsWarning);
+
+    private sealed record OnboardingStep(string Title, string Description, string? Href = null);
+
+    private sealed record RoadmapItem(string Title, string Status);
+
+    private sealed record RoadmapColumn(string Title, IReadOnlyList<RoadmapItem> Items);
+
+    private sealed record PlanLimits(string Name, long StorageBytes, int MailboxLimit)
+    {
+        public static PlanLimits Free => new("Free tier", 1L * 1024 * 1024 * 1024, 1);
     }
 }

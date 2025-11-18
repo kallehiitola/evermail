@@ -1,0 +1,64 @@
+@rendermode InteractiveServer
+@inject ThemeService ThemeService
+
+<button type="button"
+        class="theme-toggle btn btn-sm"
+        title="Toggle theme"
+        @onclick="ToggleTheme">
+    <i class="@IconClass" aria-hidden="true"></i>
+    <span class="theme-toggle__label">@Label</span>
+</button>
+
+@code {
+    private string _currentTheme = "light";
+
+    private string IconClass => _currentTheme == "dark"
+        ? "bi bi-moon-stars-fill"
+        : "bi bi-sun-fill";
+
+    private string Label => _currentTheme == "dark" ? "Dark" : "Light";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            var theme = await ThemeService.GetThemeAsync();
+            if (!string.IsNullOrWhiteSpace(theme))
+            {
+                _currentTheme = theme;
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            // Ignore JS interop failures (e.g., prerender)
+        }
+    }
+
+    private async Task ToggleTheme()
+    {
+        try
+        {
+            var newTheme = await ThemeService.ToggleThemeAsync();
+            if (!string.IsNullOrWhiteSpace(newTheme))
+            {
+                _currentTheme = newTheme;
+                StateHasChanged();
+                return;
+            }
+        }
+        catch
+        {
+            // Fallback below
+        }
+
+        _currentTheme = _currentTheme == "dark" ? "light" : "dark";
+        StateHasChanged();
+    }
+}
+

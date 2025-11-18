@@ -10,35 +10,9 @@
             <NotAuthorized>
                 @{
                     Logger.LogWarning("⛔ 403 - Unauthorized access attempt: {Path}", NavigationManager.Uri);
+                    Logger.LogWarning("⛔ Routes.razor - Rendering RedirectToLogin component");
                 }
-                <PageTitle>Access Denied - Evermail</PageTitle>
-                <LayoutView Layout="@typeof(Layout.MainLayout)">
-                    <div class="container mt-5">
-                        <div class="row justify-content-center">
-                            <div class="col-md-6">
-                                <div class="card border-danger">
-                                    <div class="card-header bg-danger text-white">
-                                        <h4 class="mb-0">
-                                            <i class="bi bi-shield-exclamation"></i> Access Denied
-                                        </h4>
-                                    </div>
-                                    <div class="card-body">
-                                        <p class="lead">You don't have permission to access this page.</p>
-                                        <p class="text-muted">
-                                            This page requires administrator privileges. If you believe you should have access, 
-                                            please contact your system administrator.
-                                        </p>
-                                        <div class="mt-4">
-                                            <a href="/" class="btn btn-primary">
-                                                <i class="bi bi-house"></i> Go to Home
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </LayoutView>
+                <RedirectToLogin />
             </NotAuthorized>
             <Authorizing>
                 <PageTitle>Loading - Evermail</PageTitle>

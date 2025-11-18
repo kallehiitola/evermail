@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Email;
+using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.WebApp.Endpoints;
@@ -31,111 +34,126 @@ public static class EmailEndpoints
         bool? hasAttachments = null,
         int page = 1,
         int pageSize = 50,
-        string sortBy = "date",
-        string sortOrder = "desc")
+        string? sortBy = null,
+        string sortOrder = "desc",
+        string? stopWords = null,
+        bool useInflectionalForms = false,
+        ILoggerFactory? loggerFactory = null)
     {
-        // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
         {
             return Results.Unauthorized();
         }
 
-        // Enforce max page size
+        page = Math.Max(1, page);
         if (pageSize > 100)
         {
             pageSize = 100;
         }
+        else if (pageSize < 1)
+        {
+            pageSize = 1;
+        }
 
         var stopwatch = Stopwatch.StartNew();
+        var normalizedSortBy = string.IsNullOrWhiteSpace(sortBy) ? null : sortBy.Trim();
 
-        // Build base query with tenant isolation
         var query = context.EmailMessages
             .AsNoTracking()
             .Where(e => e.TenantId == tenantContext.TenantId && e.UserId == tenantContext.UserId);
 
-        // Filter by mailbox if provided
         if (mailboxId.HasValue)
         {
             query = query.Where(e => e.MailboxId == mailboxId.Value);
         }
 
-        // Filter by sender if provided
         if (!string.IsNullOrEmpty(from))
         {
             query = query.Where(e => e.FromAddress.Contains(from) || (e.FromName != null && e.FromName.Contains(from)));
         }
 
-        // Filter by date range
         if (dateFrom.HasValue)
         {
             query = query.Where(e => e.Date >= dateFrom.Value);
         }
+
         if (dateTo.HasValue)
         {
             query = query.Where(e => e.Date <= dateTo.Value);
         }
 
-        // Filter by attachments
         if (hasAttachments.HasValue)
         {
             query = query.Where(e => e.HasAttachments == hasAttachments.Value);
         }
 
-        // Full-text search (simple contains for now - can be enhanced with SQL Server FTS later)
-        if (!string.IsNullOrWhiteSpace(q))
+        var stopWordSet = BuildStopWordSet(stopWords);
+        var fullTextCondition = BuildFullTextSearchCondition(q, stopWordSet, useInflectionalForms);
+        var isFullTextSearch = !string.IsNullOrWhiteSpace(fullTextCondition);
+
+        var searchProjection = BuildSearchProjection(
+            context,
+            query,
+            q,
+            fullTextCondition,
+            page,
+            pageSize,
+            ref isFullTextSearch);
+
+        var effectiveSortBy = string.IsNullOrWhiteSpace(normalizedSortBy)
+            ? (isFullTextSearch ? "rank" : "date")
+            : normalizedSortBy;
+
+        int totalCount;
+        List<EmailWithRank> pageResults;
+
+        var logger = loggerFactory?.CreateLogger("EmailEndpoints");
+
+        try
         {
-            var searchTerm = q.Trim();
-            query = query.Where(e =>
-                (e.Subject != null && e.Subject.Contains(searchTerm)) ||
-                (e.TextBody != null && e.TextBody.Contains(searchTerm)) ||
-                (e.Snippet != null && e.Snippet.Contains(searchTerm)) ||
-                e.FromAddress.Contains(searchTerm) ||
-                (e.FromName != null && e.FromName.Contains(searchTerm))
-            );
+            totalCount = await searchProjection.CountAsync();
+
+            var sortedProjection = ApplySorting(searchProjection, effectiveSortBy, sortOrder, isFullTextSearch);
+
+            pageResults = await sortedProjection
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+        }
+        catch (SqlException ex) when (isFullTextSearch && ex.Number == 7601)
+        {
+            logger?.LogWarning(ex, "Full-text search unavailable. Falling back to basic search for tenant {TenantId}", tenantContext.TenantId);
+            isFullTextSearch = false;
+
+            searchProjection = BuildFallbackProjection(query, q);
+            effectiveSortBy = string.IsNullOrWhiteSpace(normalizedSortBy) ? "date" : normalizedSortBy;
+
+            totalCount = await searchProjection.CountAsync();
+
+            var sortedFallback = ApplySorting(searchProjection, effectiveSortBy, sortOrder, isFullTextSearch);
+
+            pageResults = await sortedFallback
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
         }
 
-        // Get total count before pagination
-        var totalCount = await query.CountAsync();
+        var emailEntities = pageResults.Select(r => r.Email).ToList();
+        var rankLookup = pageResults.ToDictionary(r => r.Email.Id, r => r.Rank);
 
-        // Apply sorting
-        query = sortBy.ToLower() switch
-        {
-            "subject" => sortOrder.ToLower() == "asc"
-                ? query.OrderBy(e => e.Subject)
-                : query.OrderByDescending(e => e.Subject),
-            "from" => sortOrder.ToLower() == "asc"
-                ? query.OrderBy(e => e.FromAddress)
-                : query.OrderByDescending(e => e.FromAddress),
-            _ => sortOrder.ToLower() == "asc"
-                ? query.OrderBy(e => e.Date)
-                : query.OrderByDescending(e => e.Date)
-        };
-
-        // Apply pagination
-        var emailEntities = await query
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        // Get email IDs
         var emailIds = emailEntities.Select(e => e.Id).ToList();
-
-        // Get first attachment ID for each email (if any)
-        // Use a subquery approach that EF Core can translate properly
         var firstAttachmentIds = new Dictionary<Guid, Guid>();
+
         if (emailIds.Any())
         {
             var attachments = await context.Attachments
                 .AsNoTracking()
-                .Where(a => emailIds.Contains(a.EmailMessageId) && 
-                           a.TenantId == tenantContext.TenantId)
+                .Where(a => emailIds.Contains(a.EmailMessageId) && a.TenantId == tenantContext.TenantId)
                 .OrderBy(a => a.EmailMessageId)
                 .ThenBy(a => a.CreatedAt)
                 .ToListAsync();
 
-            // Group in memory to get first attachment per email
-            var grouped = attachments.GroupBy(a => a.EmailMessageId);
-            foreach (var group in grouped)
+            foreach (var group in attachments.GroupBy(a => a.EmailMessageId))
             {
                 var firstAttachment = group.FirstOrDefault();
                 if (firstAttachment != null)
@@ -145,20 +163,25 @@ public static class EmailEndpoints
             }
         }
 
-        // Map to DTOs with first attachment ID
-        var emails = emailEntities.Select(e => new EmailListItemDto(
-            e.Id,
-            e.MailboxId,
-            e.Subject,
-            e.FromAddress,
-            e.FromName,
-            e.Date,
-            e.Snippet,
-            e.HasAttachments,
-            e.AttachmentCount,
-            e.IsRead,
-            firstAttachmentIds.TryGetValue(e.Id, out var attachmentId) ? attachmentId : null
-        )).ToList();
+        var emails = emailEntities.Select(e =>
+        {
+            rankLookup.TryGetValue(e.Id, out var rank);
+            var hasAttachmentId = firstAttachmentIds.TryGetValue(e.Id, out var attachmentId) ? attachmentId : (Guid?)null;
+
+            return new EmailListItemDto(
+                e.Id,
+                e.MailboxId,
+                e.Subject,
+                e.FromAddress,
+                e.FromName,
+                e.Date,
+                e.Snippet,
+                e.HasAttachments,
+                e.AttachmentCount,
+                e.IsRead,
+                hasAttachmentId,
+                rank);
+        }).ToList();
 
         stopwatch.Stop();
 
@@ -262,6 +285,133 @@ public static class EmailEndpoints
             Success: true,
             Data: emailDto
         ));
+    }
+
+    private sealed class EmailWithRank
+    {
+        public EmailMessage Email { get; set; } = default!;
+        public double? Rank { get; set; }
+    }
+
+    private static IQueryable<EmailWithRank> BuildSearchProjection(
+        EvermailDbContext context,
+        IQueryable<EmailMessage> baseQuery,
+        string? q,
+        string? fullTextCondition,
+        int page,
+        int pageSize,
+        ref bool isFullTextSearch)
+    {
+        if (!isFullTextSearch)
+        {
+            return BuildFallbackProjection(baseQuery, q);
+        }
+
+        var windowMultiplier = 5;
+        var ftsWindow = Math.Clamp(page * pageSize * windowMultiplier, pageSize, 5000);
+
+        var rankQuery = context.FullTextSearchResults
+            .FromSqlInterpolated($@"
+                SELECT [KEY] AS EmailId, [RANK] AS Rank
+                FROM CONTAINSTABLE(
+                    EmailMessages,
+                    (Subject, TextBody, FromName, FromAddress),
+                    {fullTextCondition},
+                    {ftsWindow}
+                )")
+            .AsNoTracking();
+
+        return baseQuery.Join(
+            rankQuery,
+            email => email.Id,
+            rank => rank.EmailId,
+            (email, rank) => new EmailWithRank { Email = email, Rank = rank.Rank });
+    }
+
+    private static IQueryable<EmailWithRank> BuildFallbackProjection(IQueryable<EmailMessage> query, string? q)
+    {
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            var fallbackTerm = q.Trim();
+            query = query.Where(e =>
+                (e.Subject != null && e.Subject.Contains(fallbackTerm)) ||
+                (e.TextBody != null && e.TextBody.Contains(fallbackTerm)) ||
+                (e.Snippet != null && e.Snippet.Contains(fallbackTerm)) ||
+                e.FromAddress.Contains(fallbackTerm) ||
+                (e.FromName != null && e.FromName.Contains(fallbackTerm)));
+        }
+
+        return query.Select(e => new EmailWithRank { Email = e, Rank = null });
+    }
+
+    private static IQueryable<EmailWithRank> ApplySorting(
+        IQueryable<EmailWithRank> source,
+        string sortBy,
+        string sortOrder,
+        bool hasRank)
+    {
+        var ascending = sortOrder.Equals("asc", StringComparison.OrdinalIgnoreCase);
+        return sortBy.ToLowerInvariant() switch
+        {
+            "subject" => ascending
+                ? source.OrderBy(x => x.Email.Subject)
+                : source.OrderByDescending(x => x.Email.Subject),
+            "from" => ascending
+                ? source.OrderBy(x => x.Email.FromAddress)
+                : source.OrderByDescending(x => x.Email.FromAddress),
+            "rank" when hasRank => ascending
+                ? source.OrderBy(x => x.Rank ?? 0).ThenByDescending(x => x.Email.Date)
+                : source.OrderByDescending(x => x.Rank ?? 0).ThenByDescending(x => x.Email.Date),
+            _ => ascending
+                ? source.OrderBy(x => x.Email.Date)
+                : source.OrderByDescending(x => x.Email.Date)
+        };
+    }
+
+    private static HashSet<string> BuildStopWordSet(string? stopWords)
+    {
+        if (string.IsNullOrWhiteSpace(stopWords))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        return stopWords
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(word => word.Trim().Trim('"'))
+            .Where(word => !string.IsNullOrWhiteSpace(word))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static string? BuildFullTextSearchCondition(string? query, HashSet<string> stopWords, bool useInflectionalForms)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            return null;
+        }
+
+        var matches = Regex.Matches(query, @"(?:""[^""]+"")|(?:\S+)");
+        var expressions = new List<string>();
+
+        foreach (Match match in matches)
+        {
+            var token = match.Value.Trim();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                continue;
+            }
+
+            var normalized = token.Trim('"');
+            if (stopWords.Contains(normalized))
+            {
+                continue;
+            }
+
+            var escaped = normalized.Replace("\"", "\"\"");
+            var literal = $"\"{escaped}\"";
+            expressions.Add(useInflectionalForms ? $"FORMSOF(INFLECTIONAL, {literal})" : literal);
+        }
+
+        return expressions.Count == 0 ? null : string.Join(" AND ", expressions);
     }
 }
 

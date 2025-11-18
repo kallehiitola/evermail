@@ -11,7 +11,8 @@ public record EmailListItemDto(
     bool HasAttachments,
     int AttachmentCount,
     bool IsRead,
-    Guid? FirstAttachmentId = null
+    Guid? FirstAttachmentId = null,
+    double? Rank = null
 );
 
 public record EmailDetailDto(

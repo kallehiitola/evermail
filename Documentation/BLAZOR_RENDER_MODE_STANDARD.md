@@ -85,7 +85,15 @@ Need interactivity? (@onclick, @bind, forms)
 ```razor
 @page "/admin"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin")]
+
+<AuthorizeView Roles="Admin,SuperAdmin">
+    <Authorized>
+        <!-- Admin UI -->
+    </Authorized>
+    <NotAuthorized>
+        <CheckAuthAndRedirect />
+    </NotAuthorized>
+</AuthorizeView>
 ```
 **Why?** Sensitive data, server-side operations
 
@@ -160,4 +168,12 @@ When creating a new page:
 **When to deviate**: Only for offline features in Phase 2+ (then consider InteractiveAuto).
 
 **Remember**: Static is default, so always add `@rendermode InteractiveServer` when you need interactivity!
+
+---
+
+## Authorization Pattern Reminder
+
+- ❌ **Never** add `@attribute [Authorize]` to Blazor components. It prevents the router from rendering redirects/404 pages.
+- ✅ Use `<AuthorizeRouteView>` (see `Components/Routes.razor`) for global handling.
+- ✅ Each protected page should wrap content in `<AuthorizeView>` and render `<CheckAuthAndRedirect />` for the `<NotAuthorized>` block so anonymous users are redirected to `/login?returnUrl=/requested-path`.
 

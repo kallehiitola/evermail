@@ -82,11 +82,16 @@
     private bool _needs2FA;
     private string? _errorMessage;
 
+    private string? _returnUrl;
+
     protected override async Task OnInitializedAsync()
     {
-        // Check if we have a token in query string (OAuth redirect)
+        // Get returnUrl from query string
         var uri = new Uri(Navigation.Uri);
         var queryParams = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        _returnUrl = queryParams["returnUrl"];
+
+        // Check if we have a token in query string (OAuth redirect)
         var token = queryParams["token"];
 
         if (!string.IsNullOrEmpty(token))
@@ -100,8 +105,10 @@
                 customProvider.NotifyAuthenticationStateChanged();
             }
 
-            // Redirect to clean URL (remove token from query string)
-            Navigation.NavigateTo("/", forceLoad: true);
+            // Redirect to returnUrl or home
+            var redirectUrl = !string.IsNullOrEmpty(_returnUrl) ? _returnUrl : "/";
+            Navigation.NavigateTo(redirectUrl, forceLoad: true);
+            return;
         }
 
         // Check for error from OAuth
@@ -151,8 +158,9 @@
                         customProvider.NotifyAuthenticationStateChanged();
                     }
 
-                    // Navigate to home
-                    Navigation.NavigateTo("/", forceLoad: true);
+                    // Navigate to returnUrl or home
+                    var redirectUrl = !string.IsNullOrEmpty(_returnUrl) ? _returnUrl : "/";
+                    Navigation.NavigateTo(redirectUrl, forceLoad: true);
                 }
             }
             else if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
