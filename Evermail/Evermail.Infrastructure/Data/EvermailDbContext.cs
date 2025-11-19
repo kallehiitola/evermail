@@ -22,6 +22,8 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
     public DbSet<MailboxDeletionQueue> MailboxDeletionQueue => Set<MailboxDeletionQueue>();
     public DbSet<EmailMessage> EmailMessages => Set<EmailMessage>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<EmailThread> EmailThreads => Set<EmailThread>();
+    public DbSet<EmailRecipient> EmailRecipients => Set<EmailRecipient>();
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
@@ -54,6 +56,12 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
 
             modelBuilder.Entity<RefreshToken>()
+                .HasQueryFilter(r => r.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<EmailThread>()
+                .HasQueryFilter(t => t.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<EmailRecipient>()
                 .HasQueryFilter(r => r.TenantId == _tenantContext.TenantId);
         }
 
@@ -135,6 +143,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasIndex(e => e.Date);
             entity.HasIndex(e => e.FromAddress);
             entity.HasIndex(e => e.MessageId);
+            entity.HasIndex(e => new { e.TenantId, e.ConversationId });
             entity.HasIndex(e => new { e.MailboxId, e.ContentHash }).IsUnique().HasFilter("[ContentHash] IS NOT NULL");
 
             entity.HasOne(e => e.Tenant)
@@ -156,6 +165,45 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany()
                 .HasForeignKey(e => e.MailboxUploadId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(e => e.Thread)
+                .WithMany(t => t.Emails)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.NoAction);
+            
+            entity.HasMany(e => e.Recipients)
+                .WithOne(r => r.EmailMessage)
+                .HasForeignKey(r => r.EmailMessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // EmailThread
+        modelBuilder.Entity<EmailThread>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => new { t.TenantId, t.ConversationKey }).IsUnique();
+            entity.HasIndex(t => new { t.TenantId, t.LastMessageDate });
+
+            entity.Property(t => t.ParticipantsSummary)
+                .HasDefaultValue("[]");
+
+            entity.HasOne(t => t.Tenant)
+                .WithMany(te => te.EmailThreads)
+                .HasForeignKey(t => t.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // EmailRecipient
+        modelBuilder.Entity<EmailRecipient>(entity =>
+        {
+            entity.HasKey(r => r.Id);
+            entity.HasIndex(r => new { r.TenantId, r.Address });
+            entity.HasIndex(r => new { r.TenantId, r.RecipientType, r.Address });
+
+            entity.HasOne(r => r.EmailMessage)
+                .WithMany(e => e.Recipients)
+                .HasForeignKey(r => r.EmailMessageId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Attachment

@@ -142,8 +142,8 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
     - Enqueue processing jobs
     - Track mailbox processing status
   - **Search APIs**
-    - Full-text search using SQL Server FTS
-    - Advanced filtering (date range, sender, recipient)
+    - Full-text search using SQL Server FTS (Subject, Text, HTML, Recipient blobs)
+    - Advanced filtering (date range, sender, recipient, conversation/thread)
     - AI-powered semantic search (Phase 2)
   - **Billing Integration**
     - Stripe Checkout session creation
@@ -167,8 +167,10 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
      - Process in batches of 500 messages
      - Handle corrupt messages gracefully (log and skip)
   4. **Extract Email Data**
-     - Metadata: MessageId, From, To, Cc, Bcc, Date, Subject
-     - Content: Text body, HTML body, snippet (200 chars)
+     - Metadata: MessageId, In-Reply-To, References, From/Sender/Reply-To, Return-Path, List-Id, Thread-Topic, Importance/Priority, Categories
+     - Recipients: Normalize To/Cc/Bcc/Reply-To/Sender into `EmailRecipients` + JSON arrays for backwards compatibility
+     - Threading: Derive a deterministic `ConversationKey`, link to (or create) an `EmailThread`, set `ThreadDepth`, update participant roster and message counts
+     - Content: Snippet (first 200 chars), Text body, HTML body (stored + indexed)
      - Attachments: Save to Blob Storage, store reference in DB
   5. **Store in Database**
      - Bulk insert in batches for performance
@@ -199,6 +201,11 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
   3. Users schedule cleanup via `POST /mailboxes/{id}/delete`. A `MailboxDeletionQueue` row is created and a message is placed on `mailbox-deletion`.
   4. Worker polls `mailbox-deletion`; once `ExecuteAfter` arrives it deletes blobs first, then emails, then optionally the mailbox record (when both upload+emails are gone). Purge windows default to 30 days unless SuperAdmins set `purgeNow`.
   5. Every state change writes to `AuditLogs`, enabling GDPR traceability.
+
+#### Threading, Recipient Indexing & Search Surfaces
+- **Conversation graph**: Every email rolls up to `EmailThreads` via normalized `ConversationKey` (first reference → In-Reply-To → MessageId). Threads store participant summary, message counts, first/last timestamps, and power UI grouping.
+- **Recipient index**: `EmailRecipients` table (plus a flattened `RecipientsSearch` column) enables instant filtering by To/Cc/Bcc/Reply-To/Sender without scanning JSON payloads.
+- **Full-text coverage**: SQL Server CONTAINSTABLE now searches `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`, matching Microsoft Learn guidance for multi-column FTS catalogues. The endpoint falls back to `LIKE` queries across the same set when FTS is unavailable.
 
 #### Search Indexer (Optional, Phase 2)
 - **Purpose**: Synchronize database to Azure AI Search

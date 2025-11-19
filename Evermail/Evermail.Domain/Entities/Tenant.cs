@@ -36,5 +36,6 @@ public class Tenant
     public ICollection<ApplicationUser> Users { get; set; } = new List<ApplicationUser>();
     public ICollection<Mailbox> Mailboxes { get; set; } = new List<Mailbox>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
+    public ICollection<EmailThread> EmailThreads { get; set; } = new List<EmailThread>();
 }
 

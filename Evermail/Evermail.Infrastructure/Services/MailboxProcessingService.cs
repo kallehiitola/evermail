@@ -79,18 +79,18 @@ public class MailboxProcessingService
 
             // Stream parse with MimeKit
             await using var stream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
-            
+
             // Get actual blob size (may differ from FileSizeBytes if file was compressed)
             var blobProperties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
             var totalFileSize = blobProperties.Value.ContentLength;
-            
+
             var existingHashes = await _context.EmailMessages
                 .Where(e => e.MailboxId == mailboxId && e.ContentHash != null)
                 .Select(e => e.ContentHash!)
                 .ToListAsync(cancellationToken);
-            
+
             var hashSet = new HashSet<string>(existingHashes.Select(Convert.ToHexString), StringComparer.Ordinal);
-            
+
             await ParseMboxStreamAsync(stream, mailbox, upload, totalFileSize, hashSet, cancellationToken);
 
             // Update status to Completed
@@ -142,7 +142,8 @@ public class MailboxProcessingService
     {
         var parser = new MimeParser(stream, MimeFormat.Mbox);
 
-        var batch = new List<(EmailMessage Email, MimeMessage Mime)>();
+        var batch = new List<EmailBatchItem>();
+        var threadCache = new Dictionary<string, EmailThread>(StringComparer.OrdinalIgnoreCase);
         int totalProcessed = 0;
         int successfulCount = 0;
         int failedCount = 0;
@@ -163,23 +164,38 @@ public class MailboxProcessingService
 
                 existingHashes.Add(hashKey);
                 emailMessage.ContentHash = contentHash;
-                batch.Add((emailMessage, mimeMessage));
+
+                var recipients = BuildRecipientEntities(mimeMessage, emailMessage, mailbox);
+                var participantSet = BuildParticipantSet(emailMessage, recipients);
+                var conversationKey = DetermineConversationKey(mimeMessage, emailMessage);
+                var thread = await GetOrCreateThreadAsync(
+                    conversationKey,
+                    mimeMessage,
+                    emailMessage,
+                    mailbox,
+                    participantSet,
+                    threadCache,
+                    cancellationToken);
+
+                emailMessage.ConversationId = thread.Id;
+                emailMessage.ConversationKey = conversationKey;
+                emailMessage.ThreadDepth = CalculateThreadDepth(mimeMessage);
+
+                batch.Add(new EmailBatchItem(emailMessage, mimeMessage, recipients, thread));
 
                 totalProcessed++;
                 successfulCount++;
 
-                // Save batch every 500 messages and update progress
                 if (batch.Count >= BatchSize)
                 {
-                    // Get current stream position (bytes read so far)
                     var bytesProcessed = stream.Position;
-                    
+
                     await SaveBatchWithAttachmentsAsync(
-                        batch, 
-                        mailbox, 
+                        batch,
+                        mailbox,
                         upload,
-                        totalProcessed, 
-                        successfulCount, 
+                        totalProcessed,
+                        successfulCount,
                         bytesProcessed,
                         totalFileSizeBytes,
                         cancellationToken);
@@ -204,22 +220,20 @@ public class MailboxProcessingService
             }
         }
 
-        // Save remaining batch
         if (batch.Count > 0)
         {
             var finalPosition = stream.Position;
             await SaveBatchWithAttachmentsAsync(
-                batch, 
-                mailbox, 
+                batch,
+                mailbox,
                 upload,
-                totalProcessed, 
+                totalProcessed,
                 successfulCount,
                 finalPosition,
                 totalFileSizeBytes,
                 cancellationToken);
         }
 
-        // Final update of mailbox statistics - now we know the actual total
         mailbox.TotalEmails = totalProcessed;
         mailbox.ProcessedEmails = successfulCount;
         mailbox.FailedEmails = failedCount;
@@ -229,27 +243,50 @@ public class MailboxProcessingService
 
     private EmailMessage MapToEmailMessage(MimeMessage mimeMessage, Mailbox mailbox, MailboxUpload upload)
     {
-        // Extract text and HTML bodies
         var textBody = mimeMessage.TextBody ?? string.Empty;
         var htmlBody = mimeMessage.HtmlBody ?? string.Empty;
-        
-        // Create snippet (first 200 chars of text body)
-        var snippet = textBody.Length > 200 
-            ? textBody[..200].Replace("\r\n", " ").Replace("\n", " ").Trim() 
+
+        var snippet = textBody.Length > 200
+            ? textBody[..200].Replace("\r\n", " ").Replace("\n", " ").Trim()
             : textBody.Trim();
 
-        // Extract sender
         var fromMailbox = mimeMessage.From.Mailboxes.FirstOrDefault();
         var fromAddress = fromMailbox?.Address ?? string.Empty;
         var fromName = fromMailbox?.Name ?? string.Empty;
 
-        // Extract recipients
+        var replyToMailbox = mimeMessage.ReplyTo.Mailboxes.FirstOrDefault();
+        var senderMailbox = mimeMessage.Sender;
+
         var toAddresses = mimeMessage.To.Mailboxes.Select(m => m.Address).ToList();
         var toNames = mimeMessage.To.Mailboxes.Select(m => m.Name ?? m.Address).ToList();
         var ccAddresses = mimeMessage.Cc.Mailboxes.Select(m => m.Address).ToList();
         var ccNames = mimeMessage.Cc.Mailboxes.Select(m => m.Name ?? m.Address).ToList();
         var bccAddresses = mimeMessage.Bcc.Mailboxes.Select(m => m.Address).ToList();
         var bccNames = mimeMessage.Bcc.Mailboxes.Select(m => m.Name ?? m.Address).ToList();
+
+        var recipientsSearchTokens = new List<string>();
+        recipientsSearchTokens.AddRange(toAddresses);
+        recipientsSearchTokens.AddRange(toNames);
+        recipientsSearchTokens.AddRange(ccAddresses);
+        recipientsSearchTokens.AddRange(ccNames);
+        recipientsSearchTokens.AddRange(bccAddresses);
+        recipientsSearchTokens.AddRange(bccNames);
+        if (!string.IsNullOrWhiteSpace(replyToMailbox?.Address))
+        {
+            recipientsSearchTokens.Add(replyToMailbox!.Address);
+        }
+        if (!string.IsNullOrWhiteSpace(replyToMailbox?.Name))
+        {
+            recipientsSearchTokens.Add(replyToMailbox!.Name!);
+        }
+        if (!string.IsNullOrWhiteSpace(senderMailbox?.Address))
+        {
+            recipientsSearchTokens.Add(senderMailbox!.Address);
+        }
+        if (!string.IsNullOrWhiteSpace(senderMailbox?.Name))
+        {
+            recipientsSearchTokens.Add(senderMailbox!.Name!);
+        }
 
         return new EmailMessage
         {
@@ -258,33 +295,37 @@ public class MailboxProcessingService
             UserId = mailbox.UserId,
             MailboxId = mailbox.Id,
 
-            // SMTP Headers
             MessageId = mimeMessage.MessageId ?? Guid.NewGuid().ToString(),
             InReplyTo = mimeMessage.InReplyTo,
             References = mimeMessage.References?.ToString(),
 
-            // Basic fields
             Subject = mimeMessage.Subject ?? string.Empty,
             Date = mimeMessage.Date.UtcDateTime,
 
-            // Sender
             FromAddress = fromAddress,
             FromName = fromName,
+            ReplyToAddress = replyToMailbox?.Address,
+            SenderAddress = senderMailbox?.Address,
+            SenderName = senderMailbox?.Name,
+            ReturnPath = mimeMessage.Headers["Return-Path"],
+            ListId = mimeMessage.Headers["List-Id"],
+            ThreadTopic = mimeMessage.Headers["Thread-Topic"],
+            Importance = mimeMessage.Headers["Importance"] ?? mimeMessage.Headers["X-Importance"],
+            Priority = mimeMessage.Headers["X-Priority"] ?? mimeMessage.Headers["Priority"],
+            Categories = mimeMessage.Headers["Categories"],
 
-            // Recipients (stored as JSON arrays)
             ToAddresses = JsonSerializer.Serialize(toAddresses),
             ToNames = JsonSerializer.Serialize(toNames),
             CcAddresses = JsonSerializer.Serialize(ccAddresses),
             CcNames = JsonSerializer.Serialize(ccNames),
             BccAddresses = JsonSerializer.Serialize(bccAddresses),
             BccNames = JsonSerializer.Serialize(bccNames),
+            RecipientsSearch = string.Join(' ', recipientsSearchTokens.Where(t => !string.IsNullOrWhiteSpace(t))),
 
-            // Content
             Snippet = snippet,
             TextBody = textBody,
             HtmlBody = htmlBody,
 
-            // Metadata
             HasAttachments = mimeMessage.Attachments.Any(),
             AttachmentCount = mimeMessage.Attachments.Count(),
 
@@ -359,7 +400,7 @@ public class MailboxProcessingService
     }
 
     private async Task SaveBatchWithAttachmentsAsync(
-        List<(EmailMessage Email, MimeMessage Mime)> batch,
+        List<EmailBatchItem> batch,
         Mailbox mailbox,
         MailboxUpload upload,
         int totalProcessed,
@@ -374,22 +415,27 @@ public class MailboxProcessingService
         await _context.SaveChangesAsync(cancellationToken);
 
         // Process attachments for saved emails
-        foreach (var (email, mimeMessage) in batch)
+        foreach (var item in batch)
         {
-            if (mimeMessage.Attachments.Any())
+            if (item.Mime.Attachments.Any())
             {
-                await ProcessAttachmentsAsync(mimeMessage, email, mailbox, cancellationToken);
+                await ProcessAttachmentsAsync(item.Mime, item.Email, mailbox, cancellationToken);
             }
         }
 
         // Save attachments
         await _context.SaveChangesAsync(cancellationToken);
 
-        // Update mailbox progress
-        // TotalEmails stays 0 until processing completes (we don't know total yet)
-        // ProcessedEmails shows how many we've successfully processed
-        // ProcessedBytes tracks actual bytes read for progress calculation
-        // Progress percentage is calculated from file size: (ProcessedBytes / FileSizeBytes) * 100
+        var recipientRows = batch.SelectMany(b => b.Recipients).ToList();
+        if (recipientRows.Count > 0)
+        {
+            _context.EmailRecipients.AddRange(recipientRows);
+        }
+
+        UpdateThreadStats(batch);
+
+        await _context.SaveChangesAsync(cancellationToken);
+
         mailbox.ProcessedEmails = successfulCount;
         mailbox.ProcessedBytes = bytesProcessed;
         mailbox.UpdatedAt = DateTime.UtcNow;
@@ -398,6 +444,233 @@ public class MailboxProcessingService
         upload.ProcessedBytes = bytesProcessed;
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    private List<EmailRecipient> BuildRecipientEntities(
+        MimeMessage mimeMessage,
+        EmailMessage emailMessage,
+        Mailbox mailbox)
+    {
+        var recipients = new List<EmailRecipient>();
+
+        AddRecipientEntities(recipients, emailMessage.Id, mailbox, mimeMessage.To.Mailboxes, "To");
+        AddRecipientEntities(recipients, emailMessage.Id, mailbox, mimeMessage.Cc.Mailboxes, "Cc");
+        AddRecipientEntities(recipients, emailMessage.Id, mailbox, mimeMessage.Bcc.Mailboxes, "Bcc");
+
+        if (mimeMessage.ReplyTo?.Mailboxes.Any() == true)
+        {
+            AddRecipientEntities(recipients, emailMessage.Id, mailbox, mimeMessage.ReplyTo.Mailboxes, "ReplyTo");
+        }
+
+        if (mimeMessage.Sender != null)
+        {
+            AddRecipientEntities(recipients, emailMessage.Id, mailbox, new[] { mimeMessage.Sender }, "Sender");
+        }
+
+        return recipients;
+    }
+
+    private static void AddRecipientEntities(
+        ICollection<EmailRecipient> recipients,
+        Guid emailMessageId,
+        Mailbox mailbox,
+        IEnumerable<MailboxAddress> addresses,
+        string type)
+    {
+        foreach (var address in addresses)
+        {
+            if (string.IsNullOrWhiteSpace(address.Address))
+            {
+                continue;
+            }
+
+            recipients.Add(new EmailRecipient
+            {
+                Id = Guid.NewGuid(),
+                TenantId = mailbox.TenantId,
+                EmailMessageId = emailMessageId,
+                RecipientType = type,
+                Address = address.Address,
+                DisplayName = string.IsNullOrWhiteSpace(address.Name) ? null : address.Name,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+    }
+
+    private static HashSet<string> BuildParticipantSet(
+        EmailMessage emailMessage,
+        List<EmailRecipient> recipients)
+    {
+        var participants = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!string.IsNullOrWhiteSpace(emailMessage.FromAddress))
+        {
+            participants.Add(emailMessage.FromAddress);
+        }
+
+        if (!string.IsNullOrWhiteSpace(emailMessage.SenderAddress))
+        {
+            participants.Add(emailMessage.SenderAddress!);
+        }
+
+        if (!string.IsNullOrWhiteSpace(emailMessage.ReplyToAddress))
+        {
+            participants.Add(emailMessage.ReplyToAddress!);
+        }
+
+        foreach (var recipient in recipients)
+        {
+            if (!string.IsNullOrWhiteSpace(recipient.Address))
+            {
+                participants.Add(recipient.Address);
+            }
+        }
+
+        return participants;
+    }
+
+    private static string DetermineConversationKey(MimeMessage mimeMessage, EmailMessage email)
+    {
+        if (mimeMessage.References?.Count > 0)
+        {
+            return NormalizeMessageId(mimeMessage.References[0]);
+        }
+
+        if (!string.IsNullOrWhiteSpace(mimeMessage.InReplyTo))
+        {
+            return NormalizeMessageId(mimeMessage.InReplyTo);
+        }
+
+        if (!string.IsNullOrWhiteSpace(mimeMessage.MessageId))
+        {
+            return NormalizeMessageId(mimeMessage.MessageId);
+        }
+
+        return email.Id.ToString("N");
+    }
+
+    private async Task<EmailThread> GetOrCreateThreadAsync(
+        string conversationKey,
+        MimeMessage mimeMessage,
+        EmailMessage email,
+        Mailbox mailbox,
+        HashSet<string> participants,
+        Dictionary<string, EmailThread> threadCache,
+        CancellationToken cancellationToken)
+    {
+        if (threadCache.TryGetValue(conversationKey, out var cachedThread))
+        {
+            return cachedThread;
+        }
+
+        var thread = await _context.EmailThreads
+            .FirstOrDefaultAsync(t => t.TenantId == mailbox.TenantId && t.ConversationKey == conversationKey, cancellationToken);
+
+        if (thread == null)
+        {
+            thread = new EmailThread
+            {
+                Id = Guid.NewGuid(),
+                TenantId = mailbox.TenantId,
+                ConversationKey = conversationKey,
+                RootMessageId = mimeMessage.MessageId ?? email.MessageId,
+                Subject = email.Subject,
+                FirstMessageDate = email.Date,
+                LastMessageDate = email.Date,
+                MessageCount = 0,
+                ParticipantsSummary = SerializeParticipants(participants),
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow
+            };
+
+            await _context.EmailThreads.AddAsync(thread, cancellationToken);
+        }
+
+        threadCache[conversationKey] = thread;
+        return thread;
+    }
+
+    private static void UpdateThreadStats(IEnumerable<EmailBatchItem> batch)
+    {
+        var now = DateTime.UtcNow;
+
+        foreach (var group in batch.GroupBy(b => b.Thread.Id))
+        {
+            var thread = group.First().Thread;
+            var messageCountDelta = group.Count();
+            thread.MessageCount += messageCountDelta;
+
+            var maxDate = group.Max(item => item.Email.Date);
+            var minDate = group.Min(item => item.Email.Date);
+
+            if (thread.FirstMessageDate == default || minDate < thread.FirstMessageDate)
+            {
+                thread.FirstMessageDate = minDate;
+            }
+
+            if (maxDate > thread.LastMessageDate)
+            {
+                thread.LastMessageDate = maxDate;
+            }
+
+            var participants = DeserializeParticipants(thread.ParticipantsSummary);
+            foreach (var item in group)
+            {
+                var participantSet = BuildParticipantSet(item.Email, item.Recipients);
+                foreach (var participant in participantSet)
+                {
+                    participants.Add(participant);
+                }
+            }
+
+            thread.ParticipantsSummary = SerializeParticipants(participants);
+            thread.UpdatedAt = now;
+        }
+    }
+
+    private static HashSet<string> DeserializeParticipants(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        try
+        {
+            var values = JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            return new HashSet<string>(values.Where(v => !string.IsNullOrWhiteSpace(v)), StringComparer.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    private static string SerializeParticipants(HashSet<string> participants)
+        => JsonSerializer.Serialize(participants.Where(p => !string.IsNullOrWhiteSpace(p)));
+
+    private static int CalculateThreadDepth(MimeMessage mimeMessage)
+    {
+        if (mimeMessage.References?.Count > 0)
+        {
+            return mimeMessage.References.Count;
+        }
+
+        return string.IsNullOrWhiteSpace(mimeMessage.InReplyTo) ? 0 : 1;
+    }
+
+    private static string NormalizeMessageId(string messageId)
+    {
+        return messageId
+            .Trim()
+            .Trim('<', '>')
+            .ToLowerInvariant();
+    }
+
+    private sealed record EmailBatchItem(
+        EmailMessage Email,
+        MimeMessage Mime,
+        List<EmailRecipient> Recipients,
+        EmailThread Thread);
 
     private static byte[] ComputeContentHash(Guid mailboxId, MimeMessage mimeMessage, EmailMessage email)
     {

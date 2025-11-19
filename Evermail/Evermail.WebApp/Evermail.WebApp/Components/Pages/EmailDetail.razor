@@ -102,6 +102,44 @@
                             </div>
                         </div>
                     }
+                    @if (!string.IsNullOrWhiteSpace(_email.ReplyToAddress))
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>Reply-To:</strong></div>
+                            <div class="col-md-10">@_email.ReplyToAddress</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_email.SenderAddress))
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>Sender:</strong></div>
+                            <div class="col-md-10">
+                                @_email.SenderName
+                                @if (!string.IsNullOrWhiteSpace(_email.SenderName))
+                                {
+                                    <small class="text-muted ms-1">&lt;@_email.SenderAddress&gt;</small>
+                                }
+                                else
+                                {
+                                    <text>@_email.SenderAddress</text>
+                                }
+                            </div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_email.ReturnPath))
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>Return-Path:</strong></div>
+                            <div class="col-md-10">@_email.ReturnPath</div>
+                        </div>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_email.ListId))
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>List-Id:</strong></div>
+                            <div class="col-md-10">@_email.ListId</div>
+                        </div>
+                    }
                     @if (_email.CcAddresses.Any())
                     {
                         <div class="row mb-2">
@@ -131,6 +169,32 @@
                         <div class="col-md-2"><strong>Date:</strong></div>
                         <div class="col-md-10">@_email.Date.ToString("yyyy-MM-dd HH:mm:ss UTC")</div>
                     </div>
+                    @if (_email.ConversationId.HasValue)
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>Thread:</strong></div>
+                            <div class="col-md-10">
+                                <span class="badge bg-secondary-subtle text-dark">
+                                    Reply @(_email.ThreadDepth + 1) of @_email.ThreadSize
+                                </span>
+                            </div>
+                        </div>
+                    }
+                    <div class="row mb-2">
+                        <div class="col-md-2"><strong>Importance:</strong></div>
+                        <div class="col-md-10">@(_email.Importance ?? "—")</div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-md-2"><strong>Priority:</strong></div>
+                        <div class="col-md-10">@(_email.Priority ?? "—")</div>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_email.Categories))
+                    {
+                        <div class="row mb-2">
+                            <div class="col-md-2"><strong>Categories:</strong></div>
+                            <div class="col-md-10">@_email.Categories</div>
+                        </div>
+                    }
                 </div>
 
                 <!-- Attachments -->

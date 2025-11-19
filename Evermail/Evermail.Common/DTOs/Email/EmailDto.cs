@@ -12,7 +12,10 @@ public record EmailListItemDto(
     int AttachmentCount,
     bool IsRead,
     Guid? FirstAttachmentId = null,
-    double? Rank = null
+    double? Rank = null,
+    Guid? ConversationId = null,
+    int ThreadSize = 1,
+    int ThreadDepth = 0
 );
 
 public record EmailDetailDto(
@@ -34,6 +37,18 @@ public record EmailDetailDto(
     string? Snippet,
     string? TextBody,
     string? HtmlBody,
+    string? ReplyToAddress,
+    string? SenderAddress,
+    string? SenderName,
+    string? ReturnPath,
+    string? ListId,
+    string? ThreadTopic,
+    string? Importance,
+    string? Priority,
+    string? Categories,
+    Guid? ConversationId,
+    int ThreadSize,
+    int ThreadDepth,
     bool HasAttachments,
     int AttachmentCount,
     bool IsRead,

@@ -1,3 +1,5 @@
+using Aspire.Hosting.Docker;
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 // Add Azure Key Vault resources (existing Key Vaults created manually)
@@ -30,6 +32,7 @@ var sqlPassword = builder.AddParameter("sql-password", secret: true);
 var sql = builder.AddSqlServer("sql", password: sqlPassword)
     .WithLifetime(ContainerLifetime.Persistent)  // Persist container between restarts
     .WithDataVolume("evermail-sql-data")        // Persist data in named volume
+    .WithDockerfile("../../docker/sqlserver")   // Custom image with full-text search
     .AddDatabase("evermaildb");
 
 // Add Azure Storage using connection strings (existing storage account)

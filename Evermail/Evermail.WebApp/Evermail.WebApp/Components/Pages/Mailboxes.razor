@@ -128,24 +128,11 @@
                                         <td>
                                             @if (mailbox.Status == "Processing")
                                             {
-                                                int progress;
-                                                if (mailbox.TotalEmails > 0)
-                                                {
-                                                    progress = (int)((double)mailbox.ProcessedEmails / mailbox.TotalEmails * 100);
-                                                }
-                                                else if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
-                                                {
-                                                    progress = (int)((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100);
-                                                }
-                                                else
-                                                {
-                                                    progress = 0;
-                                                }
-
+                                                var (progress, progressLabel) = CalculateMailboxProgress(mailbox);
                                                 <div class="usage-progress progress">
                                                     <div class="progress-bar" style="width:@progress%"></div>
                                                 </div>
-                                                <small class="text-muted">@progress%</small>
+                                                <small class="text-muted">@progressLabel</small>
                                             }
                                             else if (mailbox.Status == "Completed")
                                             {
@@ -159,7 +146,7 @@
                                         <td>
                                             @if (mailbox.Status == "Completed")
                                             {
-                                                <span>@mailbox.ProcessedEmails</span>
+                                                <span>@mailbox.ProcessedEmails.ToString("N0")</span>
                                                 @if (mailbox.FailedEmails > 0)
                                                 {
                                                     <span class="text-danger small ms-1">(@mailbox.FailedEmails failed)</span>
@@ -167,7 +154,7 @@
                                             }
                                             else if (mailbox.Status == "Processing")
                                             {
-                                                <span>@mailbox.ProcessedEmails / @mailbox.TotalEmails</span>
+                                                <span>@mailbox.ProcessedEmails.ToString("N0") processed</span>
                                             }
                                             else
                                             {
@@ -415,6 +402,25 @@
             new MailboxSummaryCard("Storage indexed", FormatFileSize(storageBytes), pending > 0 ? $"{pending} pending ingest" : "All caught up"),
             new MailboxSummaryCard("Lifecycle", pendingDeletion > 0 ? $"{pendingDeletion} pending purge" : "Healthy", newest is null ? "No uploads yet" : $"Latest upload {newest.CreatedAt:MMM d • HH:mm}")
         };
+    }
+
+    private (int Progress, string Label) CalculateMailboxProgress(MailboxDto mailbox)
+    {
+        if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
+        {
+            var progress = (int)Math.Clamp((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100, 0, 100);
+            var processed = FormatFileSize(mailbox.ProcessedBytes);
+            var total = FormatFileSize(mailbox.FileSizeBytes);
+            return (progress, $"{processed} / {total}");
+        }
+
+        if (mailbox.TotalEmails > 0)
+        {
+            var progress = (int)Math.Clamp((double)mailbox.ProcessedEmails / mailbox.TotalEmails * 100, 0, 100);
+            return (progress, $"{mailbox.ProcessedEmails:N0} / {mailbox.TotalEmails:N0} emails");
+        }
+
+        return (0, "Starting…");
     }
 
     private string FormatFileSize(long bytes)

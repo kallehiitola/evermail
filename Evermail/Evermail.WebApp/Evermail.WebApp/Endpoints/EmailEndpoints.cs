@@ -32,6 +32,8 @@ public static class EmailEndpoints
         DateTime? dateFrom = null,
         DateTime? dateTo = null,
         bool? hasAttachments = null,
+        string? recipient = null,
+        Guid? conversationId = null,
         int page = 1,
         int pageSize = 50,
         string? sortBy = null,
@@ -60,11 +62,17 @@ public static class EmailEndpoints
 
         var query = context.EmailMessages
             .AsNoTracking()
+            .Include(e => e.Thread)
             .Where(e => e.TenantId == tenantContext.TenantId && e.UserId == tenantContext.UserId);
 
         if (mailboxId.HasValue)
         {
             query = query.Where(e => e.MailboxId == mailboxId.Value);
+        }
+
+        if (conversationId.HasValue)
+        {
+            query = query.Where(e => e.ConversationId == conversationId.Value);
         }
 
         if (!string.IsNullOrEmpty(from))
@@ -85,6 +93,17 @@ public static class EmailEndpoints
         if (hasAttachments.HasValue)
         {
             query = query.Where(e => e.HasAttachments == hasAttachments.Value);
+        }
+
+        if (!string.IsNullOrWhiteSpace(recipient))
+        {
+            var normalizedRecipient = recipient.Trim();
+            query = query.Where(e =>
+                context.EmailRecipients.Any(r =>
+                    r.EmailMessageId == e.Id &&
+                    r.TenantId == tenantContext.TenantId &&
+                    (r.Address.Contains(normalizedRecipient) ||
+                        (r.DisplayName != null && r.DisplayName.Contains(normalizedRecipient)))));
         }
 
         var stopWordSet = BuildStopWordSet(stopWords);
@@ -180,7 +199,10 @@ public static class EmailEndpoints
                 e.AttachmentCount,
                 e.IsRead,
                 hasAttachmentId,
-                rank);
+                rank,
+                e.ConversationId,
+                e.Thread?.MessageCount ?? 1,
+                e.ThreadDepth);
         }).ToList();
 
         stopwatch.Stop();
@@ -210,6 +232,7 @@ public static class EmailEndpoints
 
         var email = await context.EmailMessages
             .AsNoTracking()
+            .Include(e => e.Thread)
             .Include(e => e.Attachments)
             .Where(e => e.Id == id && e.TenantId == tenantContext.TenantId && e.UserId == tenantContext.UserId)
             .FirstOrDefaultAsync();
@@ -275,6 +298,18 @@ public static class EmailEndpoints
             email.Snippet,
             email.TextBody,
             email.HtmlBody,
+            email.ReplyToAddress,
+            email.SenderAddress,
+            email.SenderName,
+            email.ReturnPath,
+            email.ListId,
+            email.ThreadTopic,
+            email.Importance,
+            email.Priority,
+            email.Categories,
+            email.ConversationId,
+            email.Thread?.MessageCount ?? 1,
+            email.ThreadDepth,
             email.HasAttachments,
             email.AttachmentCount,
             email.IsRead,
@@ -315,7 +350,7 @@ public static class EmailEndpoints
                 SELECT [KEY] AS EmailId, [RANK] AS Rank
                 FROM CONTAINSTABLE(
                     EmailMessages,
-                    (Subject, TextBody, FromName, FromAddress),
+                    (Subject, TextBody, HtmlBody, RecipientsSearch, FromName, FromAddress),
                     {fullTextCondition},
                     {ftsWindow}
                 )")
@@ -336,6 +371,8 @@ public static class EmailEndpoints
             query = query.Where(e =>
                 (e.Subject != null && e.Subject.Contains(fallbackTerm)) ||
                 (e.TextBody != null && e.TextBody.Contains(fallbackTerm)) ||
+                (e.HtmlBody != null && e.HtmlBody.Contains(fallbackTerm)) ||
+                (e.RecipientsSearch != null && e.RecipientsSearch.Contains(fallbackTerm)) ||
                 (e.Snippet != null && e.Snippet.Contains(fallbackTerm)) ||
                 e.FromAddress.Contains(fallbackTerm) ||
                 (e.FromName != null && e.FromName.Contains(fallbackTerm)));

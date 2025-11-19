@@ -318,7 +318,7 @@ If the client calls `/mailboxes/{id}/uploads` the server wraps both steps and re
 ## Emails
 
 ### GET /emails/search
-Search emails with full-text query.
+Search emails with full-text query, recipient/conversation filters, and advanced ranking controls.
 
 **Query Parameters**:
 - `q` (required): Search query (supports full-text syntax)
@@ -327,6 +327,8 @@ Search emails with full-text query.
 - `dateFrom` (optional): ISO 8601 date, e.g., `2025-01-01`
 - `dateTo` (optional): ISO 8601 date
 - `hasAttachments` (optional): `true` or `false`
+- `recipient` (optional): Matches any `To/Cc/Bcc/Reply-To/Sender` address or display name (case-insensitive `LIKE`)
+- `conversationId` (optional): Filter to a specific thread/conversation GUID
 - `page` (default: 1)
 - `pageSize` (default: 50, max: 100)
 - `sortBy` (default: `rank` when `q` provided, otherwise `date`): `rank`, `date`, `subject`, `from`
@@ -357,7 +359,10 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
         "attachmentCount": 1,
         "isRead": false,
         "firstAttachmentId": "fd0a21c5-1815-4c9d-a8f6-4e34cd0f57e8",
-        "rank": 765
+        "rank": 765,
+        "conversationId": "0b1a1b2c-4567-890a-bcde-ff1122334455",
+        "threadSize": 7,
+        "threadDepth": 3
       }
     ],
     "totalCount": 42,
@@ -368,7 +373,7 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
 }
 ```
 
-When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can surface relevance. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
+When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can surface relevance, plus lightweight thread metadata (`conversationId`, `threadSize`, `threadDepth`) so the UI can cluster or indent results. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
 
 ### GET /emails/{id}
 Get full email details.
@@ -382,16 +387,28 @@ Get full email details.
     "mailboxId": "guid",
     "messageId": "<abc123@mail.gmail.com>",
     "subject": "Invoice #12345 for January",
-    "fromAddress": "billing@company.com",
-    "fromName": "Company Billing",
+        "fromAddress": "billing@company.com",
+        "fromName": "Company Billing",
     "toAddresses": ["user@example.com"],
     "toNames": ["John Doe"],
     "ccAddresses": [],
     "date": "2025-01-15T10:00:00Z",
-    "textBody": "Thank you for your payment...",
-    "htmlBody": "<html>...</html>",
-    "hasAttachments": true,
-    "attachments": [
+        "textBody": "Thank you for your payment...",
+        "htmlBody": "<html>...</html>",
+        "replyToAddress": "accounts@company.com",
+        "senderAddress": "mailer@company.com",
+        "senderName": "Company Mailer",
+        "returnPath": "bounce@company.com",
+        "listId": "invoices.company.com",
+        "threadTopic": "Invoice #12345",
+        "importance": "High",
+        "priority": "1",
+        "categories": "Finance;Invoices",
+        "conversationId": "0b1a1b2c-4567-890a-bcde-ff1122334455",
+        "threadSize": 7,
+        "threadDepth": 3,
+        "hasAttachments": true,
+        "attachments": [
       {
         "id": "guid",
         "fileName": "invoice-12345.pdf",
@@ -403,6 +420,11 @@ Get full email details.
   }
 }
 ```
+
+Every email now returns its thread GUID + depth, letting clients prefetch adjacent messages or jump
+between replies. Envelope metadata (Reply-To, Sender, Return-Path, ListId, Thread-Topic, Importance,
+Priority, Categories) mirrors common Outlook/Gmail headers so downstream automation can plug in
+without re-parsing raw MIME.
 
 ### PATCH /emails/{id}/read
 Mark email as read/unread.

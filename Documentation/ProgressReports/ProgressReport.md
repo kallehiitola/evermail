@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-18  
+> **Last Updated**: 2025-11-19  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -240,6 +240,13 @@ Your Evermail SaaS project is now fully configured with world-class development 
 ---
 
 ## Recent Updates
+
+### 2025-11-19 - Email Threading & Deep Search
+
+- 🔍 Expanded SQL Server full-text search coverage to include HTML bodies plus flattened recipient blobs so `To/Cc/Bcc/Reply-To` filters no longer require JSON scans.
+- 🧵 Introduced normalized `EmailThreads` + `EmailRecipients` tables, wired MimeKit ingestion to compute deterministic `ConversationKey`/`ThreadDepth`, and added EF query filters + indexes for tenant isolation.
+- 📬 Surfaced the new metadata through the API and Blazor UI (recipient filter, thread badges, Reply-To/Sender/List-Id/importance rows) after updating `DatabaseSchema.md` and `API.md`.
+- 🗄️ Generated the `AddEmailThreadingAndRecipientIndex` migration (drops/rebuilds the FTS catalog) so Aspire’s migration service applies the schema automatically.
 
 ### 2025-11-18 - AI Browser Impersonation Helper
 

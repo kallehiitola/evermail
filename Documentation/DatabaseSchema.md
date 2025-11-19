@@ -236,7 +236,9 @@ ALTER TABLE Mailboxes
 ```
 
 ### EmailMessages
-Core email data extracted from .mbox files.
+Core email data extracted from .mbox files. As of November 2025 the table also captures
+conversation metadata, additional SMTP headers, and a flattened recipient search column so
+threading + advanced queries can run without JSON parsing.
 
 ```sql
 CREATE TABLE EmailMessages (
@@ -253,17 +255,27 @@ CREATE TABLE EmailMessages (
     
     Subject NVARCHAR(1024) NULL,
     
-    -- Sender
+    -- Sender / envelope metadata
     FromAddress NVARCHAR(512) NOT NULL,
     FromName NVARCHAR(512) NULL,
+    ReplyToAddress NVARCHAR(512) NULL,
+    SenderAddress NVARCHAR(512) NULL,
+    SenderName NVARCHAR(512) NULL,
+    ReturnPath NVARCHAR(512) NULL,
+    ListId NVARCHAR(512) NULL,
+    ThreadTopic NVARCHAR(1024) NULL,
+    Importance NVARCHAR(32) NULL,
+    Priority NVARCHAR(32) NULL,
+    Categories NVARCHAR(512) NULL,
     
-    -- Recipients
+    -- Recipients (still stored as JSON for backwards compatibility)
     ToAddresses NVARCHAR(MAX) NULL, -- JSON array: ["email1", "email2"]
     ToNames NVARCHAR(MAX) NULL,     -- JSON array: ["Name 1", "Name 2"]
     CcAddresses NVARCHAR(MAX) NULL,
     CcNames NVARCHAR(MAX) NULL,
     BccAddresses NVARCHAR(MAX) NULL,
     BccNames NVARCHAR(MAX) NULL,
+    RecipientsSearch NVARCHAR(2000) NULL, -- Flattened "to/cc/bcc/reply-to" blob for FTS
     
     -- Date
     Date DATETIME2 NOT NULL,
@@ -279,6 +291,11 @@ CREATE TABLE EmailMessages (
     AttachmentCount INT NOT NULL DEFAULT 0,
     IsRead BIT NOT NULL DEFAULT 0,  -- User-specific flag (future: move to UserEmailState table)
     
+    -- Threading
+    ConversationId UNIQUEIDENTIFIER NULL,
+    ConversationKey NVARCHAR(512) NULL,
+    ThreadDepth INT NOT NULL DEFAULT 0,
+    
     -- Timestamps
     CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
     
@@ -286,19 +303,21 @@ CREATE TABLE EmailMessages (
     CONSTRAINT FK_EmailMessages_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE NO ACTION,
     CONSTRAINT FK_EmailMessages_Mailbox FOREIGN KEY (MailboxId) REFERENCES Mailboxes(Id) ON DELETE CASCADE,
     CONSTRAINT FK_EmailMessages_MailboxUpload FOREIGN KEY (MailboxUploadId) REFERENCES MailboxUploads(Id) ON DELETE SET NULL,
+    CONSTRAINT FK_EmailMessages_Thread FOREIGN KEY (ConversationId) REFERENCES EmailThreads(Id) ON DELETE NO ACTION,
     
     INDEX IX_EmailMessages_Tenant_User (TenantId, UserId),
     INDEX IX_EmailMessages_Mailbox (MailboxId),
     INDEX IX_EmailMessages_Date (Date),
     INDEX IX_EmailMessages_FromAddress (FromAddress),
     INDEX IX_EmailMessages_Subject (Subject),
+    INDEX IX_EmailMessages_Conversation (TenantId, ConversationId),
     UNIQUE (TenantId, MailboxId, ContentHash) WHERE ContentHash IS NOT NULL
 );
 
 -- Full-Text Search Catalog
 CREATE FULLTEXT CATALOG EmailSearchCatalog AS DEFAULT;
 
-CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName, FromAddress)
+CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, HtmlBody, RecipientsSearch, FromName, FromAddress)
     KEY INDEX PK__EmailMessages
     ON EmailSearchCatalog
     WITH STOPLIST = SYSTEM;
@@ -629,8 +648,57 @@ CREATE TABLE PIIDetection (
 );
 ```
 
-### EmailThreads (Planned)
-Future table to normalize email conversation metadata (root message id, thread participants, latest activity). Required to power threaded views in the UI without repeated expensive queries. Definition TBD once the viewer feature moves into active development.
+### EmailThreads
+Normalizes conversation metadata so multiple uploads (or future live imports) can converge on the
+same thread, enabling instant grouping + analytics.
+
+```sql
+CREATE TABLE EmailThreads (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    ConversationKey NVARCHAR(512) NOT NULL, -- normalized root Message-Id
+    RootMessageId NVARCHAR(512) NULL,
+    Subject NVARCHAR(1024) NULL,
+    ParticipantsSummary NVARCHAR(MAX) NOT NULL, -- JSON array of unique addresses
+    FirstMessageDate DATETIME2 NOT NULL,
+    LastMessageDate DATETIME2 NOT NULL,
+    MessageCount INT NOT NULL DEFAULT 0,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    
+    CONSTRAINT FK_EmailThreads_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE,
+    INDEX IX_EmailThreads_Tenant_Key (TenantId, ConversationKey),
+    INDEX IX_EmailThreads_Tenant_LastMessage (TenantId, LastMessageDate DESC)
+);
+```
+
+Whenever a new email arrives the ingestion worker locates/creates the thread via `ConversationKey`,
+updates `MessageCount`, `LastMessageDate`, and merges the unique participant list.
+
+### EmailRecipients
+Relational child table that stores every recipient (To/Cc/Bcc/Reply-To/Sender) so filters can run
+without scanning JSON strings.
+
+```sql
+CREATE TABLE EmailRecipients (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    EmailMessageId UNIQUEIDENTIFIER NOT NULL,
+    RecipientType NVARCHAR(16) NOT NULL, -- To, Cc, Bcc, ReplyTo, Sender
+    Address NVARCHAR(512) NOT NULL,
+    DisplayName NVARCHAR(512) NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    
+    CONSTRAINT FK_EmailRecipients_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_EmailRecipients_Email FOREIGN KEY (EmailMessageId) REFERENCES EmailMessages(Id) ON DELETE CASCADE,
+    INDEX IX_EmailRecipients_Tenant_Address (TenantId, Address),
+    INDEX IX_EmailRecipients_Tenant_Type (TenantId, RecipientType, Address)
+);
+```
+
+The ingestion worker still writes the legacy JSON arrays for backwards compatibility, but the UI/API
+now query `EmailRecipients` (and the `RecipientsSearch` column in `EmailMessages`) for fast
+recipient filters.
 
 ## Indexes Summary
 
@@ -654,8 +722,8 @@ CREATE INDEX IX_AuditLogs_Tenant_Timestamp ON AuditLogs(TenantId, Timestamp DESC
 
 ### Full-Text Indexes
 ```sql
--- Email content search
-CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName, FromAddress)
+-- Email content search (November 2025 refresh)
+CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, HtmlBody, RecipientsSearch, FromName, FromAddress)
     KEY INDEX PK__EmailMessages
     ON EmailSearchCatalog;
 ```

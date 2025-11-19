@@ -62,10 +62,24 @@
                         </div>
                         @if (_mailbox.Status == "Completed")
                         {
-                            <a class="btn btn-primary" href="/emails?mailboxId=@_mailbox.Id">
+                            <a class="btn btn-primary" href="/emails?mailbox=@_mailbox.Id">
                                 <i class="bi bi-envelope me-2"></i>View Emails
                             </a>
                         }
+                        <div class="action-pill-group mt-3">
+                            <a href="/upload?mailboxId=@_mailbox.Id" class="action-pill">
+                                <i class="bi bi-arrow-repeat"></i>
+                                Reimport
+                            </a>
+                            <button type="button" class="action-pill" @onclick="OpenRenameModal">
+                                <i class="bi bi-pencil"></i>
+                                Rename
+                            </button>
+                            <button type="button" class="action-pill danger" @onclick="OpenDeleteModal">
+                                <i class="bi bi-trash"></i>
+                                Delete
+                            </button>
+                        </div>
                     </div>
                 </section>
 
@@ -165,6 +179,91 @@
                         <p class="mb-0">@_mailbox.ErrorMessage</p>
                     </div>
                 }
+
+                @if (_showRenameModal && _mailbox is not null)
+                {
+                    <div class="modal fade show detail-modal d-block" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content glass-panel">
+                                <div class="modal-header">
+                                    <div>
+                                        <p class="hero-eyebrow mb-1">Rename mailbox</p>
+                                        <h4 class="mb-0">@(_mailbox.DisplayName ?? _mailbox.FileName)</h4>
+                                    </div>
+                                    <button type="button" class="btn-close" @onclick="CloseRenameModal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <label class="form-label fw-semibold">Display name</label>
+                                    <input class="form-control form-control-lg" @bind="_renameDisplayName" maxlength="500" placeholder="e.g. Sales inbox" />
+                                    @if (!string.IsNullOrEmpty(_modalError))
+                                    {
+                                        <div class="alert alert-danger modern-alert mt-3">@_modalError</div>
+                                    }
+                                </div>
+                                <div class="modal-footer justify-content-between">
+                                    <button class="btn btn-outline-secondary" @onclick="CloseRenameModal">Cancel</button>
+                                    <button class="btn btn-primary" @onclick="SaveRenameAsync">
+                                        <i class="bi bi-check2 me-1"></i>Save
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                @if (_showDeleteModal && _mailbox is not null)
+                {
+                    <div class="modal fade show detail-modal d-block" tabindex="-1">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content glass-panel">
+                                <div class="modal-header">
+                                    <div>
+                                        <p class="hero-eyebrow mb-1 text-danger">Danger zone</p>
+                                        <h4 class="mb-0">Delete "@(_mailbox.DisplayName ?? _mailbox.FileName)"</h4>
+                                    </div>
+                                    <button type="button" class="btn-close" @onclick="CloseDeleteModal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <p class="text-muted mb-3">Choose what you want to remove:</p>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="detailDeleteUpload" @bind="_deleteModel.DeleteUpload" />
+                                        <label class="form-check-label fw-semibold" for="detailDeleteUpload">
+                                            Delete uploaded file (.mbox)
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-2">
+                                        <input class="form-check-input" type="checkbox" id="detailDeleteEmails" @bind="_deleteModel.DeleteEmails" />
+                                        <label class="form-check-label fw-semibold" for="detailDeleteEmails">
+                                            Delete indexed emails
+                                        </label>
+                                    </div>
+                                    <div class="form-check mb-3">
+                                        <input class="form-check-input" type="checkbox" id="detailPurgeNow" @bind="_deleteModel.PurgeNow" />
+                                        <label class="form-check-label fw-semibold" for="detailPurgeNow">
+                                            Purge immediately (SuperAdmins only)
+                                        </label>
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(_modalError))
+                                    {
+                                        <div class="alert alert-danger modern-alert">@_modalError</div>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-warning modern-alert subtle-warning">
+                                            Unless purge is requested, deletion jobs run after a 30-day retention window.
+                                        </div>
+                                    }
+                                </div>
+                                <div class="modal-footer justify-content-between">
+                                    <button class="btn btn-outline-secondary" @onclick="CloseDeleteModal">Cancel</button>
+                                    <button class="btn btn-danger" @onclick="ScheduleDeletionAsync">
+                                        <i class="bi bi-trash me-1"></i>Schedule Delete
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
             }
         </div>
     </Authorized>
@@ -180,6 +279,11 @@
     private bool _isLoading = true;
     private string _errorMessage = "";
     private System.Threading.Timer? _refreshTimer;
+    private bool _showRenameModal;
+    private bool _showDeleteModal;
+    private string _renameDisplayName = string.Empty;
+    private DeleteMailboxModel _deleteModel = new();
+    private string _modalError = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
@@ -329,11 +433,145 @@
         _ => "status-pill--neutral"
     };
 
+    private void OpenRenameModal()
+    {
+        if (_mailbox is null)
+        {
+            return;
+        }
+
+        _renameDisplayName = _mailbox.DisplayName ?? _mailbox.FileName;
+        _modalError = string.Empty;
+        _showRenameModal = true;
+    }
+
+    private void CloseRenameModal()
+    {
+        _showRenameModal = false;
+        _modalError = string.Empty;
+    }
+
+    private async Task SaveRenameAsync()
+    {
+        if (_mailbox is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_renameDisplayName))
+        {
+            _modalError = "Display name cannot be empty.";
+            return;
+        }
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _modalError = "Authentication required.";
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/mailboxes/{_mailbox.Id}";
+            var request = new HttpRequestMessage(HttpMethod.Patch, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var newName = _renameDisplayName.Trim();
+            request.Content = JsonContent.Create(new RenameMailboxRequest(newName));
+
+            var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _modalError = $"Failed to rename mailbox ({response.StatusCode})";
+                return;
+            }
+
+            _mailbox = _mailbox with { DisplayName = newName };
+            CloseRenameModal();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+        }
+    }
+
+    private void OpenDeleteModal()
+    {
+        if (_mailbox is null)
+        {
+            return;
+        }
+
+        _deleteModel = new DeleteMailboxModel();
+        _modalError = string.Empty;
+        _showDeleteModal = true;
+    }
+
+    private void CloseDeleteModal()
+    {
+        _showDeleteModal = false;
+        _modalError = string.Empty;
+    }
+
+    private async Task ScheduleDeletionAsync()
+    {
+        if (_mailbox is null)
+        {
+            return;
+        }
+
+        if (!_deleteModel.DeleteUpload && !_deleteModel.DeleteEmails)
+        {
+            _modalError = "Select at least one option to delete.";
+            return;
+        }
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _modalError = "Authentication required.";
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/mailboxes/{_mailbox.Id}/delete";
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            request.Content = JsonContent.Create(new DeleteMailboxRequest(
+                _deleteModel.DeleteUpload,
+                _deleteModel.DeleteEmails,
+                _deleteModel.PurgeNow,
+                null));
+
+            var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _modalError = $"Failed to schedule deletion ({response.StatusCode})";
+                return;
+            }
+
+            _mailbox = _mailbox with { IsPendingDeletion = true };
+            CloseDeleteModal();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+        }
+    }
+
     private void NavigateBack() => Navigation.NavigateTo("/mailboxes");
 
     public void Dispose()
     {
         _refreshTimer?.Dispose();
+    }
+
+    private sealed class DeleteMailboxModel
+    {
+        public bool DeleteUpload { get; set; }
+        public bool DeleteEmails { get; set; }
+        public bool PurgeNow { get; set; }
     }
 }
 

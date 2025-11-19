@@ -34,6 +34,33 @@ public class EmailMessage
     
     [MaxLength(512)]
     public string? FromName { get; set; }
+
+    [MaxLength(512)]
+    public string? ReplyToAddress { get; set; }
+
+    [MaxLength(512)]
+    public string? SenderAddress { get; set; }
+
+    [MaxLength(512)]
+    public string? SenderName { get; set; }
+
+    [MaxLength(512)]
+    public string? ReturnPath { get; set; }
+
+    [MaxLength(512)]
+    public string? ListId { get; set; }
+
+    [MaxLength(1024)]
+    public string? ThreadTopic { get; set; }
+
+    [MaxLength(32)]
+    public string? Importance { get; set; }
+
+    [MaxLength(32)]
+    public string? Priority { get; set; }
+
+    [MaxLength(512)]
+    public string? Categories { get; set; }
     
     // Recipients
     public string? ToAddresses { get; set; }
@@ -42,6 +69,9 @@ public class EmailMessage
     public string? CcNames { get; set; }
     public string? BccAddresses { get; set; }
     public string? BccNames { get; set; }
+
+    [MaxLength(2000)]
+    public string? RecipientsSearch { get; set; }
     
     // Date
     public DateTime Date { get; set; }
@@ -58,6 +88,14 @@ public class EmailMessage
     public int AttachmentCount { get; set; }
     public bool IsRead { get; set; }
     public byte[]? ContentHash { get; set; }
+
+    // Threads
+    public Guid? ConversationId { get; set; }
+
+    [MaxLength(512)]
+    public string? ConversationKey { get; set; }
+
+    public int ThreadDepth { get; set; }
     
     // Timestamps
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
@@ -68,5 +106,7 @@ public class EmailMessage
     public Mailbox Mailbox { get; set; } = null!;
     public MailboxUpload? MailboxUpload { get; set; }
     public ICollection<Attachment> Attachments { get; set; } = new List<Attachment>();
+    public EmailThread? Thread { get; set; }
+    public ICollection<EmailRecipient> Recipients { get; set; } = new List<EmailRecipient>();
 }
 

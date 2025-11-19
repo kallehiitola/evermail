@@ -53,7 +53,7 @@
                         {
                             @foreach (var mailbox in _mailboxes)
                             {
-                                <option value="@mailbox.Id">@mailbox.FileName</option>
+                                <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
                             }
                         }
                     </select>
@@ -89,6 +89,15 @@
                                    placeholder="Comma-separated words to skip (e.g. the,and,or)"
                                    @bind="_stopWords" />
                             <div class="form-text">Helps trim noise for relevance scoring.</div>
+                        </div>
+                        <div class="filter-card">
+                            <h4>Recipient filter</h4>
+                            <p class="text-muted">Find messages sent to, cc’d, bcc’d, or replied to a specific contact.</p>
+                            <input type="text"
+                                   class="form-control"
+                                   placeholder="alice@example.com"
+                                   @bind="_recipientFilter" />
+                            <div class="form-text">Matches email address or display name.</div>
                         </div>
                         <div class="filter-card">
                             <h4>Rank by signal</h4>
@@ -137,6 +146,10 @@
                     @if (!string.IsNullOrWhiteSpace(_stopWords))
                     {
                         <span class="filter-pill">Stop words: @_stopWords</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_recipientFilter))
+                    {
+                        <span class="filter-pill">Recipient: @_recipientFilter</span>
                     }
                 </div>
             }
@@ -192,8 +205,12 @@
                 <div class="search-summary__chips">
                     @if (_selectedMailboxId.HasValue)
                     {
-                        var mailboxLabel = _mailboxes?.FirstOrDefault(m => m.Id == _selectedMailboxId)?.FileName ?? "Selected mailbox";
-                        <span class="filter-pill soft">@mailboxLabel</span>
+                        var mailboxLabel = _mailboxes?
+                            .FirstOrDefault(m => m.Id == _selectedMailboxId);
+                        <span class="filter-pill soft">@(
+                            mailboxLabel is null
+                                ? "Selected mailbox"
+                                : GetMailboxDisplayName(mailboxLabel))</span>
                     }
                     <span class="filter-pill soft">@GetSortLabel()</span>
                     <span class="filter-pill soft">@(_useInflectionalForms ? "Inflections" : "Exact match")</span>
@@ -263,6 +280,12 @@
                             @if (email.Rank.HasValue)
                             {
                                 <span class="badge bg-info text-dark ms-2">Rank @Math.Round(email.Rank.Value)</span>
+                            }
+                            @if (email.ConversationId.HasValue)
+                            {
+                                <span class="badge bg-secondary-subtle text-dark ms-2">
+                                    Thread @(email.ThreadDepth + 1)/@Math.Max(email.ThreadSize, 1)
+                                </span>
                             }
                         </div>
                         @if (!string.IsNullOrEmpty(email.Snippet))
@@ -352,6 +375,7 @@
     private bool _useInflectionalForms;
     private string _sortBy = "date";
     private string _sortOrder = "desc";
+    private string _recipientFilter = string.Empty;
     private bool _showAdvancedFilters;
     private IReadOnlyList<EmailSummaryCard> _summaryCards = Array.Empty<EmailSummaryCard>();
     private const string SampleQueryPlaceholder = "Try \\\"invoice\\\" from:alice@example.com after:2023-01-01";
@@ -397,6 +421,11 @@
         if (queryParams.TryGetValue("stopWords", out var stopWordsParam))
         {
             _stopWords = stopWordsParam.ToString();
+        }
+
+        if (queryParams.TryGetValue("recipient", out var recipientParam))
+        {
+            _recipientFilter = recipientParam.ToString();
         }
 
         if (queryParams.TryGetValue("useInflectionalForms", out var inflectionParam) &&
@@ -508,6 +537,11 @@
             if (!string.IsNullOrWhiteSpace(_sortOrder))
             {
                 url += $"&sortOrder={Uri.EscapeDataString(_sortOrder)}";
+            }
+
+            if (!string.IsNullOrWhiteSpace(_recipientFilter))
+            {
+                url += $"&recipient={Uri.EscapeDataString(_recipientFilter)}";
             }
 
             var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -624,6 +658,11 @@
             queryParams["stopWords"] = trimmedStopWords;
         }
 
+        if (!string.IsNullOrWhiteSpace(_recipientFilter))
+        {
+            queryParams["recipient"] = _recipientFilter;
+        }
+
         if (_useInflectionalForms)
         {
             queryParams["useInflectionalForms"] = "true";
@@ -663,6 +702,9 @@
         "from" => "Sender",
         _ => _sortBy
     };
+
+    private static string GetMailboxDisplayName(MailboxDto mailbox) =>
+        string.IsNullOrWhiteSpace(mailbox.DisplayName) ? mailbox.FileName : mailbox.DisplayName;
 
 
     private async Task DownloadAttachment(Guid attachmentId)
