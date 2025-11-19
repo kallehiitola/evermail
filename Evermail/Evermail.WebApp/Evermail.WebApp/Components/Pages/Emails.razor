@@ -33,8 +33,8 @@
     </section>
 
     <section class="search-panel">
-        <form @onsubmit="HandleSearch" @onsubmit:preventDefault="true">
-            <div class="search-primary">
+        <form class="search-form" @onsubmit="HandleSearch" @onsubmit:preventDefault="true">
+            <div class="search-primary mb-3">
                 <div class="search-field">
                     <label class="form-label fw-semibold">Search emails</label>
                     <input type="text"
@@ -64,62 +64,66 @@
                     </button>
                 </div>
             </div>
-            <div class="search-hints">
-                <span class="hint">Use quotes for exact phrases</span>
-                <span class="hint">from:alice@example.com, subject:"invoice"</span>
-                <span class="hint">Combine filters with AND / OR</span>
-            </div>
+            <div class="search-hints-row">
+                <div class="search-hints">
+                    <span class="hint">Use quotes for exact phrases</span>
+                    <span class="hint">from:alice@example.com, subject:"invoice"</span>
+                    <span class="hint">Combine filters with AND / OR</span>
+                </div>
 
-            <button type="button" class="advanced-filter-toggle" @onclick="ToggleAdvancedFilters">
-                <i class="@AdvancedToggleIconClass"></i>
-                @AdvancedToggleLabel
-            </button>
+                <button type="button" class="advanced-filter-toggle d-inline-flex align-items-center" @onclick="ToggleAdvancedFilters">
+                    <i class="@AdvancedToggleIconClass"></i>
+                    <span>@AdvancedToggleLabel</span>
+                </button>
+            </div>
 
             @if (_showAdvancedFilters)
             {
-                <div class="advanced-grid">
-                    <div class="filter-card">
-                        <h4>Skip filler words</h4>
-                        <p class="text-muted">Comma‑separate any noise words (e.g. “the,and,or”) you don’t want to match.</p>
-                        <input type="text"
-                               class="form-control"
-                               placeholder="Comma-separated words to skip (e.g. the,and,or)"
-                               @bind="_stopWords" />
-                        <div class="form-text">Helps trim noise for relevance scoring.</div>
-                    </div>
-                    <div class="filter-card">
-                        <h4>Rank by signal</h4>
-                        <p class="text-muted">Choose whether to prioritize semantic relevance or metadata such as date.</p>
-                        <label class="form-label mb-1">Sort by</label>
-                        <select class="form-select mb-3"
-                                value="@_sortBy"
-                                @onchange="OnSortByChanged">
-                            <option value="rank">Relevance (recommended)</option>
-                            <option value="date">Date</option>
-                            <option value="subject">Subject</option>
-                            <option value="from">Sender</option>
-                        </select>
-                        <label class="form-label mb-1">Order</label>
-                        <select class="form-select"
-                                value="@_sortOrder"
-                                @onchange="OnSortOrderChanged">
-                            <option value="desc">Newest first</option>
-                            <option value="asc">Oldest first</option>
-                        </select>
-                    </div>
-                    <div class="filter-card">
-                        <h4>Match flexibility</h4>
-                        <p class="text-muted">Toggle to include plural and verb variations (plan → planning → planned).</p>
-                        <label class="form-label mb-1">Inflectional forms</label>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input"
-                                   type="checkbox"
-                                   id="inflectionalToggle"
-                                   checked="@_useInflectionalForms"
-                                   @onchange="OnInflectionalToggleChanged" />
-                            <label class="form-check-label" for="inflectionalToggle">
-                                Match planning / planned / plan
-                            </label>
+                <div class="advanced-filters-panel">
+                    <div class="advanced-grid">
+                        <div class="filter-card">
+                            <h4>Skip filler words</h4>
+                            <p class="text-muted">Comma‑separate any noise words (e.g. “the,and,or”) you don’t want to match.</p>
+                            <input type="text"
+                                   class="form-control"
+                                   placeholder="Comma-separated words to skip (e.g. the,and,or)"
+                                   @bind="_stopWords" />
+                            <div class="form-text">Helps trim noise for relevance scoring.</div>
+                        </div>
+                        <div class="filter-card">
+                            <h4>Rank by signal</h4>
+                            <p class="text-muted">Choose whether to prioritize semantic relevance or metadata such as date.</p>
+                            <label class="form-label mb-1">Sort by</label>
+                            <select class="form-select mb-3"
+                                    value="@_sortBy"
+                                    @onchange="OnSortByChanged">
+                                <option value="rank">Relevance (recommended)</option>
+                                <option value="date">Date</option>
+                                <option value="subject">Subject</option>
+                                <option value="from">Sender</option>
+                            </select>
+                            <label class="form-label mb-1">Order</label>
+                            <select class="form-select"
+                                    value="@_sortOrder"
+                                    @onchange="OnSortOrderChanged">
+                                <option value="desc">Newest first</option>
+                                <option value="asc">Oldest first</option>
+                            </select>
+                        </div>
+                        <div class="filter-card">
+                            <h4>Match flexibility</h4>
+                            <p class="text-muted">Toggle to include plural and verb variations (plan → planning → planned).</p>
+                            <label class="form-label mb-1">Inflectional forms</label>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="inflectionalToggle"
+                                       checked="@_useInflectionalForms"
+                                       @onchange="OnInflectionalToggleChanged" />
+                                <label class="form-check-label" for="inflectionalToggle">
+                                    Match planning / planned / plan
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -648,7 +652,7 @@
         Navigation.NavigateTo($"{baseUri}{queryString}", replace: true);
     }
 
-    private string AdvancedToggleIconClass => _showAdvancedFilters ? "bi bi-dash-circle me-2" : "bi bi-sliders me-2";
+    private string AdvancedToggleIconClass => _showAdvancedFilters ? "bi bi-dash-circle" : "bi bi-sliders";
     private string AdvancedToggleLabel => _showAdvancedFilters ? "Hide advanced filters" : "Advanced filters";
 
     private string GetSortLabel() => _sortBy switch

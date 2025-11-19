@@ -22,7 +22,7 @@ Evermail uses Cursor's modern `.cursor/rules/` directory with focused, composabl
 └── tooling-updates.mdc        # Version management & updates (user approval)
 ```
 
-Plus `AGENTS.md` in project root for high-level project context.
+Plus `Documentation/AGENTS.md` for high-level project context.
 
 ## 🎯 Rule Types
 
@@ -41,8 +41,8 @@ Automatically applied when working with matching files:
 - `api-design.mdc` → `**/Controllers/**/*.cs`, `**/Endpoints/**/*.cs`
 - `blazor-frontend.mdc` → `**/*.razor`
 
-### 3. AGENTS.md
-High-level project instructions in simple markdown format (project root).
+### 3. Documentation/AGENTS.md
+High-level project instructions in simple markdown format (Documentation folder).
 
 ## ✅ Verifying Rules are Active
 
@@ -52,7 +52,7 @@ High-level project instructions in simple markdown format (project root).
 2. Navigate to: **Features → Cursor Rules**
 3. You should see:
    - **Project Rules** section listing all `.mdc` files
-   - **AGENTS.md** shown in project context
+   - **Documentation/AGENTS.md** shown in project context
    - Rule descriptions and when they apply
 
 ### Test with AI
@@ -226,8 +226,8 @@ Cursor automatically applies relevant rules based on:
 
 3. **Verify AGENTS.md**:
    ```bash
-   ls -la AGENTS.md
-   # Should exist in project root
+   ls -la Documentation/AGENTS.md
+   # Should exist in Documentation folder
    ```
 
 4. **Restart Cursor completely**:
@@ -248,7 +248,7 @@ The old `.cursorrules` file has been renamed to `.cursorrules.deprecated` and is
 
 - Check Cursor Docs: https://docs.cursor.com/context/rules
 - Review `CURSOR_VERIFICATION.md` for testing procedures
-- Check `AGENTS.md` for high-level project context
+- Check `Documentation/AGENTS.md` for high-level project context
 
 ---
 

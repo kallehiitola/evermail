@@ -40,7 +40,7 @@ dotnet user-secrets set "Parameters:sql-password" "YourStrong@Passw0rd123"
 
 ```powershell
 # PowerShell (Windows)
-cd Evermail\Evermail.AppHost
+cd Evermail\Evermail.WebApp\Evermail.WebApp
 
 dotnet user-secrets set "Authentication:Google:ClientId" "YOUR_GOOGLE_CLIENT_ID"
 dotnet user-secrets set "Authentication:Google:ClientSecret" "YOUR_GOOGLE_CLIENT_SECRET"
@@ -50,7 +50,7 @@ dotnet user-secrets set "Authentication:Google:ClientSecret" "YOUR_GOOGLE_CLIENT
 
 ```powershell
 # PowerShell (Windows)
-cd Evermail\Evermail.AppHost
+cd Evermail\Evermail.WebApp\Evermail.WebApp
 
 dotnet user-secrets set "Authentication:Microsoft:ClientId" "YOUR_MICROSOFT_CLIENT_ID"
 dotnet user-secrets set "Authentication:Microsoft:ClientSecret" "YOUR_MICROSOFT_CLIENT_SECRET"

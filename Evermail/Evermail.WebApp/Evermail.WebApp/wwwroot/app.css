@@ -632,6 +632,12 @@ h1:focus {
     gap: 1.5rem;
 }
 
+.search-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
 .search-primary {
     display: grid;
     grid-template-columns: minmax(0, 1.25fr) minmax(220px, 0.75fr) 190px;
@@ -661,19 +667,43 @@ h1:focus {
     background: var(--color-surface-muted);
 }
 
+.search-hints-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.search-hints-row .search-hints {
+    flex: 1;
+    min-width: 240px;
+}
+
 .advanced-filter-toggle {
-    border: none;
-    background: transparent;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    padding: 0.45rem 1rem;
     color: var(--color-brand-primary);
     font-weight: 600;
-    display: inline-flex;
-    align-items: center;
-    padding: 0;
-    width: fit-content;
+    gap: 0.4rem;
+    flex-shrink: 0;
 }
 
 .advanced-filter-toggle:hover {
+    border-color: var(--color-brand-accent);
     color: var(--color-brand-accent);
+}
+
+.advanced-filters-panel {
+    margin-top: 0.5rem;
+    padding: 1.25rem 1.5rem;
+    border-radius: 24px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface-muted);
+    box-shadow: var(--shadow-sm);
 }
 
 .advanced-grid {
