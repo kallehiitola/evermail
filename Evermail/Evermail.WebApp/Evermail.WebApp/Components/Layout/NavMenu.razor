@@ -1,90 +1,248 @@
-﻿@rendermode InteractiveServer
+@rendermode InteractiveServer
+@using Evermail.WebApp.Extensions
+@using Evermail.WebApp.Services
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using System.Security.Claims
+@inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
 
 <div class="top-row ps-3 navbar navbar-dark">
-    <a class="navbar-brand evermail-logo" href="">
-        <img src="evermail_logo.png" alt="Evermail" class="evermail-logo__mark" />
-        <span class="evermail-logo__word">evermail</span>
-    </a>
+    <AuthorizeView Context="userContext">
+        <Authorizing>
+            <div class="user-panel user-panel--loading">
+                <div class="user-panel__skeleton"></div>
+            </div>
+        </Authorizing>
+        <Authorized>
+            <div class="user-panel">
+                <div class="user-panel__card">
+                    <button type="button" class="user-panel__button" @onclick="ToggleUserMenu"
+                        @onclick:stopPropagation="true" @onkeydown="HandleUserMenuKeyDown" aria-haspopup="true"
+                        aria-expanded="@_isUserMenuOpen">
+                        <div class="user-panel__avatar">@GetInitials(userContext.User)</div>
+                        <div class="user-panel__text">
+                            <span class="user-panel__name">@userContext.User.GetDisplayName()</span>
+                            <span class="user-panel__email"
+                                title="@userContext.User.GetEmail()">@userContext.User.GetEmail()</span>
+                        </div>
+                        <i class="bi bi-chevron-down user-panel__chevron @(_isUserMenuOpen ? "is-open" : null)"></i>
+                    </button>
+
+                    <div class="user-panel__popover @(_isUserMenuOpen ? "is-open" : null)" role="menu">
+                        <div class="user-panel__popover-header">
+                            <span>Quick actions</span>
+                            <span class="user-panel__shortcut">Ctrl&nbsp;+&nbsp;K</span>
+                        </div>
+                        <button type="button" class="user-panel__action" @onclick="NavigateToSettings">
+                            <i class="bi bi-person-gear" aria-hidden="true"></i> Profile & settings
+                        </button>
+                        <button type="button" class="user-panel__action" @onclick="NavigateToUpload">
+                            <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> Upload mailbox
+                        </button>
+                        <button type="button" class="user-panel__action" @onclick="NavigateToMailboxes">
+                            <i class="bi bi-inbox" aria-hidden="true"></i> View mailboxes
+                        </button>
+                        <button type="button" class="user-panel__action user-panel__action--danger"
+                            @onclick="HandleLogout">
+                            <i class="bi bi-box-arrow-right" aria-hidden="true"></i> Sign out
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Authorized>
+        <NotAuthorized>
+            <div class="user-panel">
+                <div class="user-panel__card user-panel__card--guest">
+                    <div>
+                        <span class="user-panel__name">Evermail</span>
+                        <span class="user-panel__email">Sign in to unlock your archives</span>
+                    </div>
+                    <div class="user-panel__guest-actions">
+                        <NavLink class="btn btn-sm btn-outline-light" href="login">Login</NavLink>
+                        <NavLink class="btn btn-sm btn-primary" href="register">Register</NavLink>
+                    </div>
+                </div>
+            </div>
+        </NotAuthorized>
+    </AuthorizeView>
 </div>
 
 <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
 
 <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <i class="bi bi-house-door-fill" aria-hidden="true"></i> Home
-            </NavLink>
+    <nav class="sidebar-layout">
+        <div class="nav-section nav-section--primary">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <i class="bi bi-house-door-fill" aria-hidden="true"></i> Home
+                </NavLink>
+            </div>
+
+            <AuthorizeView>
+                <Authorizing>
+                    @* Show nothing while determining auth state *@
+                </Authorizing>
+                <Authorized>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="mailboxes">
+                            <i class="bi bi-inbox-fill" aria-hidden="true"></i> Mailboxes
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="upload">
+                            <i class="bi bi-cloud-upload-fill" aria-hidden="true"></i> Upload
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="emails">
+                            <i class="bi bi-envelope-fill" aria-hidden="true"></i> Emails
+                        </NavLink>
+                    </div>
+                </Authorized>
+                <NotAuthorized>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="login">
+                            <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Login
+                        </NavLink>
+                    </div>
+                    <div class="nav-item px-3">
+                        <NavLink class="nav-link" href="register">
+                            <i class="bi bi-person-plus" aria-hidden="true"></i> Register
+                        </NavLink>
+                    </div>
+                </NotAuthorized>
+            </AuthorizeView>
         </div>
 
-        <AuthorizeView>
-            <Authorizing>
-                @* Show nothing while determining auth state *@
-            </Authorizing>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="mailboxes">
-                        <i class="bi bi-inbox-fill" aria-hidden="true"></i> Mailboxes
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="upload">
-                        <i class="bi bi-cloud-upload-fill" aria-hidden="true"></i> Upload
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="emails">
-                        <i class="bi bi-envelope-fill" aria-hidden="true"></i> Emails
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="settings">
-                        <i class="bi bi-gear-fill" aria-hidden="true"></i> Settings
-                    </NavLink>
-                </div>
-                
-                <!-- Admin-only links -->
-                <AuthorizeView Roles="Admin,SuperAdmin" Context="adminContext">
-                    <Authorized>
-                        <div class="nav-item px-3">
-                            <NavLink class="nav-link" href="admin/subscriptions">
-                                <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Admin: Subscriptions
-                            </NavLink>
+        <div class="nav-section nav-section--bottom">
+            <AuthorizeView>
+                <Authorizing>
+                    @* Nothing special while auth loads *@
+                </Authorizing>
+                <Authorized>
+                    <div class="nav-item px-3 nav-item--settings">
+                        <NavLink class="nav-link" href="settings">
+                            <i class="bi bi-gear-fill" aria-hidden="true"></i> Settings
+                        </NavLink>
+                    </div>
+
+                    <div class="nav-dev">
+                        <button type="button" class="nav-dev__toggle" @onclick="ToggleDevMenu"
+                            @onclick:stopPropagation="true" aria-expanded="@_isDevMenuOpen">
+                            <span><i class="bi bi-terminal" aria-hidden="true"></i> Dev</span>
+                            <i class="bi bi-chevron-down nav-dev__chevron @(_isDevMenuOpen ? "is-open" : null)"></i>
+                        </button>
+                        <div class="nav-dev__panel @(_isDevMenuOpen ? "is-open" : null)"
+                            aria-hidden="@(!_isDevMenuOpen)">
+                            <AuthorizeView Roles="Admin,SuperAdmin">
+                                <Authorized Context="adminContext">
+                                    <div class="nav-item px-3 nav-item--sub">
+                                        <NavLink class="nav-link nav-link--sub" href="admin/subscriptions">
+                                            <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Admin:
+                                            Subscriptions
+                                        </NavLink>
+                                    </div>
+                                </Authorized>
+                            </AuthorizeView>
+                            <div class="nav-item px-3 nav-item--sub">
+                                <NavLink class="nav-link nav-link--sub" href="dev/admin-roles">
+                                    <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
+                                </NavLink>
+                            </div>
+                            <div class="nav-item px-3 nav-item--sub">
+                                <NavLink class="nav-link nav-link--sub" href="dev/auth-status">
+                                    <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status
+                                </NavLink>
+                            </div>
+                            <div class="nav-item px-3 nav-item--sub">
+                                <NavLink class="nav-link nav-link--sub" href="dev/test-keyvault">
+                                    <i class="bi bi-key" aria-hidden="true"></i> Dev: Key Vault Test
+                                </NavLink>
+                            </div>
                         </div>
-                    </Authorized>
-                </AuthorizeView>
-                
-                <!-- Dev-only links -->
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="dev/admin-roles">
-                        <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="dev/auth-status">
-                        <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="dev/test-keyvault">
-                        <i class="bi bi-key" aria-hidden="true"></i> Dev: Key Vault Test
-                    </NavLink>
-                </div>
-            </Authorized>
-            <NotAuthorized>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="login">
-                        <i class="bi bi-box-arrow-in-right" aria-hidden="true"></i> Login
-                    </NavLink>
-                </div>
-                <div class="nav-item px-3">
-                    <NavLink class="nav-link" href="register">
-                        <i class="bi bi-person-plus" aria-hidden="true"></i> Register
-                    </NavLink>
-                </div>
-            </NotAuthorized>
-        </AuthorizeView>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+
+            <a class="navbar-brand evermail-logo nav-footer-brand" href="/">
+                <img src="evermail_logo.png" alt="Evermail" class="evermail-logo__mark" />
+                <span class="evermail-logo__word">evermail</span>
+            </a>
+        </div>
     </nav>
 </div>
 
+@code {
+    private bool _isUserMenuOpen;
+    private bool _isDevMenuOpen;
+
+    private void ToggleUserMenu()
+    {
+        _isUserMenuOpen = !_isUserMenuOpen;
+    }
+
+    private void HandleUserMenuKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Escape")
+        {
+            _isUserMenuOpen = false;
+        }
+    }
+
+    private string GetInitials(ClaimsPrincipal user)
+    {
+        var displayName = user.GetDisplayName();
+
+        if (!string.IsNullOrWhiteSpace(displayName))
+        {
+            var parts = displayName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length >= 2)
+            {
+                return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
+            }
+
+            if (parts.Length == 1)
+            {
+                return char.ToUpperInvariant(parts[0][0]).ToString();
+            }
+        }
+
+        var email = user.GetEmail();
+        return !string.IsNullOrEmpty(email) ? char.ToUpperInvariant(email[0]).ToString() : "U";
+    }
+
+    private void NavigateToSettings() => NavigateAndClose("settings");
+
+    private void NavigateToUpload() => NavigateAndClose("upload");
+
+    private void NavigateToMailboxes() => NavigateAndClose("mailboxes");
+
+    private void NavigateAndClose(string uri)
+    {
+        _isUserMenuOpen = false;
+        Navigation.NavigateTo(uri);
+    }
+
+    private void ToggleDevMenu()
+    {
+        _isDevMenuOpen = !_isDevMenuOpen;
+    }
+
+    private async Task HandleLogout()
+    {
+        _isUserMenuOpen = false;
+
+        await AuthStateService.RemoveTokenAsync();
+
+        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+        {
+            customProvider.NotifyAuthenticationStateChanged();
+        }
+
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}

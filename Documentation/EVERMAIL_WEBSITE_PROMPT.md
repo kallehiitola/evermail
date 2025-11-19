@@ -338,7 +338,67 @@ To align the product experience with the marketing reference layout, Evermail no
 
 ---
 
-### 6. Pricing Section ⭐ **KEY SECTION**
+### 6. Security & Privacy Section ⭐ **Zero-Trust Highlight**
+**Goal**: Convince everyday users their mail is safe while giving security teams tangible proof.
+
+**Working Title Options**:
+- “Your Inbox, Locked Under Your Key”
+- “Zero-Trust Vault Security”
+- “Encrypted Even from Us”
+
+**Layout**:
+```
+┌─────────────────────────────────────────────────────┐
+│  [Eyebrow] Security & Privacy                        │
+│  Your email archive, encrypted even from us.         │
+│  ------------------------------------------------   │
+│  [Shield Icon] Plain-language reassurance            │
+│  [Code Icon] Technical assurance for security pros   │
+│  [Audit Icon] Transparency & control                 │
+│                                                      │
+│  [Callout card: “Confidential Compute + BYOK”]       │
+│  [Testimonial or badge row: SOC2 • GDPR • BYOK]      │
+└─────────────────────────────────────────────────────┘
+```
+
+**Copy Blocks**:
+1. **Headline**: “Encrypted Even from Our Admins”
+2. **Subheadline**: “Every mailbox is sealed with your own key, processed only inside confidential Azure hardware, and logged immutably.”
+
+**Plain-Language Column (Shield Icon)**:
+- Title: “You hold the only key”
+- Body: “When you upload an archive we generate a private key just for that mailbox and wrap it with a key you control. Even Evermail staff can’t peek.”
+- Supporting list:
+  - “Runs inside locked Azure Confidential Compute containers”
+  - “If someone tried, the attempt would be blocked + logged”
+
+**Security-Pro Column (Code Icon)**:
+- Title: “Details for the paranoid (you’re among friends)”
+- Body bullets:
+  - “Per-mailbox AES-256-GCM DEKs, wrapped by tenant-owned Key Vault keys (BYOK/CMK)”
+  - “Key release requires attested AMD SEV-SNP workloads; no attestation = no decrypt”
+  - “Search tokens stored as deterministic AES-SIV ciphertext, so SQL admins only see gibberish”
+
+**Audit Column (Clipboard Icon)**:
+- Title: “Prove every access”
+- Bullet ideas:
+  - “Key releases mirrored to Azure Confidential Ledger”
+  - “Real-time alerts for unexpected decrypts”
+  - “Self-serve audit log inside the app”
+
+**CTA**: “Read the Zero-Trust Whitepaper →” (links to blog/doc)
+
+**Tone Guidance**:
+- Use approachable language (“We can’t read your email”) followed by a short italic sentence for the security pro (“Technically: TMK → DEK -> enclave pipeline”).
+- Avoid buzzwords like “military grade.” Stick to verifiable claims (Azure Confidential Compute, BYOK, SOC 2).
+
+**Visuals**:
+- Gradient lock/shield illustration with glowing vault door.
+- Optional diagram showing “Your Key Vault → Evermail Confidential Worker → Encrypted Search Results”.
+
+---
+
+### 7. Pricing Section ⭐ **KEY SECTION**
 **Inspiration**: Standard SaaS pricing table
 
 **Layout**:

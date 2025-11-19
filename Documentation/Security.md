@@ -372,6 +372,85 @@ az role assignment create \
 - Use double dashes (`--`) for nested configuration keys (e.g., `ConnectionStrings--blobs`)
 - Simple keys use single name (e.g., `sql-password`)
 
+### Confidential Content Protection (Zero-Trust Mode)
+
+Default infrastructure encryption (TDE/SSE) keeps attackers out of the storage layer, but it does not stop privileged operators from querying the database. The **Confidential Content Protection** program introduces an envelope encryption model plus hardware-backed attestation so that even SuperAdmins cannot read tenant data.
+
+#### Goals
+- Tenant data is unreadable outside a Trusted Execution Environment (TEE).
+- Tenants may bring their own master keys; Evermail never handles plaintext keys at rest.
+- Search, analytics, and upcoming AI features continue to work with minimal latency impact.
+- Every decrypt/unwrap action leaves an immutable audit trail.
+
+#### Key Hierarchy
+1. **Tenant Master Key (TMK)** – Asymmetric key stored in the tenant’s own Azure Key Vault or Managed HSM. Evermail keeps only the key identifier.
+2. **Mailbox Data Encryption Key (DEK)** – Random 256-bit AES-GCM key generated when a mailbox (or upload) is created.
+3. **Wrapped DEK** – The DEK is wrapped with the TMK (using `Encrypt`/`UnwrapKey` operations). Only the wrapped value is stored alongside mailbox metadata.
+
+```mermaid
+flowchart TD
+    TenantKey[Customer Key Vault<br/>Tenant Master Key] -->|Unwrap allowed only for attested workload| WorkerTEE
+    WorkerTEE[Confidential Worker] -->|uses| DEK[Mailbox DEK (AES-256-GCM)]
+    DEK -->|encrypt/decrypt| Payload[(Emails, Attachments, Search Tokens)]
+```
+
+#### Confidential Workloads
+- Move ingestion, search, and AI microservices into **Azure Confidential Container Apps** or **AMD SEV-SNP VMs**.
+- Register each workload’s attestation policy with the tenant TMK (Key Vault “key release” policy). Key Vault refuses to unwrap unless the workload presents a valid attestation report for the signed container image.
+- Control plane APIs (dashboard, billing, monitoring) keep running in standard containers but never handle plaintext.
+
+#### Encryption & Search Pipeline
+1. Queue message arrives with tenant + mailbox identifiers.
+2. Worker in TEE requests `UnwrapKey(TMK, wrappedDek)`; attestation proof is automatically validated by Key Vault.
+3. Worker decrypts MIME payloads, attachments, and derived search tokens inside enclave memory only.
+4. Search indexes store **deterministically encrypted tokens** (AES-SIV with tenant-specific salt). SQL Server FTS never sees plaintext, but deterministic encryption allows equality lookup for token matches.
+5. Snippets/results returned to the API are immediately re-encrypted with the DEK before leaving the enclave; the Blazor client decrypts on demand using short-lived per-session keys (see “Client-Assisted Privacy” below) or receives plaintext over TLS if the tenant opts out.
+
+```csharp
+// Pseudocode inside the enclave
+var dek = await _keyUnwrapper.GetDekAsync(mailboxId, cancellation);
+using var aesGcm = new AesGcm(dek);
+aesGcm.Encrypt(nonce, plaintextBody, ciphertextBody, authTag);
+var token = DeterministicEncrypt(dek, Normalize(searchTerm));
+await _emailStore.SaveAsync(ciphertextBody, token, ...);
+```
+
+#### Client-Assisted Privacy (Paranoid Tier)
+- Tenants can require an additional passphrase-derived key (Argon2id) that double-wraps each DEK. Workers receive the passphrase share via a temporary token that expires after the job completes.
+- For manual decrypt/export flows, provide an open-source CLI that uses the tenant’s passphrase + wrapped DEKs to decrypt offline. Evermail never stores or recovers the passphrase share.
+
+#### Audit & Monitoring
+- Every `UnwrapKey` call is logged by Key Vault and mirrored into an **Azure Confidential Ledger** stream.
+- Workers emit structured `AuditLogs` entries (`DekUnwrapped`, `AttachmentDecrypted`, `AiSummaryGenerated`) with attestation claims, workload version, and purpose.
+- Alerts fire if a tenant’s TMK releases more than N keys per hour or if an enclave hash changes.
+
+#### Phased delivery plan
+
+| Phase | Deliverables | Key Microsoft references |
+| --- | --- | --- |
+| **Phase 1 – BYOK enrollment (MVP)** | Tenant onboarding wizard provisions or links an Azure Key Vault/Managed HSM key, marks it exportable, uploads the public portion, and grants Evermail’s managed identity `release` permission. Queue/worker schema now stores `WrappedDekId`, rotation metadata, and proof that Secure Key Release policy JSON has been staged. Plaintext still executes in standard Container Apps, so documentation and contracts explicitly note that superadmins retain break-glass visibility until Phase 2 finishes. | [Secret & key management for confidential computing](https://learn.microsoft.com/en-us/azure/confidential-computing/secret-key-management) |
+| **Phase 2 – Attested TEEs** | Ingestion/search/AI workers are redeployed to Azure Confidential Container Apps or AKS confidential node pools ([deployment models](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-computing-deployment-models), [confidential containers overview](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-containers)). Secure Key Release policies require Microsoft Azure Attestation (MAA) claims that match each container image ([SKR + attestation workflow](https://learn.microsoft.com/en-us/azure/confidential-computing/concept-skr-attestation)). Key Vault will now refuse to unwrap DEKs for any context outside the signed TEE, which gives us the “we can’t read your mail” guarantee. |
+
+##### Phase 1 implementation tasks
+1. **Tenant wizard** – Guides admins through creating/importing a RSA-HSM or EC-HSM key, setting `exportable=true`, and capturing the Key Vault URI.
+2. **Policy scaffolding** – Generate SKR JSON with placeholder attestation claims (`allowEvermailOps`) so that Phase 2 can swap in real MAA measurements without revisiting every tenant.
+3. **DEK rotation hooks** – Extend `MailboxProcessingService` to store `WrappedDekId`, `Version`, `CreatedBy`, and `TmKeyVersion` fields so any later unwraps can be attributed.
+4. **Operational controls** – Enforce PIM on the managed identity that can call `ReleaseKey`, enable Key Vault logging, and mirror audit events into Azure Monitor.
+
+##### Phase 2 implementation tasks
+1. **Provision TEEs** – Create a dedicated resource group containing Azure Confidential Container Apps (or AKS confidential node pools) plus Microsoft Azure Attestation provider instances. Images produced by the CI pipeline are signed and their measurements recorded.
+2. **Update SKR policies** – Replace placeholder claims with the real MAA attributes (for AMD SEV-SNP: `x-ms-isolation-tee.x-ms-attestation-type = sevsnpvm`, `x-ms-compliance-status = azure-compliant-cvm`). Reference: [Microsoft SKR policy grammar](https://learn.microsoft.com/en-us/azure/key-vault/keys/policy-grammar).
+3. **Runtime wiring** – Workers call MAA, attach the attestation JWT to the Key Vault `Release` request, unwrap the DEK, and keep plaintext inside the enclave. Search/AI responses are re-encrypted with DEKs before returning to the API surface.
+4. **Immutable logging** – Stand up Azure Confidential Ledger (≈ $3/day/ledger per [official announcement](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/price-reduction-and-upcoming-features-for-azure-confidential-ledger/4387491)) to capture “who unwrapped what and when” evidence.
+
+#### Rollout Checklist
+1. **Key onboarding** – Tenant uploads TMK reference inside Settings. Validate by running a dry-run attestation + unwrap test.
+2. **Worker migration** – Publish ingestion/search/AI workloads as confidential containers, configure attestation policies, and rotate secrets.
+3. **Data migration** – For existing mailboxes, generate DEKs, encrypt historical content in-place, and backfill wrapped DEKs.
+4. **Fail-safe** – Keep a per-tenant “break glass” policy requiring multi-party approval + customer confirmation before temporarily disabling zero-trust mode (logged + time-boxed).
+
+This model preserves usability while ensuring that legitimately paranoid customers can trust the platform: even Evermail operators cannot read their archives without the tenant-controlled keys and a verified confidential workload.
+
 ## Input Validation & Sanitization
 
 ### API Input Validation

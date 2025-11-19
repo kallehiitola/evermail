@@ -84,6 +84,7 @@ Apply these rules whenever you touch the Blazor surface so future prompts inheri
 - **Upload**: Drag-and-drop area uses `<InputFile>` + `.upload-dropzone`. Keep `@ondragenter/leave` states toggling `.upload-dropzone--drag` class. The progress bar uses `.usage-progress.jumbo`.  
 - **Auth**: Login/Register keep SSO buttons first (`.social-btn--google` then `.social-btn--microsoft`), followed by divider, then email/password form. CTA text should be short (“Continue with Google”). Buttons get hover shadows; add `type="button"` to SSO controls.
 - **Buttons**: Primary CTAs use gradient backgrounds + `box-shadow: 0 18px 35px rgba(37,99,235,.35)` (already defined). Secondary actions use `.btn-outline-secondary` with 1px border referencing `--color-border`. Danger flows (delete/purge) use `.btn-outline-danger` + `status-pill--danger`.
+- **Navigation Layout** (Nov 2025 refresh): The left rail is a three-zone column. The top zone shows the signed-in user's identity card (initial badge + display name + truncated email) and exposes a popover with `Profile & settings`, `Manage subscription`, and `Sign out`. Truncate long emails with `text-overflow: ellipsis` so addresses never blow up the layout. The middle zone contains the primary navigation stack with `Home`, `Mailboxes`, `Upload`, `Emails`, and an accordion-labeled `Dev` bucket for diagnostics links (Auth Status, Admin Roles, Key Vault probe, etc.). The bottom zone pins the `Settings` link directly above the Evermail wordmark, and the logo/wordmark sit centered horizontally inside the sidebar footer. When the visitor is not authenticated the sidebar stays hidden entirely (no gradient gutter) so the home/marketing experiences handle login/register CTAs without duplication.
 
 **Interaction & Copy**
 - “Trust the whitespace”: prefer 2–3 short sentences per section, no dense paragraphs.
@@ -333,6 +334,33 @@ CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName)
 ```
 - **Processing**: Worker service polls both queues with 5-minute visibility timeout, max 3 retries (poison queue after that). Azure Container Apps horizontal scaling (KEDA) can fan out to hundreds/thousands of worker replicas because the queues decouple work from HTTP traffic.
 
+### Confidential Content Protection Layer
+
+To satisfy “no admin can read my email” requirements, Evermail introduces a dedicated security layer that sits between the data plane and every workload that touches decrypted content.
+
+- **Envelope encryption**: Each mailbox/upload owns an AES-256-GCM Data Encryption Key (DEK). The DEK is wrapped with the tenant’s Master Key (TMK) that lives in the tenant’s Azure Key Vault or Managed HSM. The platform only stores wrapped DEKs; plaintext keys exist solely inside confidential workloads.
+- **Tenant-managed keys (BYOK)**: Tenants provide a Key Vault key identifier during onboarding. We configure Key Vault key-release policies so that unwrap operations succeed only when the request comes from an attested Evermail workload. Operators with SuperAdmin access cannot call `UnwrapKey` manually because the policy denies non-attested contexts.
+- **Confidential workloads**: Ingestion, search, and AI services run inside Azure Confidential Container Apps (AMD SEV-SNP). Each container image is signed; its attestation quote is validated automatically before Key Vault releases any DEK. Control-plane APIs (billing, admin UI) remain outside the enclave and never see plaintext.
+- **Deterministic encrypted indexes**: After decrypting inside the TEE, workers normalize and encrypt search tokens using AES-SIV with a tenant-specific salt. SQL Server stores only encrypted tokens yet can still satisfy equality lookups, keeping FTS performance while protecting content from database admins.
+- **Audit + monitoring**: Every decrypt/unwrap event is logged in both Key Vault and the Evermail `AuditLogs` table, including attestation hash, workload version, and purpose. Alerts trigger on unusual key-release patterns.
+- **Optional client share**: For the Paranoid tier, tenants can require a passphrase-derived key that double-wraps each DEK. Background jobs receive short-lived passphrase tokens; exports can be decrypted offline via an open-source CLI so customers remain in control even if Evermail infrastructure is compromised.
+
+#### Phased delivery roadmap
+
+| Phase | Scope | Azure references |
+| --- | --- | --- |
+| **Phase 1 – BYOK foundation (MVP)** | Tenants onboard a customer-managed key (CMK) stored in their Azure Key Vault/Managed HSM; Evermail rotates per-mailbox DEKs, wraps them with the TMK, and enforces strict RBAC/PIM to limit unwrap operations. Plaintext still flows through standard Container Apps, so we clearly document that superadmins retain emergency access. Secure Key Release policies are authored up-front but initially reference “allowEvermailOps” attestation placeholders so we can validate the flow. | [Secret & key management](https://learn.microsoft.com/en-us/azure/confidential-computing/secret-key-management) |
+| **Phase 2 – Zero-trust enforcement** | Move ingestion, search, and AI workers into Azure Confidential Container Apps/AKS pools ([deployment models](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-computing-deployment-models), [confidential containers](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-containers)). Attach production-grade Secure Key Release policies so Key Vault only unwraps DEKs for Microsoft Azure Attestation (MAA) claims emitted by the signed confidential images ([SKR + attestation](https://learn.microsoft.com/en-us/azure/confidential-computing/concept-skr-attestation)). At this point Evermail operators cannot read tenant mail even with elevated permissions. |
+
+Implementation highlights:
+
+1. **Attested workloads** – Confidential Container Apps or AKS node pools are provisioned in separate Azure resources (managed outside Aspire’s AppHost) and publish OCI images compiled from `Evermail.IngestionWorker` / AI services. Each deploy step records the expected measurement hash so the SKR policy can match `x-ms-isolation-tee.*` claims.
+2. **Key lifecycle** – Tenant onboarding flow walks the admin through generating/importing a TMK, assigning Evermail’s managed identity minimal `release` permissions, and storing the Key Vault URI against the tenant row. DEKs are rotated per mailbox upload and re-wrapped whenever the tenant rotates their TMK.
+3. **Cross-plane integration** – Aspire still orchestrates the rest of the estate (queues, SQL, Blob, WebApp). Queue payloads contain the wrapped DEK identifier; confidential workers fetch the message, perform MAA attestation, call SKR, and process data entirely inside the TEE. Responses returned to the public API remain encrypted unless the caller presents a tenant-scoped token.
+4. **Operational tooling** – Azure Confidential Ledger (priced at ~$3/day per ledger instance per the [official announcement](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/price-reduction-and-upcoming-features-for-azure-confidential-ledger/4387491)) stores append-only proofs that a given DEK was unwrapped, by which container revision, and for what purpose.
+
+This layer allows us to advertise zero-trust guarantees: decrypt operations run only in measured hardware, tenant keys never leave customer control, and staff-level access provides observability/operations without exposure to message content.
+
 ### 4. External Integrations
 
 #### Stripe Payment Processing
@@ -372,6 +400,21 @@ CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, FromName)
   2. Receive access/refresh tokens
   3. Fetch emails via API (paginated)
   4. Convert to MIME format and process via standard pipeline
+
+## Potential Enhancements (Backlog Inspiration)
+
+Documented ideas to guide future roadmap conversations:
+
+- **Processing Transparency Dashboards**: Visualize each mailbox’s lifecycle (upload → parsing → indexing → retention countdown) with retry counts and purge timers so users instantly know status.
+- **Insights & Analytics**: Convert ingestion metadata into shareable dashboards—top senders, conversation spikes, attachment heatmaps, quota vs. plan limits, and GDPR audit exports.
+- **Workspace Collaboration**: Expose the planned `Workspaces` table earlier so tenants can invite teammates, assign per-mailbox permissions, tag important threads, and leave annotations.
+- **Advanced Search Helpers**: Layer guided filters (date histograms, sender chips, boolean builders) plus saved searches/recent queries on top of the SQL FTS stack to improve discoverability.
+- **Attachment-Centric Flows**: Offer an attachment browser (filter by type/size/sender), inline previews for common formats, dedupe warnings, and bulk export powered by Blob metadata.
+- **AI Assist Features**: Use the confidential compute pipeline to generate per-thread summaries, sentiment labels, suggested follow-ups, and contact cards while keeping tenant keys in control.
+- **Direct Account Imports**: Ship Gmail/Microsoft Graph connectors with a “Connect mailbox” wizard so users can pull live accounts without creating .mbox files (flagged beta until quotas verified).
+- **Compliance Self-Service**: Bundle GDPR requests into the UI—self-serve export progress, retention policy badges per plan, configurable purge windows, and audit log browsing/searching.
+- **Notifications & Mobile Prep**: Before the MAUI app, add push/email/web notifications for completed ingestions or saved-search hits plus offline-friendly responsive views of summaries.
+- **Predictable Billing Insights**: Surface in-app cost estimators showing projected storage, AI credit usage, and upcoming invoices so users can upgrade before hitting limits.
 
 ## Design Patterns
 

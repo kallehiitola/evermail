@@ -14,13 +14,33 @@
 
 <div class="home-wrapper auth-wrapper">
     <div class="auth-grid">
-        <section class="page-hero auth-hero">
-            <p class="hero-eyebrow mb-2">Create workspace</p>
+        <section class="auth-hero-card register-hero">
+            <span class="auth-hero-card__eyebrow text-uppercase">Create workspace</span>
             <h1>Register in minutes</h1>
             <p class="text-muted mb-3">One tenant, one bill, unlimited confidence.</p>
+
+            <div class="register-hero-pill-group">
+                <span class="register-hero-pill">
+                    <strong>1</strong> tenant per company
+                </span>
+                <span class="register-hero-pill">
+                    <strong>Free</strong> tier with 1&nbsp;GB to explore
+                </span>
+            </div>
+
             <ul class="auth-highlights">
-                <li><i class="bi bi-building-gear"></i>Dedicated tenant per company</li>
-                <li><i class="bi bi-rocket"></i>Free tier with 1 GB to explore</li>
+                <li>
+                    <i class="bi bi-shield-lock"></i>
+                    Dedicated environment, zero data commingling
+                </li>
+                <li>
+                    <i class="bi bi-lightning-charge"></i>
+                    Guided onboarding under 5 minutes
+                </li>
+                <li>
+                    <i class="bi bi-check-circle"></i>
+                    Stripe-ready billing + Azure trust center
+                </li>
             </ul>
         </section>
 
@@ -31,10 +51,12 @@
             </header>
 
             <div class="auth-social">
-                <button type="button" class="social-btn social-btn--google" @onclick="@(() => HandleOAuthRegister("Google"))">
+                <button type="button" class="social-btn social-btn--google"
+                    @onclick="@(() => HandleOAuthRegister("Google"))">
                     <i class="bi bi-google"></i> Continue with Google
                 </button>
-                <button type="button" class="social-btn social-btn--microsoft" @onclick="@(() => HandleOAuthRegister("Microsoft"))">
+                <button type="button" class="social-btn social-btn--microsoft"
+                    @onclick="@(() => HandleOAuthRegister("Microsoft"))">
                     <i class="bi bi-microsoft"></i> Continue with Microsoft
                 </button>
             </div>
@@ -73,13 +95,15 @@
 
                     <div class="form-field">
                         <label>Work email</label>
-                        <InputText @bind-Value="_model.Email" class="modern-input" type="email" placeholder="you@company.com" />
+                        <InputText @bind-Value="_model.Email" class="modern-input" type="email"
+                            placeholder="you@company.com" />
                         <ValidationMessage For="@(() => _model.Email)" />
                     </div>
 
                     <div class="form-field">
                         <label>Password</label>
-                        <InputText @bind-Value="_model.Password" type="password" class="modern-input" placeholder="Min 12 characters" />
+                        <InputText @bind-Value="_model.Password" type="password" class="modern-input"
+                            placeholder="Min 12 characters" />
                         <small class="text-muted">
                             At least 12 characters with upper, lower, number, special.
                         </small>
@@ -126,7 +150,7 @@
         {
             // Store token and update auth state
             await AuthStateService.SetTokenAsync(token);
-            
+
             // Notify authentication state changed
             if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
             {
@@ -167,11 +191,11 @@
         try
         {
             var request = new RegisterRequest(
-                _model.Email,
-                _model.Password,
-                _model.FirstName,
-                _model.LastName,
-                _model.TenantName
+            _model.Email,
+            _model.Password,
+            _model.FirstName,
+            _model.LastName,
+            _model.TenantName
             );
 
             var response = await Http.PostAsJsonAsync("/api/v1/auth/register", request);
@@ -179,14 +203,14 @@
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
-                
+
                 if (result?.Success == true && result.Data != null)
                 {
                     _success = true;
-                    
+
                     // Store both tokens in localStorage (access + refresh)
                     await AuthStateService.SetTokenPairAsync(result.Data.Token, result.Data.RefreshToken);
-                    
+
                     // Notify authentication state changed
                     if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                     {
@@ -202,7 +226,7 @@
             {
                 var error = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
                 _errorMessage = error?.Error ?? "Registration failed";
-                
+
                 if (error?.ValidationErrors != null)
                 {
                     _errorMessage += ": " + string.Join(", ", error.ValidationErrors.SelectMany(kv => kv.Value));
@@ -228,4 +252,3 @@
         public string TenantName { get; set; } = "";
     }
 }
-

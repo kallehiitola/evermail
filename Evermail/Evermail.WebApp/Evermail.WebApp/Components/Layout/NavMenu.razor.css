@@ -16,13 +16,175 @@
 }
 
 .top-row {
-    height: 3.5rem;
     background-color: transparent;
+    padding-top: 1.25rem;
+    padding-bottom: 0;
+    min-height: 5.25rem;
 }
 
-.navbar-brand {
-    font-size: 1.1rem;
+.user-panel {
+    width: 100%;
+    padding-right: 0.5rem;
+}
+
+.user-panel__card {
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 24px;
+    padding: 0.85rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    color: #f8fafc;
+    position: relative;
+    box-shadow: 0 25px 55px rgba(2, 6, 23, 0.45);
+}
+
+.user-panel__card--guest {
+    gap: 0.75rem;
+}
+
+.user-panel__button {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.user-panel__avatar {
+    width: 42px;
+    height: 42px;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #2563eb, #06b6d4);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1rem;
     color: #fff;
+    flex-shrink: 0;
+}
+
+.user-panel__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.user-panel__name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #f8fafc;
+}
+
+.user-panel__email {
+    font-size: 0.75rem;
+    color: rgba(248, 250, 252, 0.65);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+}
+
+@media (min-width: 641px) {
+    .user-panel__email {
+        max-width: 220px;
+    }
+}
+
+.user-panel__chevron {
+    transition: transform 0.2s ease;
+}
+
+.user-panel__chevron.is-open {
+    transform: rotate(180deg);
+}
+
+.user-panel__popover {
+    position: absolute;
+    top: 0;
+    left: calc(100% + 0.75rem);
+    transform: translateY(-10%);
+    width: min(260px, 85vw);
+    background: rgba(2, 6, 23, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 0.75rem;
+    display: none;
+    flex-direction: column;
+    gap: 0.3rem;
+    box-shadow: 0 30px 70px rgba(2, 6, 23, 0.75);
+    backdrop-filter: blur(16px);
+    z-index: 5;
+}
+
+.user-panel__popover.is-open {
+    display: flex;
+}
+
+.user-panel__popover-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.6);
+    margin-bottom: 0.15rem;
+}
+
+.user-panel__shortcut {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.5rem;
+    background: rgba(148, 163, 184, 0.2);
+    color: #f8fafc;
+}
+
+.user-panel__action {
+    border: none;
+    background: transparent;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    border-radius: 0.8rem;
+    padding: 0.4rem 0.35rem;
+    font-size: 0.9rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.user-panel__action:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.user-panel__action--danger {
+    color: #f87171;
+}
+
+.user-panel__guest-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.user-panel--loading .user-panel__skeleton {
+    width: 100%;
+    height: 64px;
+    border-radius: 20px;
+    background: linear-gradient(90deg, rgba(148, 163, 184, 0.15), rgba(255, 255, 255, 0.25), rgba(148, 163, 184, 0.15));
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
 }
 
 .nav-link .bi {
@@ -34,49 +196,143 @@
     line-height: 1;
 }
 
-
 .nav-item {
     font-size: 0.9rem;
-    padding-bottom: 0.5rem;
+    padding-bottom: 0.35rem;
 }
 
-    .nav-item:first-of-type {
-        padding-top: 1rem;
-    }
-
-    .nav-item:last-of-type {
-        padding-bottom: 1rem;
-    }
-
-    .nav-item ::deep .nav-link {
-        color: rgba(248, 250, 252, 0.7);
-        background: none;
-        border: none;
-        border-radius: 4px;
-        height: 3rem;
-        display: flex;
-        align-items: center;
-        line-height: 3rem;
-        width: 100%;
-        gap: 0;
-    }
+.nav-item ::deep .nav-link {
+    color: rgba(248, 250, 252, 0.7);
+    background: none;
+    border: none;
+    border-radius: 10px;
+    height: 3rem;
+    display: flex;
+    align-items: center;
+    line-height: 3rem;
+    width: 100%;
+    gap: 0;
+    padding-inline: 0.4rem;
+}
 
 .nav-item ::deep a.active {
-    background-color: rgba(255,255,255,0.2);
+    background-color: rgba(255, 255, 255, 0.18);
     color: #fff;
 }
 
 .nav-item ::deep .nav-link:hover {
-    background-color: rgba(255,255,255,0.1);
+    background-color: rgba(255, 255, 255, 0.1);
     color: #fff;
+}
+
+.nav-item--sub ::deep .nav-link {
+    height: 2.4rem;
+    line-height: 2.4rem;
+    font-size: 0.8rem;
+    padding-left: 1.1rem;
+    white-space: nowrap;
+}
+
+.nav-item--settings {
+    margin-top: 0.75rem;
 }
 
 .nav-scrollable {
     display: none;
 }
 
-.navbar-toggler:checked ~ .nav-scrollable {
+.navbar-toggler:checked~.nav-scrollable {
     display: block;
+}
+
+.sidebar-layout {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100vh - 6.5rem);
+}
+
+.nav-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.nav-section--primary {
+    gap: 0.1rem;
+    padding-top: 0.5rem;
+}
+
+.nav-section--bottom {
+    margin-top: auto;
+    gap: 0.75rem;
+    padding-top: 1rem;
+    padding-bottom: 1.5rem;
+}
+
+.nav-dev {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0 1rem;
+}
+
+.nav-dev__toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.65rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(15, 23, 42, 0.35);
+    color: rgba(248, 250, 252, 0.85);
+    font-weight: 600;
+    padding: 0.65rem 0.85rem;
+    cursor: pointer;
+}
+
+.nav-dev__toggle:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #fff;
+}
+
+.nav-dev__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.nav-dev__panel.is-open {
+    max-height: 400px;
+}
+
+.nav-dev__chevron {
+    transition: transform 0.2s ease;
+}
+
+.nav-dev__chevron.is-open {
+    transform: rotate(180deg);
+}
+
+.nav-footer-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    color: #49d9c9;
+}
+
+.nav-footer-brand .evermail-logo__mark {
+    width: 38px;
+}
+
+.evermail-logo__word {
+    color: #49d9c9;
+    font-size: 1rem;
+    font-weight: 600;
 }
 
 @media (min-width: 641px) {
@@ -85,17 +341,18 @@
     }
 
     .nav-scrollable {
-        /* Never collapse the sidebar for wide screens */
         display: block;
-
-        /* Allow sidebar to scroll for tall menus */
-        height: calc(100vh - 3.5rem);
+        height: calc(100vh - 6.5rem);
         overflow-y: auto;
     }
 }
 
-.evermail-logo__word {
-    color: #49d9c9;
-    font-size: 1rem;
-    font-weight: 600;
+@keyframes shimmer {
+    0% {
+        background-position: 0% 0%;
+    }
+
+    100% {
+        background-position: -200% 0%;
+    }
 }

@@ -241,6 +241,11 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-19 - Zero-Trust Content Protection
+- 🔐 Captured the customer-managed key + envelope encryption model in `Documentation/Security.md`, covering per-mailbox DEKs, tenant BYOK onboarding, confidential compute attestation, deterministic encrypted search tokens, and audit/alerting requirements.
+- 🧱 Updated `Documentation/Architecture.md` with a dedicated “Confidential Content Protection Layer” so the system diagram now explains how ingestion/search/AI workloads run inside Azure Confidential Container Apps and why wrapped DEKs keep admins out of tenant mail.
+- 🪪 Added a marketing-ready “Security & Privacy” section to `Documentation/EVERMAIL_WEBSITE_PROMPT.md` that explains the zero-trust guarantees in plain language ( “We can’t read your email” ) plus the technical proof points paranoid security teams expect (BYOK, SEV-SNP, AES-GCM/SIV).
+
 ### 2025-11-19 - Email Threading & Deep Search
 
 - 🔍 Expanded SQL Server full-text search coverage to include HTML bodies plus flattened recipient blobs so `To/Cc/Bcc/Reply-To` filters no longer require JSON scans.

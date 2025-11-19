@@ -1,11 +1,4 @@
 @rendermode InteractiveServer
-@using Evermail.WebApp.Services
-@using Evermail.WebApp.Extensions
-@using Microsoft.AspNetCore.Components.Authorization
-@inject IAuthenticationStateService AuthStateService
-@inject AuthenticationStateProvider AuthStateProvider
-@inject NavigationManager Navigation
-
 <div class="top-row px-4">
     <div class="d-flex justify-content-between align-items-center w-100 gap-3 flex-wrap">
         <span class="text-muted small d-flex align-items-center gap-2">
@@ -14,37 +7,6 @@
         </span>
         <div class="d-flex justify-content-end align-items-center gap-3 flex-wrap">
             <ThemeToggle />
-            <AuthorizeView>
-                <Authorized>
-                    <span class="text-muted small">
-                        <i class="bi bi-person-circle me-1"></i>@context.User.GetEmail()
-                    </span>
-                    <button type="button"
-                            class="btn btn-sm btn-link text-muted p-0 border-0 shadow-none"
-                            @onclick="HandleLogout"
-                            title="Logout">
-                        <i class="bi bi-box-arrow-right"></i>
-                    </button>
-                </Authorized>
-            </AuthorizeView>
         </div>
     </div>
 </div>
-
-@code {
-    private async Task HandleLogout()
-    {
-        // Remove token from localStorage
-        await AuthStateService.RemoveTokenAsync();
-        
-        // Notify authentication state changed
-        if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
-        {
-            customProvider.NotifyAuthenticationStateChanged();
-        }
-
-        // Redirect to home
-        Navigation.NavigateTo("/", forceLoad: true);
-    }
-}
-
