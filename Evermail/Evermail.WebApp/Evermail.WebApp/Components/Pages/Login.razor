@@ -14,26 +14,37 @@
 
 <div class="home-wrapper auth-wrapper">
     <div class="auth-grid">
-        <section class="page-hero auth-hero">
-            <div class="auth-hero-card">
-                <div class="auth-hero-card__eyebrow">Welcome back</div>
-                <h1>Sign in securely</h1>
-                <p class="text-muted mb-3">SSO or password—your tenant stays encrypted either way.</p>
-                <div class="auth-hero-card__stats">
-                    <div>
-                        <span>2FA</span>
-                        <small>Ready today</small>
-                    </div>
-                    <div>
-                        <span>99.9%</span>
-                        <small>Uptime target</small>
-                    </div>
-                    <div>
-                        <span>GDPR</span>
-                        <small>Compliant</small>
-                    </div>
-                </div>
+        <section class="auth-hero-card auth-hero-card--gradient auth-hero-card--login">
+            <span class="auth-hero-card__eyebrow text-uppercase">Welcome back</span>
+            <h1>Sign in securely</h1>
+            <p class="text-muted mb-3">SSO or password—your tenant stays encrypted either way.</p>
+
+            <div class="auth-pill-group">
+                <span class="auth-pill">
+                    <strong>2FA</strong> Ready today
+                </span>
+                <span class="auth-pill">
+                    <strong>99.9%</strong> Uptime target
+                </span>
+                <span class="auth-pill">
+                    <strong>GDPR</strong> Compliant
+                </span>
             </div>
+
+            <ul class="auth-highlights">
+                <li>
+                    <i class="bi bi-shield-lock"></i>
+                    End-to-end encryption with tenant keys
+                </li>
+                <li>
+                    <i class="bi bi-box-arrow-in-right"></i>
+                    Single sign-on or password—your choice
+                </li>
+                <li>
+                    <i class="bi bi-patch-check"></i>
+                    Attested infrastructure + 24/7 monitoring
+                </li>
+            </ul>
         </section>
 
         <section class="auth-card">
@@ -43,10 +54,12 @@
             </header>
 
             <div class="auth-social">
-                <button type="button" class="social-btn social-btn--google" @onclick="@(() => HandleOAuthLogin("Google"))">
+                <button type="button" class="social-btn social-btn--google"
+                    @onclick="@(() => HandleOAuthLogin("Google"))">
                     <i class="bi bi-google"></i>Continue with Google
                 </button>
-                <button type="button" class="social-btn social-btn--microsoft" @onclick="@(() => HandleOAuthLogin("Microsoft"))">
+                <button type="button" class="social-btn social-btn--microsoft"
+                    @onclick="@(() => HandleOAuthLogin("Microsoft"))">
                     <i class="bi bi-microsoft"></i>Continue with Microsoft
                 </button>
             </div>
@@ -60,7 +73,7 @@
 
             <EditForm class="auth-form" Model="@_model" OnValidSubmit="@HandleLogin">
                 <DataAnnotationsValidator />
-                
+
                 <div class="form-field">
                     <label>Email</label>
                     <InputText @bind-Value="_model.Email" class="modern-input" placeholder="you@company.com" />
@@ -69,7 +82,8 @@
 
                 <div class="form-field">
                     <label>Password</label>
-                    <InputText @bind-Value="_model.Password" type="password" class="modern-input" placeholder="••••••••••" />
+                    <InputText @bind-Value="_model.Password" type="password" class="modern-input"
+                        placeholder="••••••••••" />
                     <ValidationMessage For="@(() => _model.Password)" />
                 </div>
 
@@ -119,7 +133,7 @@
         {
             // Store token and update auth state
             await AuthStateService.SetTokenAsync(token);
-            
+
             // Notify authentication state changed
             if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
             {
@@ -167,12 +181,12 @@
             if (response.IsSuccessStatusCode)
             {
                 var result = await response.Content.ReadFromJsonAsync<ApiResponse<AuthResponse>>();
-                
+
                 if (result?.Success == true && result.Data != null)
                 {
                     // Store both tokens in localStorage (access + refresh)
                     await AuthStateService.SetTokenPairAsync(result.Data.Token, result.Data.RefreshToken);
-                    
+
                     // Notify authentication state changed
                     if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                     {
@@ -219,4 +233,3 @@
         public string? TwoFactorCode { get; set; }
     }
 }
-

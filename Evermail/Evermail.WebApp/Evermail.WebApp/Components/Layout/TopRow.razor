@@ -1,12 +1,66 @@
 @rendermode InteractiveServer
-<div class="top-row px-4">
-    <div class="d-flex justify-content-between align-items-center w-100 gap-3 flex-wrap">
-        <span class="text-muted small d-flex align-items-center gap-2">
-            <i class="bi bi-lightning-charge-fill text-warning"></i>
-            Private beta · fast iterations ahead
-        </span>
-        <div class="d-flex justify-content-end align-items-center gap-3 flex-wrap">
-            <ThemeToggle />
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+
+@if (_isAuthenticated)
+{
+    <div class="theme-toggle-floating">
+        <ThemeToggle />
+    </div>
+}
+else
+{
+    <div class="top-row top-row--guest px-4">
+        <div class="top-row__guest-shell">
+            <a class="top-row__brand" href="/">
+                <img src="evermail_logo.png" alt="Evermail" class="top-row__brand-mark" />
+                <span class="top-row__brand-word">evermail</span>
+            </a>
+            <div class="top-row__guest-controls">
+                <span class="top-row__beta-chip d-none d-md-inline-flex">
+                    <i class="bi bi-lightning-charge-fill"></i>
+                    Private beta · fast iterations ahead
+                </span>
+                <nav class="top-row__guest-nav">
+                    <a class="top-row__guest-link" href="/">Home</a>
+                    <a class="top-row__guest-link" href="/login">Login</a>
+                    <a class="top-row__guest-link top-row__guest-link--cta" href="/register">Start free</a>
+                </nav>
+                <ThemeToggle />
+            </div>
         </div>
     </div>
-</div>
+}
+
+@code {
+    private bool _isAuthenticated;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await UpdateAuthStateAsync();
+        AuthStateProvider.AuthenticationStateChanged += HandleAuthStateChanged;
+    }
+
+    private async void HandleAuthStateChanged(Task<AuthenticationState> task)
+    {
+        var state = await task;
+        var isAuth = state.User.Identity?.IsAuthenticated == true;
+        if (_isAuthenticated != isAuth)
+        {
+            _isAuthenticated = isAuth;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task UpdateAuthStateAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        _isAuthenticated = authState.User.Identity?.IsAuthenticated == true;
+    }
+
+    public void Dispose()
+    {
+        AuthStateProvider.AuthenticationStateChanged -= HandleAuthStateChanged;
+    }
+}
