@@ -1,8 +1,14 @@
 # Generate Test .mbox Files
 
-## Quick Start
+## Prerequisites
 
-The `generate-test-mbox.py` script creates realistic .mbox files with simulated emails.
+- Python 3.11+ installed (`python3 --version` on macOS/Linux, `py -3 --version` on Windows).
+- Clone this repository locally (e.g., `/Users/<you>/Work/evermail` or `C:\Users\<you>\Work\evermail`).
+- Run commands from the repo root so relative script paths resolve correctly.
+
+## Quick Start (macOS/Linux)
+
+The `generate-test-mbox.py` script creates realistic .mbox files with simulated emails plus multi-message threads (replies + forwards).
 
 ### Create Test Files:
 
@@ -25,6 +31,25 @@ python3 scripts/generate-test-mbox.py 1000 ~/Downloads/test-1gb.mbox
 python3 scripts/generate-test-mbox.py 5000 ~/Downloads/test-5gb.mbox
 ```
 
+## Quick Start (Windows PowerShell)
+
+> Example assumes the repo lives at `C:\Users\<you>\Work\evermail`. Adjust to match your setup.
+
+```powershell
+cd C:\Users\<you>\Work\evermail
+
+# Small file - 10MB
+py -3 scripts\generate-test-mbox.py 10 $env:USERPROFILE\Downloads\test-10mb.mbox
+
+# Medium file - 100MB
+py -3 scripts\generate-test-mbox.py 100 $env:USERPROFILE\Downloads\test-100mb.mbox
+
+# Large file - 500MB
+py -3 scripts\generate-test-mbox.py 500 $env:USERPROFILE\Downloads\test-500mb.mbox
+```
+
+Prefer WSL? Run the macOS/Linux commands from your Ubuntu shell once the repo path is mounted.
+
 ---
 
 ## What's Generated?
@@ -36,6 +61,7 @@ Each email includes:
 - ✅ Proper mbox format (MimeKit compatible)
 - ✅ Chronological dates (15 min apart)
 - ✅ RFC 822 compliant
+- ✅ Thread metadata (`Re:`/`Fwd:` subjects, `In-Reply-To`, `References`)
 
 **Example email:**
 ```
@@ -54,6 +80,14 @@ Hi team,
 
 Just wanted to follow up on yesterday's discussion...
 ```
+
+### Threaded conversations + forwards
+
+- Every generated file mixes standalone emails with multi-message threads.
+- Each new thread automatically receives 1–3 follow-ups so you can test grouped/conversation views.
+- Replies include quoted previews, while forwards include a structured `--- Forwarded message ---` block.
+- `In-Reply-To` and `References` headers let MimeKit (and SQL) reconstruct the conversation tree.
+- Want to double-check? Generate a 5MB file and search for `In-Reply-To` / `References` headers—there will always be several hits.
 
 ---
 
@@ -132,6 +166,20 @@ python3 scripts/generate-test-mbox.py 2000 ~/Downloads/test-2gb.mbox
 
 # Create directly in specific location
 python3 scripts/generate-test-mbox.py 100 /tmp/emails.mbox
+```
+
+### Need attachment-heavy samples?
+
+Both macOS/Linux and Windows commands support the attachments variant:
+
+```bash
+# macOS/Linux
+python3 scripts/generate-test-mbox-with-attachments.py 100 ~/Downloads/test-with-attachments-100mb.mbox
+```
+
+```powershell
+# Windows PowerShell
+py -3 scripts\generate-test-mbox-with-attachments.py 100 $env:USERPROFILE\Downloads\test-with-attachments-100mb.mbox
 ```
 
 ---

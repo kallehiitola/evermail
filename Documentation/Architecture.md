@@ -57,6 +57,49 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
   - Account settings and billing portal (Stripe)
 - **Deployment**: Azure Static Web Apps or served from WebApp API
 
+##### Product UI & UX Principles (November 2025 refresh)
+Apply these rules whenever you touch the Blazor surface so future prompts inherit the same mental model.
+
+**Brand Foundation**
+- Use the updated infinity logo (`wwwroot/evermail_logo.png`) next to the lowercase text mark (`.evermail-logo__word`). Keep the wordmark color `#49d9c9`, font-weight 600, and letter-spacing 0.04 em. Never recolor the loop outside of the documented gradient.
+- All color decisions flow through `wwwroot/app.css` tokens. Key tokens:  
+  `--color-brand-primary #2563EB`, `--color-brand-accent #06B6D4`, `--color-brand-gradient linear-gradient(120deg,#2563EB 0%,#06B6D4 70%)`, base surface `--color-app-bg #F8FAFC` (light) / `#020617` (dark). When adding elements, reference these variables instead of hard-coded hex values.
+- Typography: Inter → Segoe UI → system stack, `font-size: 1rem` base with 1.5 line-height. Section labels (“hero eyebrows”) are uppercase, tracking 0.2 em, `font-size: .85rem`.
+
+**Theme + Accessibility**
+- Theme choice lives in `ThemeService` (`wwwroot/js/theme.js`). Always bind new Razor components to `data-theme` rather than inventing new state.  
+- Ensure every new component inherits both light and dark variations: add selectors under `:root[data-theme='dark']` when necessary.  
+- Maintain 4.5:1 contrast for primary text and 3:1 for icons. Default text color tokens already comply; keep them.
+
+**Layout System**
+- Wrappers: Authenticated pages use `.home-wrapper` (max-width 1200 px, `gap: 3rem`). Public/auth flows share `.auth-wrapper`.
+- Hero blocks (`.page-hero`, `.detail-hero`, `.auth-hero`): short eyebrow → H1 (24–40 px) → one supporting sentence. Right-hand column holds CTAs or stat chips (never more than 3 metrics).
+- Cards: prefer `.modern-card`, `.table-card`, `.settings-card`, `.auth-card`. They provide 26–32 px radius, subtle border, and drop shadows defined via `--shadow-sm` / `--shadow-lg`. Avoid Bootstrap default cards.
+- Spacing: Top-level sections get `margin-bottom: 3rem`. Keep consistent gutters using CSS variables; never reintroduce `.container mt-4`.
+
+**Component Patterns**
+- **Mailboxes & Emails**: Use `.stat-grid` for summary counters, `.data-table` for tabular content, `.action-pill` for row actions, `.status-pill` for lifecycle cues. Buttons inside tables should be `<button type="button">` or `<a>`; no `<div>` click handlers.
+- **Modals**: Use the “detail modal” stack from `Mailboxes.razor`:  
+  `<div class="modal fade show detail-modal d-block" tabindex="-1">` → `.glass-panel` content → `.modal-overlay` backdrop. This ensures the glowing border and allows button clicks.  
+- **Upload**: Drag-and-drop area uses `<InputFile>` + `.upload-dropzone`. Keep `@ondragenter/leave` states toggling `.upload-dropzone--drag` class. The progress bar uses `.usage-progress.jumbo`.  
+- **Auth**: Login/Register keep SSO buttons first (`.social-btn--google` then `.social-btn--microsoft`), followed by divider, then email/password form. CTA text should be short (“Continue with Google”). Buttons get hover shadows; add `type="button"` to SSO controls.
+- **Buttons**: Primary CTAs use gradient backgrounds + `box-shadow: 0 18px 35px rgba(37,99,235,.35)` (already defined). Secondary actions use `.btn-outline-secondary` with 1px border referencing `--color-border`. Danger flows (delete/purge) use `.btn-outline-danger` + `status-pill--danger`.
+
+**Interaction & Copy**
+- “Trust the whitespace”: prefer 2–3 short sentences per section, no dense paragraphs.
+- Provide immediate feedback for async operations: `spinner-border-sm` inside buttons, progress bars for uploads/ingestion, alert banners for errors.
+- Keep table/summary copy in sentence case, e.g., “Pending deletion” instead of all caps.
+- Always describe destructive actions with a `Danger Zone` eyebrow and reinforce retention rules (see current delete modal copy).
+
+**Implementation Checklist**
+1. Wrap new views in the correct layout container (`home-wrapper`, `auth-wrapper`, etc.).
+2. Use CSS tokens for colors and backgrounds; extend `app.css` when necessary.
+3. Ensure dark-mode variant by inspecting `:root[data-theme='dark']`.
+4. Use the shared component classes before inventing new ones. If a new pattern is unavoidable, document it here and in `app.css`.
+5. Validate keyboard accessibility (Tab order, focus states). All clickable items should be button/anchor elements, not bare `<div>`s.
+
+Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth, settings) visually cohesive and future AI prompts can extend the system without guesswork.
+
 #### Admin Dashboard (Blazor Server)
 - **Purpose**: Internal operations and monitoring
 - **Technology**: Blazor Server for real-time updates
