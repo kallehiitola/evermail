@@ -14,20 +14,19 @@
         </span>
         <div class="d-flex justify-content-end align-items-center gap-3 flex-wrap">
             <ThemeToggle />
-        <AuthorizeView>
-            <Authorized>
-                <span class="text-muted small">
-                    <i class="bi bi-person-circle me-1"></i>@context.User.GetEmail()
-                </span>
-                <button type="button"
-                        class="btn btn-sm btn-link text-muted p-0 border-0 shadow-none"
-                        @onclick="HandleLogout"
-                        title="Logout">
-                    <i class="bi bi-box-arrow-right"></i>
-                </button>
-            </Authorized>
-        </AuthorizeView>
-        <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
+            <AuthorizeView>
+                <Authorized>
+                    <span class="text-muted small">
+                        <i class="bi bi-person-circle me-1"></i>@context.User.GetEmail()
+                    </span>
+                    <button type="button"
+                            class="btn btn-sm btn-link text-muted p-0 border-0 shadow-none"
+                            @onclick="HandleLogout"
+                            title="Logout">
+                        <i class="bi bi-box-arrow-right"></i>
+                    </button>
+                </Authorized>
+            </AuthorizeView>
         </div>
     </div>
 </div>

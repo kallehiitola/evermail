@@ -233,7 +233,10 @@ This keeps UX consistent (always redirect to login) and avoids raw 401 HTML resp
 - Purpose: let the `@Browser` automation inspect protected UI screens without performing the entire OAuth/password flow.
 - Scope: **Development environment only**. The middleware is short-circuited automatically when `IHostEnvironment.IsDevelopment()` is `false`.
 - Trigger: append `?ai=1` (configurable via `AiImpersonation:TriggerQueryKey/TriggerValue`) to any local URL, for example `https://localhost:7136/mailboxes?ai=1`.
-- Behavior: after `UseAuthentication` runs, the middleware loads the configured user (default `kalle.hiitola@gmail.com`), builds the usual claims (`sub`, `tenant_id`, roles, etc.), and assigns them to `HttpContext.User` so TenantContext and RBAC continue to function normally.
+- Behavior:
+  - After `UseAuthentication`, middleware loads the configured user (default `kalle.hiitola@gmail.com`), builds the usual claims (`sub`, `tenant_id`, roles, etc.), and assigns them to `HttpContext.User` so TenantContext and RBAC behave normally during SSR.
+  - A dev-only endpoint `GET /api/v1/dev/ai-auth?ai=1` mints a real JWT/refresh pair for that user. A tiny `AiImpersonationBootstrapper` component detects `?ai=1`, calls the endpoint, drops the tokens into `localStorage`, and notifies the `CustomAuthenticationStateProvider` so interactive requests and API calls succeed without manual login.
+  - `CheckAuthAndRedirect` now waits longer (up to ~6 seconds) before sending Browser flows to `/login` whenever the AI flag is present, giving the bootstrapper time to hydrate.
 - Configuration (add only to `appsettings.Development.json`):
   ```json
   "AiImpersonation": {
@@ -244,6 +247,10 @@ This keeps UX consistent (always redirect to login) and avoids raw 401 HTML resp
   }
   ```
 - Safety: leave `Enabled` as `false` (or remove the section entirely) in any shared dev/staging/prod environment to avoid accidental bypasses. The helper never runs in production, but still avoid merging the configuration section outside local dev.
+- **How to revert when no longer needed**:
+  1. Set `AiImpersonation.Enabled` to `false` (or delete the section) in `appsettings.Development.json`, then restart Aspire so the middleware/endpoint short-circuits immediately.
+  2. Remove the `?ai=1` query string from any bookmarked URLs; the bootstrapper will skip token acquisition and previously stored tokens remain untouched.
+  3. (Optional hard delete) Remove `AiImpersonationBootstrapper`, the `GET /api/v1/dev/ai-auth` endpoint, and the middleware registration in `Program.cs` the next time you tidy up. Those files/components are only referenced from the dev helper, so deleting them reverts everything to the standard auth flow.
 
 ## Data Protection
 

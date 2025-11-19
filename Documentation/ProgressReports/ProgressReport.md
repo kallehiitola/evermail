@@ -243,9 +243,9 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ### 2025-11-18 - AI Browser Impersonation Helper
 
-- 🛰️ Added a dev-only middleware that impersonates `kalle.hiitola@gmail.com` whenever `?ai=1` is present so the Browser tool can render protected Blazor pages without manual sign-in.
-- 🛡️ Guarded the helper behind `IHostEnvironment.IsDevelopment()` plus a new `AiImpersonation` config section (disabled by default outside `appsettings.Development.json`).
-- 📚 Documented the workflow and safety guidelines inside `Documentation/Security.md`.
+- 🛰️ Added a dev-only middleware + token bootstrapper: append `?ai=1` and Blazor automatically fetches a JWT/refresh pair for `kalle.hiitola@gmail.com`, stores it in `localStorage`, and rehydrates without ever seeing the login screen.
+- 🔐 Introduced `GET /api/v1/dev/ai-auth?ai=1` that returns a real `AuthResponse`, and taught `CheckAuthAndRedirect` to wait for the bootstrapper before redirecting.
+- 🛡️ Guarded everything behind `IHostEnvironment.IsDevelopment()` plus the `AiImpersonation` config section (disabled by default outside `appsettings.Development.json`), and documented the workflow/safety guidance in `Documentation/Security.md`.
 
 ### 2025-11-18 - Mailbox Lifecycle Spec
 
@@ -261,8 +261,12 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 🖥️ Updated Blazor UI: mailboxes list shows lifecycle badges, attachment icons respect state, modals for rename/delete, and `/upload?mailboxId=...` supports re-import flows.
 - 🔁 Documented & wired `Evermail.MigrationService` so Aspire applies migrations before WebApp/Worker boot in every environment.
 
-### 2025-11-18 - Blazor Authorization Redirect Standard
+### 2025-11-18 - GDPR Gap Assessment & Residency Roadmap
+- ✅ Documented GDPR risk review (data residency signal, subprocessor register, DPIA/RoPA, retention evidence, read-access auditing, incident contact mapping) inside `Documentation/Security.md`.
+- 🧭 Logged engineering action items (TenantRegion metadata, retention sweeps, audit log expansion) and documentation tasks (subprocessor appendix, DPIA template).
+- 🏢 Captured enterprise data sovereignty roadmap: Region-aware SaaS → Customer-managed keys & dedicated storage → Bring Your Own Azure subscription → optional multi-cloud connectors.
 
+### 2025-11-18 - Blazor Authorization Redirect Standard
 - 🚦 Removed `@attribute [Authorize]` from all Blazor pages so the router can render redirects/404s while APIs remain protected via endpoint `.RequireAuthorization()`.
 - 🔁 Unified the client-side pattern: every protected page now wraps content in `<AuthorizeView>` with `<CheckAuthAndRedirect />`, and `Routes.razor` keeps `<AuthorizeRouteView>` + `<RedirectToLogin />` as the single entry point.
 - 📚 Updated `.cursor/rules/blazor-frontend.mdc`, `Documentation/BLAZOR_RENDER_MODE_STANDARD.md`, `Architecture.md`, `Security.md`, and `Setup/OAUTH_SETUP_COMPLETE.md` to codify the no-`@attribute [Authorize]` rule for UI components.

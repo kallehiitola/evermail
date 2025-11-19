@@ -14,189 +14,159 @@
 
 <AuthorizeView>
     <Authorized>
-<div class="container mt-4">
-    <div class="mb-3">
-        <a href="/mailboxes" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Mailboxes
-        </a>
-    </div>
-
-    @if (_isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading mailbox details...</p>
-        </div>
-    }
-    else if (!string.IsNullOrEmpty(_errorMessage))
-    {
-        <div class="alert alert-danger">
-            <strong>Error:</strong> @_errorMessage
-        </div>
-    }
-    else if (_mailbox == null)
-    {
-        <div class="alert alert-warning">
-            <h4>Mailbox Not Found</h4>
-            <p>The mailbox you're looking for doesn't exist or you don't have permission to access it.</p>
-            <a href="/mailboxes" class="btn btn-primary">Back to Mailboxes</a>
-        </div>
-    }
-    else
-    {
-        <div class="card">
-            <div class="card-header">
-                <h3 class="mb-0">@_mailbox.FileName</h3>
-            </div>
-            <div class="card-body">
-                <div class="row mb-4">
-                    <div class="col-md-6">
-                        <h5>Status</h5>
-                        <p>
-                            @GetStatusBadge(_mailbox.Status)
+        <div class="home-wrapper mailbox-detail-wrapper">
+            @if (_isLoading)
+            {
+                <div class="card modern-card text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-3 mb-0 text-muted">Loading mailbox details…</p>
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger modern-alert">
+                    <strong>Error:</strong> @_errorMessage
+                </div>
+            }
+            else if (_mailbox is null)
+            {
+                <div class="card modern-card text-center">
+                    <h3>Mailbox not found</h3>
+                    <p class="text-muted mb-4">The mailbox you're looking for doesn't exist or you lack permission.</p>
+                    <a href="/mailboxes" class="btn btn-primary">Back to Mailboxes</a>
+                </div>
+            }
+            else
+            {
+                <section class="detail-hero">
+                    <div class="detail-hero__left">
+                        <button class="btn btn-outline-secondary detail-back" @onclick="NavigateBack">
+                            <i class="bi bi-arrow-left me-2"></i>Back to Mailboxes
+                        </button>
+                        <h1>@_mailbox.FileName</h1>
+                        <p class="text-muted mb-0">Imported via .mbox · Last updated @FormatTimestamp(_mailbox.CreatedAt)</p>
+                    </div>
+                    <div class="detail-hero__right">
+                        <span class="status-pill @GetStatusClass(_mailbox.Status)">
+                            @_mailbox.Status
                             @if (_mailbox.Status == "Processing")
                             {
-                                <span class="ms-2">
-                                    <i class="bi bi-arrow-repeat spin"></i> Processing...
-                                </span>
+                                <i class="bi bi-arrow-repeat ms-2 spin"></i>
                             }
-                        </p>
+                        </span>
+                        <div class="detail-meta">
+                            <span>File size <strong>@FormatFileSize(_mailbox.FileSizeBytes)</strong></span>
+                            <span>Uploaded <strong>@FormatTimestamp(_mailbox.CreatedAt)</strong></span>
+                        </div>
+                        @if (_mailbox.Status == "Completed")
+                        {
+                            <a class="btn btn-primary" href="/emails?mailboxId=@_mailbox.Id">
+                                <i class="bi bi-envelope me-2"></i>View Emails
+                            </a>
+                        }
                     </div>
-                    <div class="col-md-6">
-                        <h5>File Size</h5>
-                        <p>@FormatFileSize(_mailbox.FileSizeBytes)</p>
+                </section>
+
+                <section class="stat-grid">
+                    <div class="stat-card">
+                        <h3>Total emails</h3>
+                        <div class="stat-value">@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString("N0") : "—")</div>
+                        <p class="text-muted small mb-0">Processed @_mailbox.ProcessedEmails.ToString("N0")</p>
                     </div>
-                </div>
+                    <div class="stat-card">
+                        <h3>Failed emails</h3>
+                        <div class="stat-value">@(_mailbox.FailedEmails > 0 ? _mailbox.FailedEmails.ToString("N0") : "0")</div>
+                        <p class="text-muted small mb-0">Automatic retries after parsing errors</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Lifecycle</h3>
+                        <div class="stat-value">@LifecycleText()</div>
+                        <p class="text-muted small mb-0">@(_mailbox.IsPendingDeletion ? "Scheduled for deletion" : "Active archive")</p>
+                    </div>
+                </section>
 
                 @if (_mailbox.Status == "Processing")
                 {
-                    <div class="mb-4">
-                        <h5>Processing Progress</h5>
+                    <section class="progress-card">
+                        <p class="hero-eyebrow mb-2">Processing</p>
+                        <h2>Ingestion progress</h2>
                         @{
-                            int progress;
-                            string progressText;
-                            
-                            if (_mailbox.TotalEmails > 0)
-                            {
-                                // Use email count if we know the total
-                                progress = (int)((double)_mailbox.ProcessedEmails / _mailbox.TotalEmails * 100);
-                                progressText = $"Processed {_mailbox.ProcessedEmails} of {_mailbox.TotalEmails} emails";
-                            }
-                            else if (_mailbox.FileSizeBytes > 0 && _mailbox.ProcessedBytes > 0)
-                            {
-                                // Use file size for progress when total emails unknown
-                                progress = (int)((double)_mailbox.ProcessedBytes / _mailbox.FileSizeBytes * 100);
-                                var processedMB = _mailbox.ProcessedBytes / (1024.0 * 1024.0);
-                                var totalMB = _mailbox.FileSizeBytes / (1024.0 * 1024.0);
-                                progressText = $"Processed {processedMB:F2} MB of {totalMB:F2} MB ({_mailbox.ProcessedEmails} emails)";
-                            }
-                            else
-                            {
-                                progress = 0;
-                                progressText = "Starting...";
-                            }
+                            var (progress, progressText) = CalculateProgress(_mailbox);
                         }
-                        
-                        <div class="progress mb-2" style="height: 30px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                                 role="progressbar" 
-                                 style="width: @progress%"
-                                 aria-valuenow="@progress" 
-                                 aria-valuemin="0" 
-                                 aria-valuemax="100">
-                                @progress%
-                            </div>
+                        <div class="usage-progress progress large">
+                            <div class="progress-bar" style="width:@progress%"></div>
                         </div>
-                        <p class="text-muted">
-                            @progressText
-                            @if (_mailbox.FailedEmails > 0)
-                            {
-                                <span class="text-danger">(@_mailbox.FailedEmails failed)</span>
-                            }
-                        </p>
-                    </div>
+                        <div class="d-flex justify-content-between text-muted small">
+                            <span>@progressText</span>
+                            <span>@progress%</span>
+                        </div>
+                    </section>
                 }
 
-                <div class="row">
-                    <div class="col-md-6">
-                        <h5>Statistics</h5>
-                        <table class="table table-sm">
-                            <tbody>
-                                <tr>
-                                    <td><strong>Total Emails:</strong></td>
-                                    <td>@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString() : "-")</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Processed:</strong></td>
-                                    <td>@(_mailbox.ProcessedEmails > 0 ? _mailbox.ProcessedEmails.ToString() : "-")</td>
-                                </tr>
-                                @if (_mailbox.FailedEmails > 0)
-                                {
-                                    <tr>
-                                        <td><strong>Failed:</strong></td>
-                                        <td class="text-danger">@_mailbox.FailedEmails</td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                <section class="detail-grid">
+                    <div class="detail-card">
+                        <h3>Statistics</h3>
+                        <dl class="detail-dl">
+                            <div>
+                                <dt>Total emails</dt>
+                                <dd>@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString("N0") : "—")</dd>
+                            </div>
+                            <div>
+                                <dt>Processed</dt>
+                                <dd>@(_mailbox.ProcessedEmails > 0 ? _mailbox.ProcessedEmails.ToString("N0") : "—")</dd>
+                            </div>
+                            <div>
+                                <dt>Failed</dt>
+                                <dd class="@(_mailbox.FailedEmails > 0 ? "text-danger" : "text-muted")">
+                                    @_mailbox.FailedEmails.ToString("N0")
+                                </dd>
+                            </div>
+                        </dl>
                     </div>
-                    <div class="col-md-6">
-                        <h5>Timeline</h5>
-                        <table class="table table-sm">
-                            <tbody>
-                                <tr>
-                                    <td><strong>Uploaded:</strong></td>
-                                    <td>@_mailbox.CreatedAt.ToString("yyyy-MM-dd HH:mm:ss UTC")</td>
-                                </tr>
+                    <div class="detail-card">
+                        <h3>Timeline</h3>
+                        <dl class="detail-dl">
+                            <div>
+                                <dt>Uploaded</dt>
+                                <dd>@FormatTimestamp(_mailbox.CreatedAt)</dd>
+                            </div>
+                            @if (_mailbox.ProcessingStartedAt.HasValue)
+                            {
+                                <div>
+                                    <dt>Processing started</dt>
+                                    <dd>@FormatTimestamp(_mailbox.ProcessingStartedAt.Value)</dd>
+                                </div>
+                            }
+                            @if (_mailbox.ProcessingCompletedAt.HasValue)
+                            {
+                                <div>
+                                    <dt>Completed</dt>
+                                    <dd>@FormatTimestamp(_mailbox.ProcessingCompletedAt.Value)</dd>
+                                </div>
                                 @if (_mailbox.ProcessingStartedAt.HasValue)
                                 {
-                                    <tr>
-                                        <td><strong>Processing Started:</strong></td>
-                                        <td>@_mailbox.ProcessingStartedAt.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")</td>
-                                    </tr>
+                                    var duration = _mailbox.ProcessingCompletedAt.Value - _mailbox.ProcessingStartedAt.Value;
+                                    <div>
+                                        <dt>Duration</dt>
+                                        <dd>@FormatDuration(duration)</dd>
+                                    </div>
                                 }
-                                @if (_mailbox.ProcessingCompletedAt.HasValue)
-                                {
-                                    <tr>
-                                        <td><strong>Completed:</strong></td>
-                                        <td>@_mailbox.ProcessingCompletedAt.Value.ToString("yyyy-MM-dd HH:mm:ss UTC")</td>
-                                    </tr>
-                                    @if (_mailbox.ProcessingStartedAt.HasValue)
-                                    {
-                                        var duration = _mailbox.ProcessingCompletedAt.Value - _mailbox.ProcessingStartedAt.Value;
-                                        <tr>
-                                            <td><strong>Duration:</strong></td>
-                                            <td>@FormatDuration(duration)</td>
-                                        </tr>
-                                    }
-                                }
-                            </tbody>
-                        </table>
+                            }
+                        </dl>
                     </div>
-                </div>
+                </section>
 
                 @if (!string.IsNullOrEmpty(_mailbox.ErrorMessage))
                 {
-                    <div class="alert alert-danger mt-4">
-                        <h5>Error Details</h5>
+                    <div class="alert alert-danger modern-alert">
+                        <h5>Error details</h5>
                         <p class="mb-0">@_mailbox.ErrorMessage</p>
                     </div>
                 }
-
-                @if (_mailbox.Status == "Completed")
-                {
-                    <div class="mt-4">
-                        <a href="/emails?mailboxId=@_mailbox.Id" class="btn btn-primary">
-                            <i class="bi bi-envelope"></i> View Emails
-                        </a>
-                    </div>
-                }
-            </div>
+            }
         </div>
-    }
-</div>
     </Authorized>
     <NotAuthorized>
         <CheckAuthAndRedirect />
@@ -317,6 +287,49 @@
         "Failed" => @<span class="badge bg-danger">Failed</span>,
         _ => @<span class="badge bg-secondary">@status</span>
     };
+
+    private (int Progress, string Text) CalculateProgress(MailboxDto mailbox)
+    {
+        if (mailbox.TotalEmails > 0)
+        {
+            var progress = (int)((double)mailbox.ProcessedEmails / mailbox.TotalEmails * 100);
+            var text = $"Processed {mailbox.ProcessedEmails:N0} of {mailbox.TotalEmails:N0} emails";
+            return (progress, text);
+        }
+
+        if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
+        {
+            var progress = (int)((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100);
+            var processedMB = mailbox.ProcessedBytes / (1024.0 * 1024.0);
+            var totalMB = mailbox.FileSizeBytes / (1024.0 * 1024.0);
+            var text = $"Processed {processedMB:F2} MB of {totalMB:F2} MB ({mailbox.ProcessedEmails:N0} emails)";
+            return (progress, text);
+        }
+
+        return (0, "Starting…");
+    }
+
+    private string FormatTimestamp(DateTime value) =>
+        value.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
+
+    private string LifecycleText() =>
+        _mailbox switch
+        {
+            null => "—",
+            { IsPendingDeletion: true } => "Scheduled for deletion",
+            { UploadRemoved: true } => "Upload removed",
+            _ => "Active"
+        };
+
+    private string GetStatusClass(string status) => status switch
+    {
+        "Completed" => "status-pill--success",
+        "Processing" => "status-pill--processing",
+        "Failed" => "status-pill--danger",
+        _ => "status-pill--neutral"
+    };
+
+    private void NavigateBack() => Navigation.NavigateTo("/mailboxes");
 
     public void Dispose()
     {

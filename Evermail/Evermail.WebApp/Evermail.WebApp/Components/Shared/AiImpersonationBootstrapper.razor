@@ -1,0 +1,91 @@
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.WebUtilities
+@using Microsoft.Extensions.Options
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Auth
+@using Evermail.WebApp.Configuration
+@using Evermail.WebApp.Services
+
+@inject NavigationManager Navigation
+@inject HttpClient Http
+@inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
+@inject IOptions<AiImpersonationOptions> Options
+@inject ILogger<AiImpersonationBootstrapper> Logger
+
+@code {
+    private bool _initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _initialized)
+        {
+            return;
+        }
+
+        _initialized = true;
+
+        var aiOptions = Options.Value;
+        if (!aiOptions.Enabled)
+        {
+            return;
+        }
+
+        if (!IsAiQuery(Navigation.Uri, aiOptions))
+        {
+            return;
+        }
+
+        try
+        {
+            var triggerKey = aiOptions.TriggerQueryKey;
+            var triggerValue = aiOptions.TriggerValue ?? "1";
+            var endpoint = $"/api/v1/dev/ai-auth?{triggerKey}={Uri.EscapeDataString(triggerValue)}";
+
+            var response = await Http.GetFromJsonAsync<ApiResponse<AuthResponse>>(endpoint);
+
+            if (response?.Success == true && response.Data is not null)
+            {
+                await AuthStateService.SetTokenPairAsync(response.Data.Token, response.Data.RefreshToken);
+
+                if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
+                {
+                    customProvider.NotifyAuthenticationStateChanged();
+                }
+
+                Logger.LogInformation("AI impersonation bootstrapper stored token pair for {Email}", response.Data.User.Email);
+            }
+            else
+            {
+                Logger.LogWarning("AI impersonation endpoint returned failure: {Error}", response?.Error ?? "unknown error");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "AI impersonation bootstrapper failed to acquire token pair.");
+        }
+    }
+
+    private static bool IsAiQuery(string uri, AiImpersonationOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.TriggerQueryKey))
+        {
+            return false;
+        }
+
+        var absoluteUri = new Uri(uri);
+        var query = QueryHelpers.ParseQuery(absoluteUri.Query);
+
+        if (!query.TryGetValue(options.TriggerQueryKey, out var values))
+        {
+            return false;
+        }
+
+        var triggerValue = options.TriggerValue ?? "1";
+        return values.Any(v => string.Equals(v, triggerValue, StringComparison.OrdinalIgnoreCase));
+    }
+}
+

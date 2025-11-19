@@ -2,8 +2,9 @@
 @rendermode InteractiveServer
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Upload
-@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.WebUtilities
 @using Evermail.WebApp.Services
 @using System.Net.Http.Json
@@ -16,126 +17,153 @@
 
 <AuthorizeView>
     <Authorized>
-<div class="container mt-4">
-    <h1>@(_targetMailboxId.HasValue ? "Re-import Mailbox" : "Upload Email Archive")</h1>
-    <p class="text-muted">
-        @if (_targetMailboxId.HasValue)
-        {
-            <span>Upload a newer export to merge it into your existing mailbox without duplicates.</span>
-        }
-        else
-        {
-            <span>Upload your .mbox file or email export to get started.</span>
-        }
-    </p>
+<div class="home-wrapper upload-wrapper">
+    <section class="page-hero upload-hero">
+        <div>
+            <p class="hero-eyebrow mb-2">@(_targetMailboxId.HasValue ? "Re-import" : "New ingestion")</p>
+            <h1>@UploadTitle</h1>
+            <p class="text-muted mb-0">@UploadSubtitle</p>
+        </div>
+        <div class="upload-hero-stats">
+            <div>
+                <span>@_maxFileSizeGB GB</span>
+                <small>Per file limit</small>
+            </div>
+            <div>
+                <span>Chunked</span>
+                <small>4 MB blocks</small>
+            </div>
+            <div>
+                <span>ZIP · MBOX</span>
+                <small>Supported formats</small>
+            </div>
+        </div>
+    </section>
     
     @if (_isUploading)
     {
-        <div class="card">
-            <div class="card-body">
-                <h5>Uploading @_fileName...</h5>
-                <div class="progress mb-3" style="height: 30px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                         role="progressbar" 
-                         style="width: @(_uploadProgress)%"
-                         aria-valuenow="@_uploadProgress" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                        @_uploadProgress%
-                    </div>
-                </div>
-                <p class="text-muted">
-                    @_uploadedMB.ToString("F2") MB / @_totalMB.ToString("F2") MB
-                    @if (_estimatedTimeRemaining > TimeSpan.Zero)
-                    {
-                        <text> - @_estimatedTimeRemaining.ToString(@"hh\:mm\:ss") remaining</text>
-                    }
-                </p>
-                <p class="small text-muted">Upload speed: @_uploadSpeedMBps.ToString("F2") MB/s</p>
-                <button class="btn btn-danger" @onclick="CancelUpload">Cancel Upload</button>
+        <section class="modern-card upload-progress-card">
+            <p class="hero-eyebrow mb-1">Transferring @_fileName</p>
+            <h2>Upload in progress</h2>
+            <div class="usage-progress jumbo" role="progressbar" aria-valuenow="@_uploadProgress" aria-valuemin="0" aria-valuemax="100">
+                <div class="progress-bar" style="width:@_uploadProgress%"></div>
             </div>
-        </div>
+            <p class="text-muted mb-1">
+                @_uploadedMB.ToString("F2") MB / @_totalMB.ToString("F2") MB · @_uploadSpeedMBps.ToString("F2") MB/s
+                @if (_estimatedTimeRemaining > TimeSpan.Zero)
+                {
+                    <span> · ETA @_estimatedTimeRemaining.ToString(@"mm\:ss")</span>
+                }
+            </p>
+            <button class="btn btn-outline-danger" @onclick="CancelUpload">
+                <i class="bi bi-x-circle me-2"></i>Cancel upload
+            </button>
+        </section>
     }
     else if (_uploadComplete)
     {
-        <div class="alert alert-success">
-            <h4 class="alert-heading">✅ Upload Complete!</h4>
-            <p>Your file has been uploaded and queued for processing. This may take a while for large files.</p>
-            <p class="mb-0">
-                <a href="/mailboxes/@_completedMailboxId" class="btn btn-primary">View Mailbox Status</a>
-            </p>
-        </div>
+        <section class="modern-card success-card text-center py-5">
+            <i class="bi bi-check-circle display-5 text-success"></i>
+            <h2 class="mt-3">Upload complete</h2>
+            <p class="text-muted">Your archive is queued for processing. We'll notify you once ingestion finishes.</p>
+            <a href="/mailboxes/@_completedMailboxId" class="btn btn-primary">
+                <i class="bi bi-inbox me-2"></i>View mailbox status
+            </a>
+        </section>
     }
     else
     {
         @if (!string.IsNullOrEmpty(_errorMessage))
         {
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                <strong>Error:</strong> @_errorMessage
-                <button type="button" class="btn-close" @onclick="() => _errorMessage = string.Empty"></button>
-            </div>
+            <div class="alert alert-danger modern-alert">@_errorMessage</div>
         }
 
-        <div class="card">
-            <div class="card-body">
-                <h5>Select File Type</h5>
-                
-                <div class="mb-4">
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="fileType" id="mbox" 
-                               checked="@(_fileType == "mbox")" 
-                               @onchange="@(() => _fileType = "mbox")">
-                        <label class="form-check-label" for="mbox">
-                            <strong>.mbox File</strong> - Single mailbox export (Gmail, Thunderbird, Apple Mail)
-                        </label>
+        <section class="modern-card upload-card">
+            <div class="upload-grid">
+                <div>
+                    <label class="form-label fw-semibold">Upload source</label>
+                    <div class="@DropzoneCssClass"
+                         @ondragenter="() => _isDragOver = true"
+                         @ondragleave="() => _isDragOver = false">
+                        <InputFile OnChange="HandleFileSelected"
+                                   class="upload-dropzone__input"
+                                   accept=".mbox,.zip"
+                                   id="fileInput"
+                                   @ondragenter="() => _isDragOver = true"
+                                   @ondragleave="() => _isDragOver = false"
+                                   @ondragover:preventDefault="true"
+                                   @ondrop="HandleDrop" />
+                        <div class="upload-dropzone__content">
+                            @if (_selectedFile is null)
+                            {
+                                <i class="bi bi-cloud-arrow-up display-5 text-muted"></i>
+                                <p class="lead mb-1">Drag & drop .mbox or .zip</p>
+                                <p class="text-muted small mb-0">or click to browse files</p>
+                                <span class="text-muted extra-small">Files encrypt directly to Azure Blob Storage</span>
+                            }
+                            else
+                            {
+                                <div class="upload-filechip">
+                                    <div>
+                                        <strong>@_fileName</strong>
+                                        <span>@_totalMB.ToString("F2") MB</span>
+                                    </div>
+                                    <button type="button" class="upload-filechip__remove" @onclick="ClearSelection">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </div>
+                                <p class="text-muted small mb-0">Ready to upload.</p>
+                            }
+                        </div>
                     </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="fileType" id="google" 
-                               checked="@(_fileType == "google-takeout-zip")"
-                               @onchange="@(() => _fileType = "google-takeout-zip")">
-                        <label class="form-check-label" for="google">
-                            <strong>Google Takeout ZIP</strong> - Full Google account export
-                        </label>
-                    </div>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="fileType" id="microsoft" 
-                               checked="@(_fileType == "microsoft-export-zip")"
-                               @onchange="@(() => _fileType = "microsoft-export-zip")">
-                        <label class="form-check-label" for="microsoft">
-                            <strong>Microsoft Export ZIP</strong> - Outlook/Office 365 export
-                        </label>
-                    </div>
+                    <p class="text-muted small mt-2">Supports .mbox, Google Takeout, and Microsoft export bundles.</p>
                 </div>
-
-                <div class="mb-3">
-                    <label class="form-label">Choose File</label>
-                    <InputFile OnChange="HandleFileSelected" class="form-control" accept=".mbox,.zip" id="fileInput" />
-                    <small class="text-muted">
-                        Your plan allows up to <strong>@_maxFileSizeGB GB</strong> per file
-                    </small>
-                </div>
-                
-                @if (_selectedFile != null)
-                {
-                    <div class="alert alert-info">
-                        <strong>Selected:</strong> @_fileName<br />
-                        <strong>Size:</strong> @_totalMB.ToString("F2") MB (@_totalGB.ToString("F2") GB)
+                <div class="upload-meta">
+                    <label class="form-label fw-semibold">File type</label>
+                    <div class="upload-radio-group">
+                        <label class="upload-radio">
+                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "mbox")" @onchange="@(() => _fileType = "mbox")" />
+                            <div>
+                                <strong>.mbox</strong>
+                                <span>Single mailbox export</span>
+                            </div>
+                        </label>
+                        <label class="upload-radio">
+                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "google-takeout-zip")" @onchange="@(() => _fileType = "google-takeout-zip")" />
+                            <div>
+                                <strong>Google Takeout ZIP</strong>
+                                <span>Full Google account archive</span>
+                            </div>
+                        </label>
+                        <label class="upload-radio">
+                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "microsoft-export-zip")" @onchange="@(() => _fileType = "microsoft-export-zip")" />
+                            <div>
+                                <strong>Microsoft Export ZIP</strong>
+                                <span>Outlook / Office 365 export</span>
+                            </div>
+                        </label>
                     </div>
-                }
-                
-                <button class="btn btn-primary btn-lg" @onclick="StartUpload" disabled="@(_selectedFile == null || _isProcessing)">
-                    @if (_isProcessing)
-                    {
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                    }
-                    else
-                    {
-                        <i class="bi bi-cloud-upload"></i>
-                    }
-                    Start Upload
-                </button>
+                    <div class="upload-plan-card">
+                        <p class="text-muted mb-1">Plan limit</p>
+                        <h4 class="mb-0">@_maxFileSizeGB GB per file</h4>
+                        <small>Need more? Upgrade under Settings → Subscription.</small>
+                    </div>
+                    <button class="btn btn-primary btn-xl w-100 auth-primary-button mt-2"
+                            @onclick="StartUpload"
+                            disabled="@(_selectedFile == null || _isProcessing)">
+                        @(_targetMailboxId.HasValue ? "Merge upload" : "Start upload")
+                    </button>
+                </div>
             </div>
-        </div>
+        </section>
+
+        @if (_targetMailboxId.HasValue)
+        {
+            <section class="modern-card subtle-card">
+                <p class="hero-eyebrow mb-1">Re-import active</p>
+                <p class="mb-0">New messages merge into mailbox <span class="mono">@_targetMailboxId</span>. Duplicates are skipped automatically.</p>
+            </section>
+        }
     }
 </div>
     </Authorized>
@@ -146,12 +174,12 @@
 
 @code {
     private IBrowserFile? _selectedFile;
-    private string _fileName = "";
+    private string _fileName = string.Empty;
     private string _fileType = "mbox";
     private long _totalBytes;
     private double _totalMB;
     private double _totalGB;
-    private int _maxFileSizeGB = 100; // Will be fetched from user's plan
+    private int _maxFileSizeGB = 100;
     
     private bool _isUploading;
     private bool _isProcessing;
@@ -161,9 +189,19 @@
     private double _uploadedMB;
     private double _uploadSpeedMBps;
     private TimeSpan _estimatedTimeRemaining;
-    private string _errorMessage = "";
+    private string _errorMessage = string.Empty;
     private Guid _completedMailboxId;
     private Guid? _targetMailboxId;
+    private bool _isDragOver;
+
+    private string DropzoneCssClass => _selectedFile is null
+        ? _isDragOver ? "upload-dropzone upload-dropzone--drag" : "upload-dropzone"
+        : "upload-dropzone upload-dropzone--selected";
+
+    private string UploadTitle => _targetMailboxId.HasValue ? "Refresh mailbox data" : "Upload email archive";
+    private string UploadSubtitle => _targetMailboxId.HasValue
+        ? "Merge a newer export without creating duplicates."
+        : "Drag & drop .mbox or Takeout exports to start ingestion.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -174,26 +212,51 @@
             _targetMailboxId = mailboxId;
         }
 
-        // TODO: Get tenant's plan and max file size from API
-        // For now, defaulting to Enterprise tier (100GB) for testing
+        // TODO: Fetch actual tenant plan limit from API
         _maxFileSizeGB = 100;
     }
 
     private void HandleFileSelected(InputFileChangeEventArgs e)
     {
-        _selectedFile = e.File;
-        _fileName = e.File.Name;
-        _totalBytes = e.File.Size;
+        if (e.File != null)
+        {
+            ApplySelectedFile(e.File);
+            _isDragOver = false;
+        }
+    }
+
+    private void ApplySelectedFile(IBrowserFile file)
+    {
+        _selectedFile = file;
+        _fileName = file.Name;
+        _totalBytes = file.Size;
         _totalMB = _totalBytes / (1024.0 * 1024.0);
         _totalGB = _totalBytes / (1024.0 * 1024.0 * 1024.0);
-        _errorMessage = "";
+        _errorMessage = string.Empty;
+        _uploadComplete = false;
+        _uploadProgress = 0;
+    }
+
+    private void ClearSelection()
+    {
+        _selectedFile = null;
+        _fileName = string.Empty;
+        _totalBytes = 0;
+        _totalMB = 0;
+        _totalGB = 0;
+        _isDragOver = false;
+    }
+
+    private void HandleDrop(DragEventArgs _)
+    {
+        _isDragOver = false;
+        StateHasChanged();
     }
 
     private async Task StartUpload()
     {
         if (_selectedFile == null) return;
         
-        // 1. Validate file size
         if (_totalGB > _maxFileSizeGB)
         {
             _errorMessage = $"File size ({_totalGB:F2} GB) exceeds your plan limit ({_maxFileSizeGB} GB). Please upgrade your subscription.";
@@ -201,11 +264,10 @@
         }
         
         _isProcessing = true;
-        _errorMessage = "";
+        _errorMessage = string.Empty;
         
         try
         {
-            // Get auth token
             var token = await AuthStateService.GetTokenAsync();
             if (string.IsNullOrEmpty(token))
             {
@@ -213,7 +275,6 @@
                 return;
             }
 
-            // 2. Get SAS URL from backend
             var apiUrl = $"{Navigation.BaseUri}api/v1/upload/initiate";
             var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
             request.Headers.Add("Authorization", $"Bearer {token}");
@@ -244,10 +305,8 @@
             _isProcessing = false;
             _isUploading = true;
             
-            // 3. Upload directly to Azure Blob with progress tracking
             await UploadToAzureBlobAsync(result.Data.UploadUrl, result.Data.MailboxId);
             
-            // 4. Notify backend upload is complete (triggers queue processing)
             var completeUrl = $"{Navigation.BaseUri}api/v1/upload/complete";
             var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
             completeRequest.Headers.Add("Authorization", $"Bearer {token}");
@@ -264,7 +323,6 @@
                 return;
             }
             
-            // 5. Show success
             _isUploading = false;
             _uploadComplete = true;
             _completedMailboxId = result.Data.MailboxId;
@@ -284,8 +342,6 @@
     {
         try
         {
-            // This will be implemented with JavaScript Interop
-            // Using Azure Blob Storage JavaScript SDK for chunked uploads
             await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, DotNetObjectReference.Create(this));
         }
         catch (Exception ex)
@@ -316,9 +372,7 @@
 
     private void CancelUpload()
     {
-        // TODO: Implement cancellation in JavaScript
         _isUploading = false;
         _errorMessage = "Upload cancelled";
     }
 }
-

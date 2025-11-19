@@ -4,65 +4,98 @@
 
 <PageTitle>Settings - Evermail</PageTitle>
 
-<div class="container mt-4">
-    <h1>Settings</h1>
-    
-    <AuthorizeView>
-        <Authorized>
-            <div class="row mt-4">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Account Information</h5>
-                        </div>
-                        <div class="card-body">
-                            <p><strong>Email:</strong> @context.User.Identity?.Name</p>
-                            <p><strong>User ID:</strong> @context.User.FindFirst("sub")?.Value</p>
-                            <p><strong>Tenant ID:</strong> @context.User.FindFirst("tenant_id")?.Value</p>
-                        </div>
-                    </div>
+<AuthorizeView>
+    <Authorized Context="context">
+        <div class="home-wrapper settings-wrapper">
+            <section class="page-hero">
+                <div>
+                    <p class="hero-eyebrow mb-2">Your workspace</p>
+                    <h1>Account & Preferences</h1>
+                    <p class="text-muted mb-0">Manage your identity, subscriptions, and upcoming security controls from one calm dashboard.</p>
                 </div>
+                <div class="settings-pill-stack">
+                    <span class="status-pill status-pill--success">Private beta</span>
+                    <span class="status-pill">Fast iterations ahead</span>
+                </div>
+            </section>
 
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Security</h5>
+            <section class="settings-grid">
+                <article class="settings-card">
+                    <header>
+                        <h2>Account information</h2>
+                        <p class="text-muted">Identity pulled directly from your secure tenant context.</p>
+                    </header>
+                    <dl class="detail-dl compact">
+                        <dt>Email</dt>
+                        <dd>@context.User.Identity?.Name</dd>
+                        <dt>User ID</dt>
+                        <dd class="mono">@context.User.FindFirst("sub")?.Value</dd>
+                        <dt>Tenant ID</dt>
+                        <dd class="mono">@context.User.FindFirst("tenant_id")?.Value</dd>
+                    </dl>
+                </article>
+
+                <article class="settings-card">
+                    <header>
+                        <h2>Security roadmap</h2>
+                        <p class="text-muted">Phase 1 focuses on giving administrators confidence before GA.</p>
+                    </header>
+                    <ul class="settings-roadmap">
+                        <li>
+                            <span>Enable / disable 2FA</span>
+                            <small>Authenticator + SMS fallbacks</small>
+                        </li>
+                        <li>
+                            <span>Change password</span>
+                            <small>Zero-downtime credential rotations</small>
+                        </li>
+                        <li>
+                            <span>Manage sessions</span>
+                            <small>Revoke suspicious device tokens in one click</small>
+                        </li>
+                        <li>
+                            <span>Connected OAuth accounts</span>
+                            <small>View and disconnect Google / Microsoft bindings</small>
+                        </li>
+                    </ul>
+                </article>
+            </section>
+
+            <section class="settings-grid">
+                <article class="settings-card span-2">
+                    <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
+                        <div>
+                            <p class="hero-eyebrow mb-1">Subscription</p>
+                            <h2>Coming in Phase 1</h2>
                         </div>
-                        <div class="card-body">
-                            <p class="text-muted">Coming in Phase 1:</p>
-                            <ul>
-                                <li>Enable/disable 2FA</li>
-                                <li>Change password</li>
-                                <li>Manage sessions</li>
-                                <li>Connected OAuth accounts</li>
+                        <span class="status-pill status-pill--pending">Design in progress</span>
+                    </header>
+                    <div class="settings-columns">
+                        <div>
+                            <h3>What you’ll be able to control</h3>
+                            <ul class="settings-list">
+                                <li>View current plan & limits</li>
+                                <li>Upgrade to Pro / Team / Enterprise</li>
+                                <li>Export usage + billing receipts</li>
+                                <li>Configure invoice recipients</li>
                             </ul>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="row mt-4">
-                <div class="col-md-12">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5 class="mb-0">Subscription</h5>
-                        </div>
-                        <div class="card-body">
-                            <p class="text-muted">Coming in Phase 1:</p>
-                            <ul>
-                                <li>Current plan: Free</li>
-                                <li>Upgrade to Pro/Team/Enterprise</li>
-                                <li>Usage statistics</li>
-                                <li>Billing history</li>
-                            </ul>
+                        <div>
+                            <h3>Preview data points</h3>
+                            <dl class="detail-dl compact">
+                                <dt>Current plan</dt>
+                                <dd>Free (1 GB, 1 mailbox)</dd>
+                                <dt>Upcoming modules</dt>
+                                <dd>Usage analytics, billing history, payment methods</dd>
+                            </dl>
                         </div>
                     </div>
-                </div>
-            </div>
-        </Authorized>
-        <NotAuthorized>
-            <CheckAuthAndRedirect />
-        </NotAuthorized>
-    </AuthorizeView>
-</div>
+                </article>
+            </section>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <CheckAuthAndRedirect />
+    </NotAuthorized>
+</AuthorizeView>
 

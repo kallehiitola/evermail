@@ -1,7 +1,11 @@
 using Evermail.Common.DTOs;
+using Evermail.Common.DTOs.Auth;
 using Evermail.Domain.Entities;
+using Evermail.Infrastructure.Services;
+using Evermail.WebApp.Configuration;
 using Microsoft.AspNetCore.Identity;
-using Azure.Security.KeyVault.Secrets;
+using Microsoft.Extensions.Options;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -23,6 +27,8 @@ public static class DevEndpoints
             .RequireAuthorization();
         group.MapGet("/test-keyvault", TestKeyVaultAccessAsync)
             .RequireAuthorization();
+        group.MapGet("/ai-auth", GenerateAiAuthTokenAsync)
+            .AllowAnonymous();
         
         return group;
     }
@@ -269,6 +275,86 @@ public static class DevEndpoints
                 Timestamp = DateTime.UtcNow
             }
         ));
+    }
+
+    private static async Task<IResult> GenerateAiAuthTokenAsync(
+        HttpContext httpContext,
+        IWebHostEnvironment env,
+        IOptions<AiImpersonationOptions> options,
+        UserManager<ApplicationUser> userManager,
+        IJwtTokenService jwtTokenService)
+    {
+        if (!env.IsDevelopment())
+        {
+            return Results.NotFound();
+        }
+
+        var aiOptions = options.Value;
+        if (!aiOptions.Enabled)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!IsTriggerPresent(httpContext.Request, aiOptions))
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Missing AI impersonation trigger."
+            ));
+        }
+
+        if (string.IsNullOrWhiteSpace(aiOptions.UserEmail))
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "AI impersonation user email is not configured."
+            ));
+        }
+
+        var user = await userManager.FindByEmailAsync(aiOptions.UserEmail);
+        if (user is null)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: $"AI impersonation user '{aiOptions.UserEmail}' not found."
+            ));
+        }
+
+        var roles = await userManager.GetRolesAsync(user);
+        var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
+        var tokenPair = await jwtTokenService.GenerateTokenPairAsync(user, roles, ipAddress);
+
+        var response = new AuthResponse(
+            Token: tokenPair.AccessToken,
+            RefreshToken: tokenPair.RefreshToken,
+            TokenExpires: tokenPair.AccessTokenExpires,
+            RefreshTokenExpires: tokenPair.RefreshTokenExpires,
+            User: new UserDto(user.Id, user.TenantId, user.Email ?? string.Empty, user.FirstName, user.LastName, user.TwoFactorEnabled)
+        );
+
+        return Results.Ok(new ApiResponse<AuthResponse>(
+            Success: true,
+            Data: response
+        ));
+    }
+
+    private static bool IsTriggerPresent(HttpRequest request, AiImpersonationOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.TriggerQueryKey))
+        {
+            return false;
+        }
+
+        var triggerKey = options.TriggerQueryKey;
+        var triggerValue = options.TriggerValue ?? "1";
+        var query = request.Query;
+
+        if (!query.TryGetValue(triggerKey, out var values))
+        {
+            return false;
+        }
+
+        return values.Any(v => string.Equals(v, triggerValue, StringComparison.OrdinalIgnoreCase));
     }
 }
 

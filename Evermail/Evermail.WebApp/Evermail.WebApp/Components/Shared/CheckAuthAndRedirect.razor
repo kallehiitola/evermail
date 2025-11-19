@@ -4,34 +4,69 @@
 @inject AuthenticationStateProvider AuthStateProvider
 @inject NavigationManager Navigation
 @inject ILogger<CheckAuthAndRedirect> Logger
+@inject Microsoft.Extensions.Options.IOptions<Evermail.WebApp.Configuration.AiImpersonationOptions> AiOptions
+@using Microsoft.AspNetCore.WebUtilities
 
 @code {
+    private bool _isAiMode;
+
+    protected override void OnInitialized()
+    {
+        _isAiMode = IsAiQuery(Navigation.Uri, AiOptions.Value);
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            // Wait for client-side hydration
-            await Task.Delay(200);
-            
-            // Re-check authentication state after hydration
+            await HandleAuthorizationAsync();
+        }
+    }
+
+    private async Task HandleAuthorizationAsync()
+    {
+        var maxAttempts = _isAiMode ? 15 : 1;
+        var delay = _isAiMode ? 400 : 200;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            // Wait for client-side hydration or AI bootstrapper to finish
+            await Task.Delay(delay);
+
             var authState = await AuthStateProvider.GetAuthenticationStateAsync();
-            
+
             if (authState.User.Identity?.IsAuthenticated == true)
             {
-                // User is authenticated - notify state change to re-render
                 if (AuthStateProvider is CustomAuthenticationStateProvider customProvider)
                 {
                     customProvider.NotifyAuthenticationStateChanged();
                 }
-            }
-            else
-            {
-                // Still not authenticated - redirect to login
-                Logger.LogWarning("🔴 CheckAuthAndRedirect - User not authenticated, redirecting to login");
-                var returnUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
-                Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+                return;
             }
         }
+
+        Logger.LogWarning("🔴 CheckAuthAndRedirect - User not authenticated after waiting (AI mode: {AiMode}), redirecting to login", _isAiMode);
+        var returnUrl = Navigation.ToBaseRelativePath(Navigation.Uri);
+        Navigation.NavigateTo($"/login?returnUrl={Uri.EscapeDataString(returnUrl)}", forceLoad: true);
+    }
+
+    private static bool IsAiQuery(string uri, Evermail.WebApp.Configuration.AiImpersonationOptions options)
+    {
+        if (!options.Enabled || string.IsNullOrWhiteSpace(options.TriggerQueryKey))
+        {
+            return false;
+        }
+
+        var absoluteUri = new Uri(uri);
+        var query = QueryHelpers.ParseQuery(absoluteUri.Query);
+
+        if (!query.TryGetValue(options.TriggerQueryKey, out var values))
+        {
+            return false;
+        }
+
+        var triggerValue = options.TriggerValue ?? "1";
+        return values.Any(v => string.Equals(v, triggerValue, StringComparison.OrdinalIgnoreCase));
     }
 }
 

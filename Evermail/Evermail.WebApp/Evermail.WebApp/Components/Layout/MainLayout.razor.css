@@ -6,6 +6,7 @@
 
 main {
     flex: 1;
+    padding-top: 1.25rem;
 }
 
 .sidebar {
@@ -22,6 +23,10 @@ main {
     display: flex;
     align-items: center;
     padding-right: 1.5rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    margin-top: 0.75rem;
+    border-radius: 999px 0 0 999px;
     position: sticky;
     top: 0;
     z-index: 5;
@@ -71,6 +76,10 @@ main {
 @media (min-width: 641px) {
     .page {
         flex-direction: row;
+    }
+
+    main {
+        padding-top: 1.5rem;
     }
 
     .sidebar {

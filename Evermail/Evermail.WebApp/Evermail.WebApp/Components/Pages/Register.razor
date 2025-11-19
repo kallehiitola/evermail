@@ -12,94 +12,100 @@
 
 <PageTitle>Register - Evermail</PageTitle>
 
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card">
-                <div class="card-body">
-                    <h2 class="card-title text-center mb-4">Create Evermail Account</h2>
+<div class="home-wrapper auth-wrapper">
+    <div class="auth-grid">
+        <section class="page-hero auth-hero">
+            <p class="hero-eyebrow mb-2">Create workspace</p>
+            <h1>Register in minutes</h1>
+            <p class="text-muted mb-3">One tenant, one bill, unlimited confidence.</p>
+            <ul class="auth-highlights">
+                <li><i class="bi bi-building-gear"></i>Dedicated tenant per company</li>
+                <li><i class="bi bi-rocket"></i>Free tier with 1 GB to explore</li>
+            </ul>
+        </section>
 
-                    @if (!string.IsNullOrEmpty(_errorMessage))
-                    {
-                        <div class="alert alert-danger">@_errorMessage</div>
-                    }
+        <section class="auth-card">
+            <header class="auth-card__header">
+                <h2>Create your account</h2>
+                <p class="text-muted mb-0">We’ll configure your tenant automatically once you submit this form.</p>
+            </header>
 
-                    @if (_success)
-                    {
-                        <div class="alert alert-success">
-                            <h4>Account Created!</h4>
-                            <p>Redirecting to login...</p>
-                        </div>
-                    }
-                    else
-                    {
-                        <EditForm Model="@_model" OnValidSubmit="@HandleRegister">
-                            <DataAnnotationsValidator />
-
-                            <div class="mb-3">
-                                <label class="form-label">First Name</label>
-                                <InputText @bind-Value="_model.FirstName" class="form-control" />
-                                <ValidationMessage For="@(() => _model.FirstName)" />
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Last Name</label>
-                                <InputText @bind-Value="_model.LastName" class="form-control" />
-                                <ValidationMessage For="@(() => _model.LastName)" />
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Email</label>
-                                <InputText @bind-Value="_model.Email" class="form-control" type="email" />
-                                <ValidationMessage For="@(() => _model.Email)" />
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Password</label>
-                                <InputText @bind-Value="_model.Password" type="password" class="form-control" />
-                                <small class="form-text text-muted">
-                                    Must be at least 12 characters with uppercase, lowercase, number, and special character
-                                </small>
-                                <ValidationMessage For="@(() => _model.Password)" />
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label">Company/Organization Name</label>
-                                <InputText @bind-Value="_model.TenantName" class="form-control" />
-                                <ValidationMessage For="@(() => _model.TenantName)" />
-                            </div>
-
-                            <button type="submit" class="btn btn-primary w-100" disabled="@_isLoading">
-                                @if (_isLoading)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-2"></span>
-                                }
-                                Create Account
-                            </button>
-                        </EditForm>
-
-                        <hr class="my-4">
-                        
-                        <div class="text-center mb-3">
-                            <p class="text-muted">Or sign up with</p>
-                        </div>
-
-                        <div class="d-grid gap-2 mb-3">
-                            <button type="button" class="btn btn-outline-danger" @onclick="@(() => HandleOAuthRegister("Google"))">
-                                <i class="bi bi-google"></i> Sign up with Google
-                            </button>
-                            <button type="button" class="btn btn-outline-primary" @onclick="@(() => HandleOAuthRegister("Microsoft"))">
-                                <i class="bi bi-microsoft"></i> Sign up with Microsoft
-                            </button>
-                        </div>
-
-                        <div class="text-center mt-3">
-                            <p>Already have an account? <a href="/login">Login here</a></p>
-                        </div>
-                    }
-                </div>
+            <div class="auth-social">
+                <button type="button" class="social-btn social-btn--google" @onclick="@(() => HandleOAuthRegister("Google"))">
+                    <i class="bi bi-google"></i> Continue with Google
+                </button>
+                <button type="button" class="social-btn social-btn--microsoft" @onclick="@(() => HandleOAuthRegister("Microsoft"))">
+                    <i class="bi bi-microsoft"></i> Continue with Microsoft
+                </button>
             </div>
-        </div>
+
+            <div class="auth-divider"><span>or create with email</span></div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger auth-alert">@_errorMessage</div>
+            }
+
+            @if (_success)
+            {
+                <div class="alert alert-success auth-alert">
+                    <strong>Account created!</strong>
+                    <p class="mb-0">Redirecting you to the dashboard…</p>
+                </div>
+            }
+            else
+            {
+                <EditForm class="auth-form" Model="@_model" OnValidSubmit="@HandleRegister">
+                    <DataAnnotationsValidator />
+
+                    <div class="form-field-grid">
+                        <div class="form-field">
+                            <label>First name</label>
+                            <InputText @bind-Value="_model.FirstName" class="modern-input" />
+                            <ValidationMessage For="@(() => _model.FirstName)" />
+                        </div>
+                        <div class="form-field">
+                            <label>Last name</label>
+                            <InputText @bind-Value="_model.LastName" class="modern-input" />
+                            <ValidationMessage For="@(() => _model.LastName)" />
+                        </div>
+                    </div>
+
+                    <div class="form-field">
+                        <label>Work email</label>
+                        <InputText @bind-Value="_model.Email" class="modern-input" type="email" placeholder="you@company.com" />
+                        <ValidationMessage For="@(() => _model.Email)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Password</label>
+                        <InputText @bind-Value="_model.Password" type="password" class="modern-input" placeholder="Min 12 characters" />
+                        <small class="text-muted">
+                            At least 12 characters with upper, lower, number, special.
+                        </small>
+                        <ValidationMessage For="@(() => _model.Password)" />
+                    </div>
+
+                    <div class="form-field">
+                        <label>Company / organization name</label>
+                        <InputText @bind-Value="_model.TenantName" class="modern-input" placeholder="Acme Corp" />
+                        <ValidationMessage For="@(() => _model.TenantName)" />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-xl w-100 auth-primary-button" disabled="@_isLoading">
+                        @if (_isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2"></span>
+                        }
+                        Create account
+                    </button>
+                </EditForm>
+
+                <div class="auth-footer">
+                    <span>Already have an account?</span> <a class="auth-link" href="/login">Login here</a>
+                </div>
+            }
+        </section>
     </div>
 </div>
 
