@@ -1542,31 +1542,16 @@ h1:focus {
     display: inline-flex;
     align-items: center;
     gap: 0.6rem;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: lowercase;
-    color: var(--color-brand-deep);
-    letter-spacing: 0.05em;
+    color: #49d9c9;
+    letter-spacing: 0.04em;
+    font-size: 1rem;
 }
 
 .evermail-logo__mark {
-    width: 34px;
-    height: 18px;
-    border-radius: 50px;
-    background: var(--color-brand-gradient);
-    position: relative;
-    display: inline-block;
-}
-
-.evermail-logo__mark::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border: 3px solid rgba(255, 255, 255, 0.35);
-    border-radius: 50px;
-}
-
-:root[data-theme='dark'] .evermail-logo__mark::after {
-    border-color: rgba(2, 6, 23, 0.45);
+    width: 42px;
+    height: auto;
 }
 
 .blazor-error-boundary {
