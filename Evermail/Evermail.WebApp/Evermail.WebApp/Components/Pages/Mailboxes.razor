@@ -267,12 +267,15 @@
                                             Delete indexed emails
                                         </label>
                                     </div>
-                                    <div class="form-check mb-3">
-                                        <input class="form-check-input" type="checkbox" id="purgeNow" @bind="_deleteModel.PurgeNow" />
-                                        <label class="form-check-label fw-semibold" for="purgeNow">
-                                            Purge immediately (SuperAdmins only)
-                                        </label>
-                                    </div>
+                                    @if (_canPurgeImmediately)
+                                    {
+                                        <div class="form-check mb-3">
+                                            <input class="form-check-input" type="checkbox" id="purgeNow" @bind="_deleteModel.PurgeNow" />
+                                            <label class="form-check-label fw-semibold" for="purgeNow">
+                                                Purge immediately (SuperAdmins only)
+                                            </label>
+                                        </div>
+                                    }
                                     @if (!string.IsNullOrEmpty(_modalError))
                                     {
                                         <div class="alert alert-danger modern-alert">@_modalError</div>
@@ -280,8 +283,21 @@
                                     else
                                     {
                                         <div class="alert alert-warning modern-alert subtle-warning">
-                                            Unless purge is requested, deletion jobs run after a 30-day retention window.
+                                            <strong>SuperAdmin flag:</strong> @_canPurgeImmediately
                                         </div>
+
+                                        @if (_canPurgeImmediately)
+                                        {
+                                            <div class="alert alert-warning modern-alert subtle-warning">
+                                                Unless purge is requested, deletion jobs run after a 30-day retention window.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-warning modern-alert subtle-warning">
+                                                Deletion jobs run after a 30-day retention window.
+                                            </div>
+                                        }
                                     }
                                 </div>
                                 <div class="modal-footer justify-content-between">
@@ -317,15 +333,17 @@
     private string _renameDisplayName = string.Empty;
     private DeleteMailboxModel _deleteModel = new();
     private string _modalError = string.Empty;
+    private bool _canPurgeImmediately;
 
     protected override async Task OnInitializedAsync()
     {
+        await EvaluatePurgePermissionAsync();
         await LoadMailboxes(1);
         
-        // Auto-refresh every 5 seconds if there are processing mailboxes
+        // Auto-refresh every 5 seconds if there are queued/processing mailboxes
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
-            if (_mailboxes?.Any(m => m.Status == "Processing") == true)
+            if (_mailboxes?.Any(m => ShouldAutoRefresh(m.Status)) == true)
             {
                 await InvokeAsync(async () =>
                 {
@@ -391,7 +409,9 @@
         var items = _mailboxes ?? new List<MailboxDto>();
         var completed = items.Count(m => string.Equals(m.Status, "Completed", StringComparison.OrdinalIgnoreCase));
         var processing = items.Count(m => string.Equals(m.Status, "Processing", StringComparison.OrdinalIgnoreCase));
-        var pending = items.Count(m => string.Equals(m.Status, "Pending", StringComparison.OrdinalIgnoreCase));
+        var pending = items.Count(m =>
+            string.Equals(m.Status, "Pending", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(m.Status, "Queued", StringComparison.OrdinalIgnoreCase));
         var storageBytes = items.Sum(m => m.FileSizeBytes);
         var pendingDeletion = items.Count(m => m.IsPendingDeletion);
         var newest = items.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
@@ -450,6 +470,10 @@
 
         return value.ToString("N0");
     }
+
+    private static bool ShouldAutoRefresh(string? status) =>
+        string.Equals(status, "Processing", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "Queued", StringComparison.OrdinalIgnoreCase);
 
     private RenderFragment GetStatusBadge(string status) => status switch
     {
@@ -622,6 +646,18 @@
         public bool DeleteUpload { get; set; }
         public bool DeleteEmails { get; set; }
         public bool PurgeNow { get; set; }
+    }
+    private async Task EvaluatePurgePermissionAsync()
+    {
+        try
+        {
+            var principal = await AuthStateService.GetUserFromTokenAsync();
+            _canPurgeImmediately = principal?.IsInRole("SuperAdmin") == true;
+        }
+        catch
+        {
+            _canPurgeImmediately = false;
+        }
     }
 
     private record MailboxSummaryCard(string Label, string Value, string? Caption = null);

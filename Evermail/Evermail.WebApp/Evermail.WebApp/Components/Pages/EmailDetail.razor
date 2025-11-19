@@ -14,239 +14,275 @@
 <PageTitle>@(_email?.Subject ?? "Email") - Evermail</PageTitle>
 
 <AuthorizeView>
-    <Authorized Context="authContext">
-<div class="container mt-4">
-    <div class="mb-3">
-        @{
-            var backUrl = "/emails";
-            var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-            var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
-            if (queryParams.TryGetValue("mailbox", out var mailboxParam))
+    <Authorized>
+        <div class="home-wrapper email-detail-wrapper">
+            @if (_isLoading)
             {
-                backUrl += $"?mailbox={mailboxParam}";
-            }
-        }
-        <a href="@backUrl" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Back to Emails
-        </a>
-    </div>
-
-    @if (_isLoading)
-    {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
-            </div>
-            <p class="mt-2">Loading email...</p>
-        </div>
-    }
-    else if (!string.IsNullOrEmpty(_errorMessage))
-    {
-        <div class="alert alert-danger">
-            <strong>Error:</strong> @_errorMessage
-        </div>
-    }
-    else if (_email == null)
-    {
-        <div class="alert alert-warning">
-            <h4>Email Not Found</h4>
-            <p>The email you're looking for doesn't exist or you don't have permission to access it.</p>
-            <a href="/emails" class="btn btn-primary">Back to Emails</a>
-        </div>
-    }
-    else
-    {
-        <div class="card">
-            <div class="card-header">
-                <h3 class="mb-0">@(_email.Subject ?? "(No Subject)")</h3>
-            </div>
-            <div class="card-body">
-                <!-- Email Headers -->
-                <div class="mb-4">
-                    <div class="row mb-2">
-                        <div class="col-md-2"><strong>From:</strong></div>
-                        <div class="col-md-10">
-                            @if (!string.IsNullOrEmpty(_email.FromName))
-                            {
-                                <text>@_email.FromName</text>
-                                <small class="text-muted">&lt;@_email.FromAddress&gt;</small>
-                            }
-                            else
-                            {
-                                <text>@_email.FromAddress</text>
-                            }
-                        </div>
+                <div class="card modern-card text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
                     </div>
-                    @if (_email.ToAddresses.Any())
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>To:</strong></div>
-                            <div class="col-md-10">
-                                @for (int i = 0; i < _email.ToAddresses.Count; i++)
-                                {
-                                    var address = _email.ToAddresses[i];
-                                    var name = i < _email.ToNames.Count ? _email.ToNames[i] : null;
-                                    if (!string.IsNullOrEmpty(name))
-                                    {
-                                        <text>@name &lt;@address&gt;</text>
-                                    }
-                                    else
-                                    {
-                                        <text>@address</text>
-                                    }
-                                    @if (i < _email.ToAddresses.Count - 1)
-                                    {
-                                        <text>, </text>
-                                    }
-                                }
-                            </div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_email.ReplyToAddress))
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Reply-To:</strong></div>
-                            <div class="col-md-10">@_email.ReplyToAddress</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_email.SenderAddress))
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Sender:</strong></div>
-                            <div class="col-md-10">
-                                @_email.SenderName
-                                @if (!string.IsNullOrWhiteSpace(_email.SenderName))
-                                {
-                                    <small class="text-muted ms-1">&lt;@_email.SenderAddress&gt;</small>
-                                }
-                                else
-                                {
-                                    <text>@_email.SenderAddress</text>
-                                }
-                            </div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_email.ReturnPath))
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Return-Path:</strong></div>
-                            <div class="col-md-10">@_email.ReturnPath</div>
-                        </div>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_email.ListId))
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>List-Id:</strong></div>
-                            <div class="col-md-10">@_email.ListId</div>
-                        </div>
-                    }
-                    @if (_email.CcAddresses.Any())
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Cc:</strong></div>
-                            <div class="col-md-10">
-                                @for (int i = 0; i < _email.CcAddresses.Count; i++)
-                                {
-                                    var address = _email.CcAddresses[i];
-                                    var name = i < _email.CcNames.Count ? _email.CcNames[i] : null;
-                                    if (!string.IsNullOrEmpty(name))
-                                    {
-                                        <text>@name &lt;@address&gt;</text>
-                                    }
-                                    else
-                                    {
-                                        <text>@address</text>
-                                    }
-                                    @if (i < _email.CcAddresses.Count - 1)
-                                    {
-                                        <text>, </text>
-                                    }
-                                }
-                            </div>
-                        </div>
-                    }
-                    <div class="row mb-2">
-                        <div class="col-md-2"><strong>Date:</strong></div>
-                        <div class="col-md-10">@_email.Date.ToString("yyyy-MM-dd HH:mm:ss UTC")</div>
-                    </div>
-                    @if (_email.ConversationId.HasValue)
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Thread:</strong></div>
-                            <div class="col-md-10">
-                                <span class="badge bg-secondary-subtle text-dark">
-                                    Reply @(_email.ThreadDepth + 1) of @_email.ThreadSize
-                                </span>
-                            </div>
-                        </div>
-                    }
-                    <div class="row mb-2">
-                        <div class="col-md-2"><strong>Importance:</strong></div>
-                        <div class="col-md-10">@(_email.Importance ?? "—")</div>
-                    </div>
-                    <div class="row mb-2">
-                        <div class="col-md-2"><strong>Priority:</strong></div>
-                        <div class="col-md-10">@(_email.Priority ?? "—")</div>
-                    </div>
-                    @if (!string.IsNullOrWhiteSpace(_email.Categories))
-                    {
-                        <div class="row mb-2">
-                            <div class="col-md-2"><strong>Categories:</strong></div>
-                            <div class="col-md-10">@_email.Categories</div>
-                        </div>
-                    }
+                    <p class="mt-3 text-muted mb-0">Loading email…</p>
                 </div>
+            }
+            else if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger modern-alert">
+                    <strong>Error:</strong> @_errorMessage
+                </div>
+            }
+            else if (_email is null)
+            {
+                <div class="card modern-card text-center">
+                    <h3>Email not found</h3>
+                    <p class="text-muted mb-4">The email you're looking for doesn't exist or you lack permission to view it.
+                    </p>
+                    <a href="/emails" class="btn btn-primary">Back to Emails</a>
+                </div>
+            }
+            else
+            {
+                <section class="detail-hero email-hero">
+                    <div class="detail-hero__left">
+                        <a href="@GetBackUrl()" class="btn btn-outline-secondary detail-back">
+                            <i class="bi bi-arrow-left me-2"></i>Back to Emails
+                        </a>
+                        <p class="hero-eyebrow mb-1">Message</p>
+                        <h1>@(_email.Subject ?? "(No Subject)")</h1>
+                        <p class="text-muted mb-4">@FormatTimestamp(_email.Date)</p>
 
-                <!-- Attachments -->
-                @if (_email.HasAttachments && _email.Attachments != null && _email.Attachments.Any())
+                        <div class="email-address-rows">
+                            <div class="email-address-row">
+                                <span class="email-address-label">From</span>
+                                <div class="email-address-stack">
+                                    <span class="email-address-pill">
+                                        @FormatAddress(_email.FromName, _email.FromAddress)
+                                    </span>
+                                </div>
+                            </div>
+
+                            @if (HasAddresses(_email.ToAddresses))
+                            {
+                                <div class="email-address-row">
+                                    <span class="email-address-label">To</span>
+                                    <div class="email-address-stack">
+                                        @foreach (var recipient in CombineAddresses(_email.ToAddresses, _email.ToNames))
+                                        {
+                                            <span class="email-address-pill">@FormatAddress(recipient.Name,
+                                                                                    recipient.Address)</span>
+                                                                }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (HasAddresses(_email.CcAddresses))
+                            {
+                                <div class="email-address-row">
+                                    <span class="email-address-label">Cc</span>
+                                    <div class="email-address-stack">
+                                        @foreach (var recipient in CombineAddresses(_email.CcAddresses, _email.CcNames))
+                                        {
+                                            <span class="email-address-pill">@FormatAddress(recipient.Name,
+                                                                                    recipient.Address)</span>
+                                                                }
+                                    </div>
+                                </div>
+                            }
+
+                            @if (HasAddresses(_email.BccAddresses))
+                            {
+                                <div class="email-address-row">
+                                    <span class="email-address-label">Bcc</span>
+                                    <div class="email-address-stack">
+                                        @foreach (var recipient in CombineAddresses(_email.BccAddresses, _email.BccNames))
+                                        {
+                                            <span class="email-address-pill">@FormatAddress(recipient.Name,
+                                                                                    recipient.Address)</span>
+                                                                }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="detail-hero__right">
+                        <span class="status-pill @( _email.IsRead ? "status-pill--success" : "status-pill--pending")">
+                            @(_email.IsRead ? "Read" : "Unread")
+                        </span>
+
+                        <div class="email-hero-meta">
+                            <div>
+                                <p class="hero-eyebrow mb-1 text-uppercase">Thread</p>
+                                <strong>@GetThreadSummary()</strong>
+                            </div>
+                            <div>
+                                <p class="hero-eyebrow mb-1 text-uppercase">Attachments</p>
+                                <strong>@_email.AttachmentCount</strong>
+                            </div>
+                        </div>
+
+                        <div class="action-pill-group">
+                            <a href="/emails?mailbox=@_email.MailboxId" class="action-pill">
+                                <i class="bi bi-list"></i>All emails
+                            </a>
+                            <a href="/mailboxes/@_email.MailboxId" class="action-pill">
+                                <i class="bi bi-inbox"></i>Mailbox
+                            </a>
+                        </div>
+                    </div>
+                </section>
+
+
+                @if (_email.HasAttachments && _email.Attachments is { Count: > 0 })
                 {
-                    <div class="mb-4">
-                        <h5>Attachments (@_email.AttachmentCount)</h5>
-                        <div class="list-group">
+                    <section class="modern-card email-attachments-card">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <p class="hero-eyebrow mb-1">Attachments</p>
+                                <h2 class="mb-0">@_email.AttachmentCount file@(_email.AttachmentCount == 1 ? "" : "s")</h2>
+                            </div>
+                        </div>
+
+                        <div class="attachment-list">
                             @foreach (var attachment in _email.Attachments)
                             {
-                                <button type="button"
-                                        class="list-group-item list-group-item-action text-start border-0 bg-transparent w-100"
-                                        @onclick="async () => await DownloadAttachment(attachment.Id)">
-                                    <div class="d-flex w-100 justify-content-between align-items-center">
-                                        <div>
-                                            <i class="bi bi-paperclip me-2"></i>
-                                            <strong>@attachment.FileName</strong>
-                                            <small class="text-muted ms-2">(@FormatFileSize(attachment.SizeBytes))</small>
-                                        </div>
-                                        <i class="bi bi-download"></i>
+                                <button type="button" class="attachment-pill"
+                                    @onclick="async () => await DownloadAttachment(attachment.Id)">
+                                    <div>
+                                        <i class="bi bi-paperclip me-2"></i>
+                                        <strong>@attachment.FileName</strong>
+                                        <small class="text-muted ms-2">@FormatFileSize(attachment.SizeBytes)</small>
                                     </div>
+                                    <i class="bi bi-download"></i>
                                 </button>
                             }
                         </div>
-                    </div>
+                    </section>
                 }
 
-                <!-- Email Body -->
-                <div class="email-body">
-                    @if (!string.IsNullOrEmpty(_email.HtmlBody))
+                <section class="modern-card email-body-card">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                        <div>
+                            <p class="hero-eyebrow mb-1">Email body</p>
+                            <h2 class="mb-0">Content</h2>
+                        </div>
+                        @if (HasBodyToggle)
+                        {
+                            <div class="email-body-toggle btn-group">
+                                <button type="button"
+                                    class="btn btn-sm btn-outline-secondary @(!_showPlainTextBody ? "active" : "")"
+                                    @onclick="() => SetBodyMode(false)">
+                                    Rich view
+                                </button>
+                                <button type="button"
+                                    class="btn btn-sm btn-outline-secondary @(_showPlainTextBody ? "active" : "")"
+                                    @onclick="() => SetBodyMode(true)">
+                                    Plain text
+                                </button>
+                            </div>
+                        }
+                    </div>
+
+                    @if (ShouldShowHtmlBody())
                     {
-                        <div class="border p-3" style="min-height: 200px;">
-                            @((MarkupString)_email.HtmlBody)
+                        <div class="email-body-html">
+                            @((MarkupString)_email.HtmlBody!)
                         </div>
                     }
                     else if (!string.IsNullOrEmpty(_email.TextBody))
                     {
-                        <div class="border p-3" style="min-height: 200px; white-space: pre-wrap; font-family: monospace;">
-                            @_email.TextBody
-                        </div>
+                        <pre class="email-body-text">@_email.TextBody</pre>
                     }
                     else
                     {
-                        <div class="border p-3 text-muted">
+                        <div class="email-body-empty text-muted">
                             <em>No content available</em>
                         </div>
                     }
-                </div>
-            </div>
+                </section>
+
+                <section class="detail-grid email-info-grid">
+                    <div class="detail-card">
+                        <h3>Participants</h3>
+                        <dl class="email-meta-list">
+                            <div>
+                                <dt>Sender</dt>
+                                <dd>@FormatAddress(_email.SenderName ?? _email.FromName, _email.SenderAddress ??
+                                                                    _email.FromAddress)</dd>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_email.ReplyToAddress))
+                            {
+                                <div>
+                                    <dt>Reply-To</dt>
+                                    <dd class="email-address-pill">@_email.ReplyToAddress</dd>
+                                </div>
+                            }
+                            <div>
+                                <dt>Date</dt>
+                                <dd>@FormatTimestamp(_email.Date)</dd>
+                            </div>
+                            <div>
+                                <dt>Importance</dt>
+                                <dd>@(_email.Importance ?? "—")</dd>
+                            </div>
+                            <div>
+                                <dt>Priority</dt>
+                                <dd>@(_email.Priority ?? "—")</dd>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_email.Categories))
+                            {
+                                <div>
+                                    <dt>Categories</dt>
+                                    <dd>@_email.Categories</dd>
+                                </div>
+                            }
+                        </dl>
+                    </div>
+
+                    <div class="detail-card">
+                        <h3>Message metadata</h3>
+                        <dl class="email-meta-list">
+                            <div>
+                                <dt>Message-ID</dt>
+                                <dd>@(_email.MessageId ?? "—")</dd>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_email.InReplyTo))
+                            {
+                                <div>
+                                    <dt>In-Reply-To</dt>
+                                    <dd>@_email.InReplyTo</dd>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_email.References))
+                            {
+                                <div>
+                                    <dt>References</dt>
+                                    <dd>@_email.References</dd>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_email.ReturnPath))
+                            {
+                                <div>
+                                    <dt>Return-Path</dt>
+                                    <dd>@_email.ReturnPath</dd>
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(_email.ListId))
+                            {
+                                <div>
+                                    <dt>List-Id</dt>
+                                    <dd>@_email.ListId</dd>
+                                </div>
+                            }
+                            <div>
+                                <dt>Thread ID</dt>
+                                <dd>@(_email.ConversationId?.ToString() ?? "—")</dd>
+                            </div>
+                        </dl>
+                    </div>
+                </section>
+            }
         </div>
-    }
-</div>
     </Authorized>
     <NotAuthorized>
         <CheckAuthAndRedirect />
@@ -259,6 +295,7 @@
     private EmailDetailDto? _email;
     private bool _isLoading = true;
     private string _errorMessage = "";
+    private bool _showPlainTextBody;
 
     protected override async Task OnInitializedAsync()
     {
@@ -285,14 +322,14 @@
         {
             // Get token from localStorage (requires JS interop, so must be after render)
             var token = await AuthStateService.GetTokenAsync();
-            
+
             // If no token, try refreshing
             if (string.IsNullOrEmpty(token))
             {
                 await AuthStateService.RefreshTokenIfNeededAsync();
                 token = await AuthStateService.GetTokenAsync();
             }
-            
+
             if (string.IsNullOrEmpty(token))
             {
                 _errorMessage = "You must be logged in to view email details";
@@ -380,6 +417,62 @@
         }
     }
 
+    private string GetBackUrl()
+    {
+        var backUrl = "/emails";
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        if (queryParams.TryGetValue("mailbox", out var mailboxParam))
+        {
+            backUrl += $"?mailbox={mailboxParam}";
+        }
+
+        return backUrl;
+    }
+
+    private bool HasBodyToggle =>
+    !string.IsNullOrEmpty(_email?.HtmlBody) && !string.IsNullOrEmpty(_email?.TextBody);
+
+    private void SetBodyMode(bool showPlain)
+    {
+        if (_showPlainTextBody == showPlain)
+        {
+            return;
+        }
+
+        _showPlainTextBody = showPlain;
+        StateHasChanged();
+    }
+
+    private bool ShouldShowHtmlBody() =>
+    !_showPlainTextBody && !string.IsNullOrEmpty(_email?.HtmlBody);
+
+    private string FormatTimestamp(DateTime value) =>
+    value.ToString("MMM d, yyyy • HH:mm 'UTC'");
+
+    private string GetThreadSummary() =>
+    _email?.ConversationId is null
+    ? "Single message"
+    : $"Reply {_email.ThreadDepth + 1} of {_email.ThreadSize}";
+
+    private static bool HasAddresses(List<string> addresses) =>
+    addresses is { Count: > 0 };
+
+    private static IEnumerable<(string? Name, string Address)> CombineAddresses(
+    List<string> addresses,
+    List<string> names)
+    {
+        for (var i = 0; i < addresses.Count; i++)
+        {
+            var address = addresses[i];
+            var name = i < names.Count ? names[i] : null;
+            yield return (name, address);
+        }
+    }
+
+    private static string FormatAddress(string? name, string address) =>
+    string.IsNullOrWhiteSpace(name) ? address : $"{name} <{address}>";
+
     private string FormatFileSize(long bytes)
     {
         string[] sizes = { "B", "KB", "MB", "GB", "TB" };
@@ -393,4 +486,3 @@
         return $"{len:0.##} {sizes[order]}";
     }
 }
-

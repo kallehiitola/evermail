@@ -37,6 +37,11 @@ public class MailboxProcessingService
         Guid mailboxUploadId,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation(
+            "Starting ingestion for mailbox {MailboxId} upload {UploadId}",
+            mailboxId,
+            mailboxUploadId);
+
         // Get mailbox from database (need tracking for updates)
         var mailbox = await _context.Mailboxes
             .FirstOrDefaultAsync(m => m.Id == mailboxId, cancellationToken);
@@ -77,6 +82,11 @@ public class MailboxProcessingService
                 throw new FileNotFoundException($"Blob not found: {mailbox.BlobPath}");
             }
 
+            _logger.LogInformation(
+                "Mailbox {MailboxId}: streaming blob {BlobPath}",
+                mailbox.Id,
+                mailbox.BlobPath);
+
             // Stream parse with MimeKit
             await using var stream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
 
@@ -84,12 +94,26 @@ public class MailboxProcessingService
             var blobProperties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
             var totalFileSize = blobProperties.Value.ContentLength;
 
+            _logger.LogInformation(
+                "Mailbox {MailboxId}: blob size {SizeBytes} bytes (fileName {FileName})",
+                mailbox.Id,
+                totalFileSize,
+                mailbox.FileName);
+
             var existingHashes = await _context.EmailMessages
                 .Where(e => e.MailboxId == mailboxId && e.ContentHash != null)
                 .Select(e => e.ContentHash!)
                 .ToListAsync(cancellationToken);
 
             var hashSet = new HashSet<string>(existingHashes.Select(Convert.ToHexString), StringComparer.Ordinal);
+
+            if (hashSet.Count > 0)
+            {
+                _logger.LogInformation(
+                    "Mailbox {MailboxId}: loaded {HashCount} existing content hashes",
+                    mailbox.Id,
+                    hashSet.Count);
+            }
 
             await ParseMboxStreamAsync(stream, mailbox, upload, totalFileSize, hashSet, cancellationToken);
 
@@ -443,6 +467,15 @@ public class MailboxProcessingService
         upload.TotalEmails = totalProcessed;
         upload.ProcessedBytes = bytesProcessed;
         await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Mailbox {MailboxId}: flushed batch ({BatchSize} messages). TotalProcessed={TotalProcessed}, Successful={Successful}, Bytes={BytesProcessed}/{TotalBytes}",
+            mailbox.Id,
+            batch.Count,
+            totalProcessed,
+            successfulCount,
+            bytesProcessed,
+            totalFileSizeBytes);
     }
 
     private List<EmailRecipient> BuildRecipientEntities(

@@ -16,6 +16,8 @@ public class Worker : BackgroundService
     private readonly QueueClient _deletionQueue;
     private const string IngestionQueueName = "mailbox-ingestion";
     private const string DeletionQueueName = "mailbox-deletion";
+    private static readonly TimeSpan MinVisibilityDelay = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan MaxVisibilityDelay = TimeSpan.FromDays(7);
 
     public Worker(
         ILogger<Worker> logger,
@@ -53,6 +55,7 @@ public class Worker : BackgroundService
 
                 if (response.Value is { Length: > 0 })
                 {
+                    _logger.LogInformation("Dequeued {Count} ingestion messages", response.Value.Length);
                     foreach (var message in response.Value)
                     {
                         await ProcessMailboxMessageAsync(message, cancellationToken);
@@ -83,6 +86,7 @@ public class Worker : BackgroundService
 
                 if (response.Value is { Length: > 0 })
                 {
+                    _logger.LogInformation("Dequeued {Count} deletion messages", response.Value.Length);
                     foreach (var message in response.Value)
                     {
                         await ProcessDeletionMessageAsync(message, cancellationToken);
@@ -120,7 +124,11 @@ public class Worker : BackgroundService
 
             mailboxId = queueData.MailboxId;
             uploadId = queueData.UploadId;
-            _logger.LogInformation("Processing mailbox {MailboxId} upload {UploadId}", mailboxId, uploadId);
+            _logger.LogInformation(
+                "Processing mailbox {MailboxId} upload {UploadId} (enqueued {EnqueuedAt:O})",
+                mailboxId,
+                uploadId,
+                queueData.EnqueuedAt);
 
             using var scope = _serviceProvider.CreateScope();
             var processingService = scope.ServiceProvider.GetRequiredService<MailboxProcessingService>();
@@ -172,13 +180,26 @@ public class Worker : BackgroundService
                 return;
             }
 
-            if (job.ExecuteAfter > DateTime.UtcNow)
+            var now = DateTime.UtcNow;
+            if (job.ExecuteAfter > now)
             {
-                var delay = job.ExecuteAfter - DateTime.UtcNow;
-                if (delay < TimeSpan.FromMinutes(1))
+                var delay = job.ExecuteAfter - now;
+                if (delay < MinVisibilityDelay)
                 {
-                    delay = TimeSpan.FromMinutes(1);
+                    delay = MinVisibilityDelay;
                 }
+
+                if (delay > MaxVisibilityDelay)
+                {
+                    delay = MaxVisibilityDelay;
+                }
+
+                _logger.LogInformation(
+                    "Deletion job {JobId} not due yet. Releasing message for {Delay} (ExecuteAfter {ExecuteAfter:O}, Now {Now:O})",
+                    jobId,
+                    delay,
+                    job.ExecuteAfter,
+                    now);
 
                 await _deletionQueue.UpdateMessageAsync(
                     message.MessageId,
@@ -189,10 +210,20 @@ public class Worker : BackgroundService
                 return;
             }
 
+            _logger.LogInformation(
+                "Starting deletion job {JobId} for mailbox {MailboxId} (DeleteUpload={DeleteUpload}, DeleteEmails={DeleteEmails}, PurgeNow={PurgeNow})",
+                job.Id,
+                job.MailboxId,
+                job.DeleteUpload,
+                job.DeleteEmails,
+                job.ExecuteAfter <= job.RequestedAt.AddMinutes(1));
+
             var deletionService = scope.ServiceProvider.GetRequiredService<MailboxDeletionService>();
             await deletionService.ExecuteDeletionJobAsync(jobId, cancellationToken);
 
             await _deletionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
+
+            _logger.LogInformation("Finished deletion job {JobId}", jobId);
         }
         catch (Exception ex)
         {

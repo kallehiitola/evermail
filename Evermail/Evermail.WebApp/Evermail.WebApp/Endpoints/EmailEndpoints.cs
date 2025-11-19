@@ -12,14 +12,20 @@ namespace Evermail.WebApp.Endpoints;
 
 public static class EmailEndpoints
 {
+    private static readonly HashSet<string> BooleanOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AND",
+        "OR",
+        "NOT"
+    };
     public static RouteGroupBuilder MapEmailEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/search", SearchEmailsAsync)
             .RequireAuthorization();
-        
+
         group.MapGet("/{id:guid}", GetEmailByIdAsync)
             .RequireAuthorization();
-        
+
         return group;
     }
 
@@ -139,7 +145,7 @@ public static class EmailEndpoints
                 .Take(pageSize)
                 .ToListAsync();
         }
-        catch (SqlException ex) when (isFullTextSearch && ex.Number == 7601)
+        catch (SqlException ex) when (isFullTextSearch && (ex.Number == 7601 || ex.Number == 7609))
         {
             logger?.LogWarning(ex, "Full-text search unavailable. Falling back to basic search for tenant {TenantId}", tenantContext.TenantId);
             isFullTextSearch = false;
@@ -249,23 +255,23 @@ public static class EmailEndpoints
         var toAddresses = string.IsNullOrEmpty(email.ToAddresses)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.ToAddresses) ?? new List<string>();
-        
+
         var toNames = string.IsNullOrEmpty(email.ToNames)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.ToNames) ?? new List<string>();
-        
+
         var ccAddresses = string.IsNullOrEmpty(email.CcAddresses)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.CcAddresses) ?? new List<string>();
-        
+
         var ccNames = string.IsNullOrEmpty(email.CcNames)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.CcNames) ?? new List<string>();
-        
+
         var bccAddresses = string.IsNullOrEmpty(email.BccAddresses)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.BccAddresses) ?? new List<string>();
-        
+
         var bccNames = string.IsNullOrEmpty(email.BccNames)
             ? new List<string>()
             : JsonSerializer.Deserialize<List<string>>(email.BccNames) ?? new List<string>();
@@ -427,7 +433,9 @@ public static class EmailEndpoints
         }
 
         var matches = Regex.Matches(query, @"(?:""[^""]+"")|(?:\S+)");
-        var expressions = new List<string>();
+        var segments = new List<string>();
+        var lastWasOperator = true;
+        var pendingNot = false;
 
         foreach (Match match in matches)
         {
@@ -437,18 +445,68 @@ public static class EmailEndpoints
                 continue;
             }
 
-            var normalized = token.Trim('"');
-            if (stopWords.Contains(normalized))
+            var isQuoted = token.Length >= 2 && token.StartsWith("\"", StringComparison.Ordinal) && token.EndsWith("\"", StringComparison.Ordinal);
+            var normalized = isQuoted ? token[1..^1] : token;
+
+            if (!isQuoted && BooleanOperators.Contains(normalized))
             {
+                var upper = normalized.ToUpperInvariant();
+                if (upper == "NOT")
+                {
+                    pendingNot = true;
+                }
+                else if (segments.Count > 0 && !lastWasOperator)
+                {
+                    segments.Add(upper);
+                    lastWasOperator = true;
+                    pendingNot = false;
+                }
+
                 continue;
             }
 
-            var escaped = normalized.Replace("\"", "\"\"");
-            var literal = $"\"{escaped}\"";
-            expressions.Add(useInflectionalForms ? $"FORMSOF(INFLECTIONAL, {literal})" : literal);
+            if (stopWords.Contains(normalized))
+            {
+                pendingNot = false;
+                continue;
+            }
+
+            var escaped = normalized.Replace("\"", "\"\"", StringComparison.Ordinal);
+            var literal = useInflectionalForms
+                ? $"FORMSOF(INFLECTIONAL, \"{escaped}\")"
+                : $"\"{escaped}\"";
+
+            if (!lastWasOperator)
+            {
+                segments.Add("AND");
+                lastWasOperator = true;
+            }
+
+            if (pendingNot)
+            {
+                if (segments.Count == 0 || segments[^1] == "AND" || segments[^1] == "OR")
+                {
+                    segments.Add("NOT");
+                }
+                else
+                {
+                    segments.Add("AND");
+                    segments.Add("NOT");
+                }
+
+                pendingNot = false;
+            }
+
+            segments.Add(literal);
+            lastWasOperator = false;
         }
 
-        return expressions.Count == 0 ? null : string.Join(" AND ", expressions);
+        while (segments.Count > 0 && BooleanOperators.Contains(segments[^1]))
+        {
+            segments.RemoveAt(segments.Count - 1);
+        }
+
+        return segments.Count == 0 ? null : string.Join(' ', segments);
     }
 }
 

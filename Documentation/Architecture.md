@@ -111,6 +111,32 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
   - Error logs and job queue monitoring
 - **Access Control**: Admin-only, protected by role-based claims
 
+##### Admin Dashboard Action Plan
+1. **Adopt shared look & feel**
+   - Reuse the existing Blazor WebApp theme tokens (`wwwroot/app.css`, `.modern-card`, `.stat-grid`, `.glass-panel`, etc.) via a shared Razor Class Library so admin surfaces inherit typography, spacing, gradients, and dark-mode rules without divergence.
+   - Mirror navigation, card layouts, and hero/header treatments from user pages to keep brand continuity; extend tokens only in `app.css` and propagate to both apps.
+2. **Finalize admin API contracts**
+   - Document `/api/v1/admin/*` endpoints in `Documentation/API.md` covering tenants, users, mailboxes, jobs, analytics, billing, and audit logs.
+   - Add DTOs in `Evermail.Common` for dashboard tiles (queue depth, processing SLA, storage totals) before UI work begins so UI and backend evolve in lockstep.
+3. **Scaffold Evermail.AdminApp**
+   - Ensure the project references the shared theme library, registers MudBlazor, and enforces `[Authorize(Roles = "Admin,SuperAdmin")]` plus tenant-aware filters even for admin views.
+   - Stand up layout + navigation (Dashboard, Tenants, Users, Mailboxes, Jobs, Analytics, Billing, Logs) with placeholder components styled via the shared tokens to quickly validate look and feel.
+4. **Iterate by vertical slices**
+   - **Operations dashboard**: live queue depth, ingestion throughput, failure counts (SignalR/polling) plus quick links into Aspire logs.
+   - **Tenant/user management**: searchable grids, role toggles, plan overrides, retention settings, enforcement of multi-tenant guardrails prior to invoking actions.
+   - **Mailbox/job lifecycle**: status timelines, retry/purge controls, deletion queue visibility, attachment footprint per mailbox.
+   - **Analytics/billing**: MRR tiles, churn/ARPU charts, Stripe sync state, storage per tier, cost vs revenue deltas.
+   - **Audit & error intelligence**: surfaced Application Insights exceptions, audit trail search, downloadable CSV exports.
+5. **Quality gates**
+   - Automated tests for admin endpoints (role enforcement, tenant scoping, pagination).
+   - Storybook-style visual regression (optional) or screenshot diffs to ensure shared look & feel parity with the main WebApp.
+   - Observability hooks (structured logging, Application Insights custom metrics) to power the dashboard itself.
+6. **Preseed privileged identities**
+   - Keep a single ASP.NET Core Identity store for WebApp, AdminApp, and API clients; privilege levels come from roles (`User`, `Admin`, `SuperAdmin`) on the same user objects, which preserves tenant filtering and JWT claim generation.
+   - Extend `DataSeeder` to accept a `UserManager<ApplicationUser>` and create default SuperAdmin accounts (e.g., `founder@evermail.com`, `ops@evermail.com`) with randomly generated passwords stored in user secrets/Key Vault for production.
+   - Ensure the seed users belong to a dedicated `EvermailOps` tenant so their activity never collides with customer data, and document rotation procedures (disable default SuperAdmins after onboarding real admins).
+   - Configure the admin/API JWT policies to require the same Audience/Issuer as the main app so tokens remain interchangeable; scope API clients via roles/claims rather than a separate credential silo.
+
 #### Mobile App (.NET MAUI Blazor Hybrid - Phase 2)
 - **Purpose**: Native mobile experience for iOS and Android
 - **Technology**: .NET MAUI Blazor Hybrid with shared Razor components
@@ -200,7 +226,9 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
   2. `mailbox-ingestion` queue triggers the worker, which streams the blob, batches inserts (500), uploads attachments, and updates both `Mailbox` and `MailboxUpload` statistics.
   3. Users schedule cleanup via `POST /mailboxes/{id}/delete`. A `MailboxDeletionQueue` row is created and a message is placed on `mailbox-deletion`.
   4. Worker polls `mailbox-deletion`; once `ExecuteAfter` arrives it deletes blobs first, then emails, then optionally the mailbox record (when both upload+emails are gone). Purge windows default to 30 days unless SuperAdmins set `purgeNow`.
-  5. Every state change writes to `AuditLogs`, enabling GDPR traceability.
+  5. Azure Queue Storage caps message visibility timeouts at 7 days, so the worker re-hides each deletion message in 1-minute/7-day bounds until the job is due, and the enqueue operation sets `timeToLive = -1` so the message survives longer retention windows.
+  6. Deletion jobs aggressively mark every outstanding upload (including failed imports) as deleted, clear orphaned blob pointers, and reset `IsPendingDeletion`, so even "borked" mailboxes can be purged with a single run. When SuperAdmins tick **Purge immediately**, the worker treats the job as a forced purge—suppresses “not found” errors, logs warnings, and always soft-deletes the mailbox row (regardless of lingering blobs/records) so the UI list is cleaned up even if the data was already missing.
+  7. Every state change writes to `AuditLogs`, enabling GDPR traceability.
 
 #### Threading, Recipient Indexing & Search Surfaces
 - **Conversation graph**: Every email rolls up to `EmailThreads` via normalized `ConversationKey` (first reference → In-Reply-To → MessageId). Threads store participant summary, message counts, first/last timestamps, and power UI grouping.

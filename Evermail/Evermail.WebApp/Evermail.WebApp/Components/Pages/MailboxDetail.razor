@@ -118,6 +118,19 @@
                         </div>
                     </section>
                 }
+                else if (_mailbox.Status == "Queued")
+                {
+                    <section class="progress-card">
+                        <p class="hero-eyebrow mb-2">Queued</p>
+                        <h2>Waiting for worker</h2>
+                        <div class="d-flex align-items-center text-muted">
+                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                <span class="visually-hidden">Waiting...</span>
+                            </div>
+                            <span>Upload received. Refreshing automatically once processing begins.</span>
+                        </div>
+                    </section>
+                }
 
                 <section class="detail-grid">
                     <div class="detail-card">
@@ -237,21 +250,33 @@
                                             Delete indexed emails
                                         </label>
                                     </div>
-                                    <div class="form-check mb-3">
-                                        <input class="form-check-input" type="checkbox" id="detailPurgeNow" @bind="_deleteModel.PurgeNow" />
-                                        <label class="form-check-label fw-semibold" for="detailPurgeNow">
-                                            Purge immediately (SuperAdmins only)
-                                        </label>
-                                    </div>
+                                    @if (_canPurgeImmediately)
+                                    {
+                                        <div class="form-check mb-3">
+                                            <input class="form-check-input" type="checkbox" id="detailPurgeNow" @bind="_deleteModel.PurgeNow" />
+                                            <label class="form-check-label fw-semibold" for="detailPurgeNow">
+                                                Purge immediately (SuperAdmins only)
+                                            </label>
+                                        </div>
+                                    }
                                     @if (!string.IsNullOrEmpty(_modalError))
                                     {
                                         <div class="alert alert-danger modern-alert">@_modalError</div>
                                     }
                                     else
                                     {
-                                        <div class="alert alert-warning modern-alert subtle-warning">
-                                            Unless purge is requested, deletion jobs run after a 30-day retention window.
-                                        </div>
+                                        @if (_canPurgeImmediately)
+                                        {
+                                            <div class="alert alert-warning modern-alert subtle-warning">
+                                                Unless purge is requested, deletion jobs run after a 30-day retention window.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="alert alert-warning modern-alert subtle-warning">
+                                                Deletion jobs run after a 30-day retention window.
+                                            </div>
+                                        }
                                     }
                                 </div>
                                 <div class="modal-footer justify-content-between">
@@ -284,15 +309,17 @@
     private string _renameDisplayName = string.Empty;
     private DeleteMailboxModel _deleteModel = new();
     private string _modalError = string.Empty;
+    private bool _canPurgeImmediately;
 
     protected override async Task OnInitializedAsync()
     {
+        await EvaluatePurgePermissionAsync();
         await LoadMailbox();
         
-        // Auto-refresh every 3 seconds if processing
+        // Auto-refresh every 3 seconds when the mailbox is queued or processing
         _refreshTimer = new System.Threading.Timer(async _ =>
         {
-            if (_mailbox?.Status == "Processing")
+            if (ShouldAutoRefresh(_mailbox?.Status))
             {
                 await InvokeAsync(async () =>
                 {
@@ -353,6 +380,10 @@
             _isLoading = false;
         }
     }
+
+    private static bool ShouldAutoRefresh(string? status) =>
+        string.Equals(status, "Processing", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(status, "Queued", StringComparison.OrdinalIgnoreCase);
 
     private string FormatFileSize(long bytes)
     {
@@ -572,6 +603,19 @@
         public bool DeleteUpload { get; set; }
         public bool DeleteEmails { get; set; }
         public bool PurgeNow { get; set; }
+    }
+
+    private async Task EvaluatePurgePermissionAsync()
+    {
+        try
+        {
+            var principal = await AuthStateService.GetUserFromTokenAsync();
+            _canPurgeImmediately = principal?.IsInRole("SuperAdmin") == true;
+        }
+        catch
+        {
+            _canPurgeImmediately = false;
+        }
     }
 }
 

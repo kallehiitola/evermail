@@ -37,7 +37,10 @@ public class QueueService : IQueueService
             mailboxId,
             DateTime.UtcNow));
 
-        await _deletionQueue.SendMessageAsync(message);
+        await _deletionQueue.SendMessageAsync(
+            message,
+            visibilityTimeout: TimeSpan.Zero,
+            timeToLive: TimeSpan.FromSeconds(-1));
     }
 
     private record MailboxProcessingMessage(Guid MailboxId, Guid UploadId, DateTime EnqueuedAt);

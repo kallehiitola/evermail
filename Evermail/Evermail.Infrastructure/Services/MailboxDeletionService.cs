@@ -48,12 +48,49 @@ public class MailboxDeletionService
             return;
         }
 
+        _logger.LogInformation(
+            "Executing mailbox deletion job {JobId} (MailboxId={MailboxId}, DeleteUpload={DeleteUpload}, DeleteEmails={DeleteEmails}, ExecuteAfter={ExecuteAfter:O})",
+            job.Id,
+            job.MailboxId,
+            job.DeleteUpload,
+            job.DeleteEmails,
+            job.ExecuteAfter);
+
         job.Status = "Running";
         await _context.SaveChangesAsync(cancellationToken);
 
+        var forceDeletion = ShouldForceDeletion(job);
+        var warnings = new List<string>();
+
+        async Task ExecuteStepAsync(string stepName, Func<Task> action, Action? onFailure = null)
+        {
+            try
+            {
+                await action();
+            }
+            catch (Exception stepEx)
+            {
+                if (!forceDeletion)
+                {
+                    throw;
+                }
+
+                warnings.Add($"{stepName}: {stepEx.Message}");
+                _logger.LogWarning(
+                    stepEx,
+                    "Forced purge step {StepName} failed for job {JobId}",
+                    stepName,
+                    job.Id);
+
+                onFailure?.Invoke();
+            }
+        }
+
+        Mailbox? mailbox = null;
+
         try
         {
-            var mailbox = await _context.Mailboxes
+            mailbox = await _context.Mailboxes
                 .Include(m => m.Uploads)
                 .FirstOrDefaultAsync(m => m.Id == job.MailboxId, cancellationToken);
 
@@ -65,73 +102,175 @@ public class MailboxDeletionService
                 return;
             }
 
+            job.Mailbox = mailbox;
+
             if (job.DeleteUpload)
             {
-                await DeleteUploadAsync(mailbox, job.MailboxUploadId, job.RequestedByUserId, !job.DeleteEmails, cancellationToken);
+                _logger.LogInformation("Job {JobId}: deleting uploads", job.Id);
+                await ExecuteStepAsync(
+                    "delete uploads",
+                    () => DeleteUploadAsync(mailbox, job.MailboxUploadId, job.RequestedByUserId, !job.DeleteEmails, cancellationToken));
+                _logger.LogInformation("Job {JobId}: delete uploads step completed", job.Id);
             }
 
             if (job.DeleteEmails)
             {
-                await DeleteEmailsAsync(mailbox, cancellationToken);
+                _logger.LogInformation("Job {JobId}: deleting emails", job.Id);
+                await ExecuteStepAsync(
+                    "delete emails",
+                    () => DeleteEmailsAsync(mailbox, cancellationToken));
+                _logger.LogInformation("Job {JobId}: delete emails step completed", job.Id);
             }
 
-            await FinalizeMailboxStateAsync(mailbox, cancellationToken);
+            // Ensure subsequent queries observe the latest mailbox/upload state
+            await _context.SaveChangesAsync(cancellationToken);
+
+            await ExecuteStepAsync(
+                "finalize mailbox state",
+                () => FinalizeMailboxStateAsync(mailbox, forceDeletion, job.RequestedByUserId, cancellationToken),
+                () => ForceMarkMailboxDeleted(mailbox, job.RequestedByUserId));
+
+            if (forceDeletion && warnings.Count > 0)
+            {
+                ForceMarkMailboxDeleted(mailbox, job.RequestedByUserId);
+            }
 
             job.Status = "Completed";
             job.ExecutedAt = DateTime.UtcNow;
             job.ExecutedByUserId = job.RequestedByUserId;
+
+            if (warnings.Count > 0)
+            {
+                job.Notes = AppendNotes(job.Notes, $"Forced purge completed with warnings: {string.Join("; ", warnings)}");
+                _logger.LogWarning("Job {JobId} completed with warnings: {Warnings}", job.Id, string.Join("; ", warnings));
+            }
+            else
+            {
+                _logger.LogInformation("Job {JobId} completed successfully", job.Id);
+            }
+
             await _context.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to execute mailbox deletion job {JobId}", jobId);
-            job.Status = "Failed";
-            job.Notes = ex.Message;
+            if (!forceDeletion)
+            {
+                _logger.LogError(ex, "Failed to execute mailbox deletion job {JobId}", jobId);
+                job.Status = "Failed";
+                job.Notes = ex.Message;
+                await _context.SaveChangesAsync(cancellationToken);
+                throw;
+            }
+
+            warnings.Add(ex.Message);
+            _logger.LogWarning(ex, "Forced purge completed with warnings for job {JobId}", jobId);
+
+            if (mailbox != null)
+            {
+                ForceMarkMailboxDeleted(mailbox, job.RequestedByUserId);
+            }
+
+            job.Status = "Completed";
+            job.ExecutedAt = DateTime.UtcNow;
+            job.ExecutedByUserId = job.RequestedByUserId;
+            job.Notes = AppendNotes(job.Notes, $"Forced purge completed with warnings: {string.Join("; ", warnings)}");
             await _context.SaveChangesAsync(cancellationToken);
-            throw;
         }
     }
 
     private async Task DeleteUploadAsync(Mailbox mailbox, Guid? uploadId, Guid requestedByUserId, bool keepEmailsFlag, CancellationToken cancellationToken)
     {
-        var upload = uploadId.HasValue
-            ? await _context.MailboxUploads.FirstOrDefaultAsync(u => u.Id == uploadId.Value, cancellationToken)
-            : await _context.MailboxUploads
-                .OrderByDescending(u => u.CreatedAt)
-                .FirstOrDefaultAsync(u => u.MailboxId == mailbox.Id, cancellationToken);
+        var query = _context.MailboxUploads.Where(u => u.MailboxId == mailbox.Id);
+        List<MailboxUpload> uploads;
 
-        if (upload == null)
+        if (uploadId.HasValue)
         {
-            _logger.LogWarning("No upload found for mailbox {MailboxId}", mailbox.Id);
+            uploads = await query
+                .Where(u => u.Id == uploadId.Value)
+                .ToListAsync(cancellationToken);
+        }
+        else
+        {
+            uploads = await query
+                .Where(u => u.Status == null || u.Status != "Deleted")
+                .ToListAsync(cancellationToken);
+        }
+
+        if (uploads.Count == 0)
+        {
+            _logger.LogWarning("No uploads found for mailbox {MailboxId} (UploadId: {UploadId})", mailbox.Id, uploadId);
             return;
         }
 
-        if (!string.IsNullOrWhiteSpace(upload.BlobPath))
+        var containerClient = _blobServiceClient.GetBlobContainerClient(MailboxContainer);
+
+        _logger.LogInformation(
+            "Deleting {Count} uploads for mailbox {MailboxId} (RequestedBy={RequestedBy})",
+            uploads.Count,
+            mailbox.Id,
+            requestedByUserId);
+
+        foreach (var upload in uploads)
         {
-            var containerClient = _blobServiceClient.GetBlobContainerClient(MailboxContainer);
-            var blobClient = containerClient.GetBlobClient(upload.BlobPath);
-            await blobClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+            if (!string.IsNullOrWhiteSpace(upload.BlobPath))
+            {
+                try
+                {
+                    var blobClient = containerClient.GetBlobClient(upload.BlobPath);
+                    await blobClient.DeleteIfExistsAsync(cancellationToken: cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Failed to delete blob {BlobPath} for upload {UploadId}",
+                        upload.BlobPath,
+                        upload.Id);
+                }
+            }
+
+            upload.Status = "Deleted";
+            upload.DeletedAt = DateTime.UtcNow;
+            upload.DeletedByUserId = requestedByUserId;
+            upload.KeepEmails = keepEmailsFlag;
+            upload.PurgeAfter = DateTime.UtcNow.AddDays(30);
         }
 
-        upload.Status = "Deleted";
-        upload.DeletedAt = DateTime.UtcNow;
-        upload.DeletedByUserId = requestedByUserId;
-        upload.KeepEmails = keepEmailsFlag;
-        upload.PurgeAfter = DateTime.UtcNow.AddDays(30);
+        var deletedUploadIds = uploads.Select(u => u.Id).ToList();
+        var hasRemainingUploads = await _context.MailboxUploads
+            .AnyAsync(
+                u => u.MailboxId == mailbox.Id &&
+                     (u.Status == null || u.Status != "Deleted") &&
+                     !deletedUploadIds.Contains(u.Id),
+                cancellationToken);
 
-        mailbox.UploadRemovedAt = DateTime.UtcNow;
-        mailbox.UploadRemovedByUserId = requestedByUserId;
-        mailbox.LatestUploadId = null;
-        mailbox.BlobPath = string.Empty;
-        mailbox.FileName = string.Empty;
-        mailbox.FileSizeBytes = 0;
+        if (!hasRemainingUploads)
+        {
+            mailbox.UploadRemovedAt = DateTime.UtcNow;
+            mailbox.UploadRemovedByUserId = requestedByUserId;
+            mailbox.LatestUploadId = null;
+            mailbox.BlobPath = string.Empty;
+            mailbox.FileName = string.Empty;
+            mailbox.FileSizeBytes = 0;
+
+            _logger.LogInformation(
+                "Mailbox {MailboxId}: all uploads removed; cleared blob metadata",
+                mailbox.Id);
+        }
     }
 
     private async Task DeleteEmailsAsync(Mailbox mailbox, CancellationToken cancellationToken)
     {
-        await _context.EmailMessages
-            .Where(e => e.MailboxId == mailbox.Id)
-            .ExecuteDeleteAsync(cancellationToken);
+        var emailQuery = _context.EmailMessages
+            .Where(e => e.MailboxId == mailbox.Id);
+
+        var deletedCount = await emailQuery.CountAsync(cancellationToken);
+        await emailQuery.ExecuteDeleteAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Mailbox {MailboxId}: deleted {Count} email rows",
+            mailbox.Id,
+            deletedCount);
 
         mailbox.TotalEmails = 0;
         mailbox.ProcessedEmails = 0;
@@ -140,25 +279,82 @@ public class MailboxDeletionService
         mailbox.Status = "Empty";
     }
 
-    private async Task FinalizeMailboxStateAsync(Mailbox mailbox, CancellationToken cancellationToken)
+    private async Task FinalizeMailboxStateAsync(
+        Mailbox mailbox,
+        bool forceDeletion,
+        Guid requestedByUserId,
+        CancellationToken cancellationToken)
     {
+        if (forceDeletion)
+        {
+            ForceMarkMailboxDeleted(mailbox, requestedByUserId);
+            await _context.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("Mailbox {MailboxId}: force deletion finalized", mailbox.Id);
+            return;
+        }
+
         var hasEmails = await _context.EmailMessages.AnyAsync(e => e.MailboxId == mailbox.Id, cancellationToken);
-        var uploadExists = await _context.MailboxUploads.AnyAsync(u => u.MailboxId == mailbox.Id && u.Status != "Deleted", cancellationToken);
+        var uploadExists = await _context.MailboxUploads
+            .AnyAsync(u => u.MailboxId == mailbox.Id && (u.Status == null || u.Status != "Deleted"), cancellationToken);
+
+        mailbox.IsPendingDeletion = false;
+        mailbox.PurgeAfter = null;
 
         if (!hasEmails && !uploadExists)
         {
             mailbox.SoftDeletedAt = DateTime.UtcNow;
             mailbox.SoftDeletedByUserId = mailbox.UploadRemovedByUserId;
-            mailbox.IsPendingDeletion = false;
             mailbox.Status = "Deleted";
-            mailbox.PurgeAfter = null;
         }
-        else
+        else if (!hasEmails && uploadExists)
         {
-            mailbox.IsPendingDeletion = hasEmails || uploadExists;
+            mailbox.Status = "Empty";
+        }
+        else if (hasEmails && mailbox.Status == "Deleted")
+        {
+            mailbox.Status = "Completed";
         }
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation(
+            "Mailbox {MailboxId}: finalize complete (HasEmails={HasEmails}, UploadExists={UploadExists}, Status={Status})",
+            mailbox.Id,
+            hasEmails,
+            uploadExists,
+            mailbox.Status);
     }
+
+    private static bool ShouldForceDeletion(MailboxDeletionQueue job) =>
+        job.ExecuteAfter <= job.RequestedAt.AddMinutes(1);
+
+    private static void ForceMarkMailboxDeleted(Mailbox mailbox, Guid requestedByUserId)
+    {
+        var utcNow = DateTime.UtcNow;
+
+        mailbox.UploadRemovedAt = utcNow;
+        mailbox.UploadRemovedByUserId = requestedByUserId;
+        mailbox.LatestUploadId = null;
+        mailbox.BlobPath = string.Empty;
+        mailbox.FileName = string.Empty;
+        mailbox.FileSizeBytes = 0;
+
+        mailbox.TotalEmails = 0;
+        mailbox.ProcessedEmails = 0;
+        mailbox.FailedEmails = 0;
+        mailbox.ProcessedBytes = 0;
+
+        mailbox.IsPendingDeletion = false;
+        mailbox.PurgeAfter = null;
+        mailbox.SoftDeletedAt = utcNow;
+        mailbox.SoftDeletedByUserId = requestedByUserId;
+        mailbox.Status = "Deleted";
+        mailbox.UpdatedAt = utcNow;
+    }
+
+    private static string AppendNotes(string? existing, string addition) =>
+        string.IsNullOrWhiteSpace(existing)
+            ? addition
+            : $"{existing}{Environment.NewLine}{addition}";
 }
 
