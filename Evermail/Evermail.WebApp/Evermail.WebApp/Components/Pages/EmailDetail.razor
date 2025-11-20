@@ -2,7 +2,10 @@
 @rendermode InteractiveServer
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Email
+@using Evermail.Common.Search
+@using Evermail.WebApp.Models
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.WebUtilities
 @using Evermail.WebApp.Services
 @using System.Net.Http.Json
 @using Microsoft.JSInterop
@@ -10,6 +13,7 @@
 @inject NavigationManager Navigation
 @inject IAuthenticationStateService AuthStateService
 @inject IJSRuntime JSRuntime
+@inject UserPreferencesService PreferencesService
 
 <PageTitle>@(_email?.Subject ?? "Email") - Evermail</PageTitle>
 
@@ -160,38 +164,49 @@
                     </section>
                 }
 
-                <section class="modern-card email-body-card">
-                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <section class="modern-card email-body-card" id="email-body-card">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 email-body-toolbar">
                         <div>
                             <p class="hero-eyebrow mb-1">Email body</p>
                             <h2 class="mb-0">Content</h2>
                         </div>
-                        @if (HasBodyToggle)
-                        {
-                            <div class="email-body-toggle btn-group">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            @if (_searchTerms.Count > 0)
+                            {
                                 <button type="button"
-                                    class="btn btn-sm btn-outline-secondary @(!_showPlainTextBody ? "active" : "")"
-                                    @onclick="() => SetBodyMode(false)">
-                                    Rich view
+                                        class="btn btn-outline-secondary btn-sm keyword-jump"
+                                        disabled="@(_highlightCount == 0)"
+                                        @onclick="ScrollToMatchAsync">
+                                    <i class="bi bi-search me-1"></i>@(_highlightCount > 0 ? "Next match" : "Jump to match")
                                 </button>
-                                <button type="button"
-                                    class="btn btn-sm btn-outline-secondary @(_showPlainTextBody ? "active" : "")"
-                                    @onclick="() => SetBodyMode(true)">
-                                    Plain text
-                                </button>
-                            </div>
-                        }
+                            }
+                            @if (HasBodyToggle)
+                            {
+                                <div class="email-body-toggle btn-group">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary @(!_showPlainTextBody ? "active" : "")"
+                                            @onclick="() => SetBodyMode(false)">
+                                        Rich view
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary @(_showPlainTextBody ? "active" : "")"
+                                            @onclick="() => SetBodyMode(true)">
+                                        Plain text
+                                    </button>
+                                </div>
+                            }
+                        </div>
                     </div>
 
                     @if (ShouldShowHtmlBody())
                     {
-                        <div class="email-body-html">
+                        <div class="email-body-html email-body-content" id="email-body-content">
                             @((MarkupString)_email.HtmlBody!)
                         </div>
                     }
                     else if (!string.IsNullOrEmpty(_email.TextBody))
                     {
-                        <pre class="email-body-text">@_email.TextBody</pre>
+                        <pre class="email-body-text email-body-content" id="email-body-content">@_email.TextBody</pre>
                     }
                     else
                     {
@@ -292,10 +307,15 @@
 @code {
     [Parameter] public Guid Id { get; set; }
 
+    private const string HighlightSelector = "#email-body-content";
     private EmailDetailDto? _email;
     private bool _isLoading = true;
     private string _errorMessage = "";
     private bool _showPlainTextBody;
+    private IReadOnlyList<string> _searchTerms = Array.Empty<string>();
+    private bool _pendingHighlight;
+    private int _highlightCount;
+    private UserPreferences _preferences = UserPreferences.CreateDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -304,11 +324,27 @@
         // Use OnAfterRenderAsync to ensure JS interop is available
     }
 
+    protected override void OnParametersSet()
+    {
+        ReadSearchTerms();
+        if (_email is not null && _searchTerms.Count > 0)
+        {
+            _pendingHighlight = true;
+        }
+    }
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
+            await LoadPreferencesAsync();
             await LoadEmail();
+        }
+
+        if (_pendingHighlight && !_isLoading)
+        {
+            _pendingHighlight = false;
+            await ApplyHighlightsAsync();
         }
     }
 
@@ -353,6 +389,7 @@
                 {
                     _email = result.Data;
                     _errorMessage = "";
+                    _pendingHighlight = _searchTerms.Count > 0;
                 }
                 else
                 {
@@ -419,15 +456,52 @@
 
     private string GetBackUrl()
     {
-        var backUrl = "/emails";
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
-        var queryParams = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+        var queryParams = QueryHelpers.ParseQuery(uri.Query);
+        var returnParams = new Dictionary<string, string?>();
+
         if (queryParams.TryGetValue("mailbox", out var mailboxParam))
         {
-            backUrl += $"?mailbox={mailboxParam}";
+            returnParams["mailbox"] = mailboxParam;
         }
 
-        return backUrl;
+        if (queryParams.TryGetValue("q", out var queryParam))
+        {
+            returnParams["q"] = queryParam;
+        }
+
+        if (queryParams.TryGetValue("stopWords", out var stopParam))
+        {
+            returnParams["stopWords"] = stopParam;
+        }
+
+        if (queryParams.TryGetValue("recipient", out var recipientParam))
+        {
+            returnParams["recipient"] = recipientParam;
+        }
+
+        if (queryParams.TryGetValue("useInflectionalForms", out var inflectionParam))
+        {
+            returnParams["useInflectionalForms"] = inflectionParam;
+        }
+
+        return returnParams.Count > 0
+            ? QueryHelpers.AddQueryString("/emails", returnParams)
+            : "/emails";
+    }
+
+    private void ReadSearchTerms()
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var queryParams = QueryHelpers.ParseQuery(uri.Query);
+        if (queryParams.TryGetValue("q", out var queryValue))
+        {
+            _searchTerms = SearchQueryParser.ExtractTerms(queryValue.ToString());
+        }
+        else
+        {
+            _searchTerms = Array.Empty<string>();
+        }
     }
 
     private bool HasBodyToggle =>
@@ -442,6 +516,7 @@
 
         _showPlainTextBody = showPlain;
         StateHasChanged();
+        _pendingHighlight = _searchTerms.Count > 0;
     }
 
     private bool ShouldShowHtmlBody() =>
@@ -484,5 +559,63 @@
             len = len / 1024;
         }
         return $"{len:0.##} {sizes[order]}";
+    }
+
+    private async Task LoadPreferencesAsync()
+    {
+        try
+        {
+            _preferences = await PreferencesService.GetPreferencesAsync();
+        }
+        catch
+        {
+            _preferences = UserPreferences.CreateDefault();
+        }
+    }
+
+    private async Task ApplyHighlightsAsync()
+    {
+        if (_searchTerms.Count == 0 || _email is null)
+        {
+            _highlightCount = 0;
+            return;
+        }
+
+        try
+        {
+            _highlightCount = await JSRuntime.InvokeAsync<int>(
+                "EvermailSearchHighlights.highlightBody",
+                HighlightSelector,
+                _searchTerms,
+                _preferences.AutoScrollToKeyword);
+            StateHasChanged();
+        }
+        catch (InvalidOperationException)
+        {
+            _pendingHighlight = true;
+        }
+    }
+
+    private async Task ScrollToMatchAsync()
+    {
+        if (_searchTerms.Count == 0)
+        {
+            return;
+        }
+
+        if (_highlightCount == 0)
+        {
+            await ApplyHighlightsAsync();
+            return;
+        }
+
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("EvermailSearchHighlights.scrollToMatch", HighlightSelector, "next");
+        }
+        catch (InvalidOperationException)
+        {
+            // ignored - JS not ready yet
+        }
     }
 }

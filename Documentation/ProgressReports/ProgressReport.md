@@ -241,6 +241,11 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-19 - Search UX Highlighting & Preferences
+- 🔎 Reworked `/api/v1/emails/search` so every result includes contextual snippets from the first real keyword hit plus a `matchFields` array, letting the Blazor UI replace opaque “Rank 765” badges with “Subject hit” / “Body hit” pills. Documented the API response changes in `Documentation/API.md`.
+- ✨ Built the front-end UX around the new signals: search results now show richer cards with highlight snippets, and the email detail screen highlights the same terms with a “Jump to match” control powered by a new `EvermailSearchHighlights` helper.
+- ⚙️ Added `UserPreferencesService` + `EvermailPreferences.js` to persist date-format + auto-scroll choices in localStorage, wired `/settings` with controls for “Dec 21, 2025” vs. “21.12.2025” plus keyword auto-scroll, and captured the architecture in `Documentation/Architecture.md`.
+
 ### 2025-11-19 - Zero-Trust Content Protection
 - 🔐 Captured the customer-managed key + envelope encryption model in `Documentation/Security.md`, covering per-mailbox DEKs, tenant BYOK onboarding, confidential compute attestation, deterministic encrypted search tokens, and audit/alerting requirements.
 - 🧱 Updated `Documentation/Architecture.md` with a dedicated “Confidential Content Protection Layer” so the system diagram now explains how ingestion/search/AI workloads run inside Azure Confidential Container Apps and why wrapped DEKs keep admins out of tenant mail.
