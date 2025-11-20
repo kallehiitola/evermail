@@ -110,8 +110,9 @@ public static class OAuthEndpoints
                     return Results.Redirect("/login?error=registration_failed");
                 }
 
-                // Assign default role
+                // Assign default roles
                 await userManager.AddToRoleAsync(user, "User");
+                await userManager.AddToRoleAsync(user, "Admin");
                 
                 Console.WriteLine($"✅ New user registered via Google OAuth: {email}");
             }
@@ -208,8 +209,9 @@ public static class OAuthEndpoints
                     return Results.Redirect("/login?error=registration_failed");
                 }
 
-                // Assign default role
+                // Assign default roles
                 await userManager.AddToRoleAsync(user, "User");
+                await userManager.AddToRoleAsync(user, "Admin");
                 
                 Console.WriteLine($"✅ New user registered via Microsoft OAuth: {email}");
             }

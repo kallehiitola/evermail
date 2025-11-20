@@ -2,12 +2,14 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
 @using System.Net.Http.Json
+@using System.Net.Http.Headers
 @using System.Web
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Tenant
 @using Microsoft.AspNetCore.Components.Authorization
 @inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
 
 <PageTitle>Tenant Encryption - Evermail</PageTitle>
 
@@ -280,15 +282,24 @@
         _errorMessage = null;
         try
         {
-            var response = await Http.GetFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>("/api/v1/tenants/encryption");
-            if (response?.Success == true && response.Data is not null)
+            var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenants/encryption");
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
             {
-                _settings = response.Data;
-                _form = EncryptionFormModel.FromDto(response.Data);
+                _errorMessage = "Session expired. Please sign in again.";
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>();
+            if (payload?.Success == true && payload.Data is not null)
+            {
+                _settings = payload.Data;
+                _form = EncryptionFormModel.FromDto(payload.Data);
             }
             else
             {
-                _errorMessage = response?.Error ?? "Unable to load encryption settings.";
+                _errorMessage = payload?.Error ?? "Unable to load encryption settings.";
             }
         }
         catch (Exception ex)
@@ -331,10 +342,19 @@
                 azurePayload,
                 awsPayload);
 
-            var response = await Http.PutAsJsonAsync("/api/v1/tenants/encryption", request);
+            var message = new HttpRequestMessage(HttpMethod.Put, "/api/v1/tenants/encryption")
+            {
+                Content = JsonContent.Create(request)
+            };
+
+            var response = await SendAuthorizedAsync(message);
             var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>();
 
-            if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _errorMessage = "Session expired. Please sign in again.";
+            }
+            else if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
             {
                 _settings = payload.Data;
                 _form = EncryptionFormModel.FromDto(payload.Data);
@@ -363,10 +383,15 @@
 
         try
         {
-            var response = await Http.PostAsync("/api/v1/tenants/encryption/test", null);
+            var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/tenants/encryption/test");
+            var response = await SendAuthorizedAsync(message);
             var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionTestResultDto>>();
 
-            if (payload?.Success == true && payload.Data is not null)
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _errorMessage = "Session expired. Please sign in again.";
+            }
+            else if (payload?.Success == true && payload.Data is not null)
             {
                 _statusMessage = $"✅ {_form.Provider} verified at {payload.Data.Timestamp:u}";
             }
@@ -383,6 +408,27 @@
         {
             _isTesting = false;
             await LoadSettingsAsync();
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpRequestMessage request)
+    {
+        EnsureHttpClientBaseAddress();
+        var token = await AuthStateService.GetTokenAsync();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("You must be signed in to manage encryption settings.");
+        }
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        return await Http.SendAsync(request);
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress is null && Navigation.BaseUri is { } baseUri)
+        {
+            Http.BaseAddress = new Uri(baseUri);
         }
     }
 

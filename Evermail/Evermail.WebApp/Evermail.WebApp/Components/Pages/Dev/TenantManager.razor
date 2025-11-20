@@ -1,0 +1,305 @@
+@page "/dev/tenant-manager"
+@rendermode InteractiveServer
+@using System.Net.Http.Json
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Dev
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Net.Http.Headers
+@attribute [Authorize(Roles = "SuperAdmin")]
+@inject HttpClient Http
+@inject IWebHostEnvironment Environment
+@inject IJSRuntime Js
+@inject NavigationManager NavigationManager
+@inject IAuthenticationStateService AuthStateService
+
+<PageTitle>Dev: Tenant Manager - Evermail</PageTitle>
+
+@if (!Environment.IsDevelopment())
+{
+    <div class="container mt-5">
+        <div class="alert alert-danger">
+            <h4>❌ Not Available in Production</h4>
+            <p>This page is only available in Development environment.</p>
+        </div>
+    </div>
+}
+else
+{
+    <div class="container mt-4">
+        <h1>🧪 Development: Tenant Manager</h1>
+        <p class="text-muted">List and purge tenants created during testing. SuperAdmins only.</p>
+
+        <div class="alert alert-warning">
+            <strong>⚠️ Destructive actions!</strong> Deleting a tenant removes all associated users, mailboxes, uploads, and encryption state.
+        </div>
+
+        @if (!string.IsNullOrEmpty(_statusMessage))
+        {
+            <div class="alert @(_statusIsError ? "alert-danger" : "alert-success") alert-dismissible fade show">
+                @_statusMessage
+                <button type="button" class="btn-close" @onclick="@(() => _statusMessage = string.Empty)"></button>
+            </div>
+        }
+
+        <div class="d-flex align-items-center gap-3 mb-4">
+            <button class="btn btn-outline-secondary" @onclick="LoadTenantsAsync" disabled="@_isLoading">
+                @if (_isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                }
+                Refresh list
+            </button>
+            <div class="text-muted small">
+                Showing @_tenants.Count tenant(s)
+            </div>
+        </div>
+
+        @if (_isLoading)
+        {
+            <div class="text-center py-5">
+                <div class="spinner-border text-primary" role="status"></div>
+                <p class="mt-3 mb-0 text-muted">Loading tenants…</p>
+            </div>
+        }
+        else if (_tenants.Count == 0)
+        {
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <p class="text-muted mb-0">No tenants found.</p>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="row gy-4">
+                @foreach (var tenant in _tenants)
+                {
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+                                    <div>
+                                        <h5 class="mb-1">@tenant.Name</h5>
+                                        <p class="text-muted mb-1"><strong>Tenant ID:</strong> @tenant.Id</p>
+                                        <p class="text-muted mb-1"><strong>Slug:</strong> @tenant.Slug</p>
+                                        <p class="text-muted mb-0">
+                                            Created @tenant.CreatedAt.ToLocalTime():g • @tenant.UserCount user(s)
+                                        </p>
+                                    </div>
+                                    <div class="text-end">
+                                        <button class="btn btn-danger"
+                                                @onclick="() => ConfirmAndDeleteAsync(tenant)"
+                                                disabled="@_isDeleting">
+                                            @if (_isDeleting)
+                                            {
+                                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                            }
+                                            Delete tenant
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4">
+                                    <h6 class="text-uppercase text-muted small">Users</h6>
+                                    @if (tenant.Users.Count == 0)
+                                    {
+                                        <p class="text-muted mb-0">No users found.</p>
+                                    }
+                                    else
+                                    {
+                                        <div class="table-responsive">
+                                            <table class="table table-sm align-middle">
+                                                <thead>
+                                                    <tr>
+                                                        <th>Email</th>
+                                                        <th>Name</th>
+                                                        <th>Roles</th>
+                                                        <th>Created</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    @foreach (var user in tenant.Users)
+                                                    {
+                                                        <tr>
+                                                            <td>@user.Email</td>
+                                                            <td>@($"{user.FirstName} {user.LastName}")</td>
+                                                            <td>
+                                                                @if (user.IsSuperAdmin)
+                                                                {
+                                                                    <span class="badge bg-danger me-1">SuperAdmin</span>
+                                                                }
+                                                                @if (user.IsAdmin)
+                                                                {
+                                                                    <span class="badge bg-primary">Admin</span>
+                                                                }
+                                                                @if (!user.IsAdmin && !user.IsSuperAdmin)
+                                                                {
+                                                                    <span class="badge bg-secondary">User</span>
+                                                                }
+                                                            </td>
+                                                            <td>@user.CreatedAt.ToLocalTime():g</td>
+                                                        </tr>
+                                                    }
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<DevTenantDto> _tenants = new();
+    private bool _isLoading;
+    private bool _isDeleting;
+    private string? _statusMessage;
+    private bool _statusIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Environment.IsDevelopment())
+        {
+            return;
+        }
+
+        await LoadTenantsAsync();
+    }
+
+    private async Task LoadTenantsAsync()
+    {
+        _isLoading = true;
+        _statusMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            EnsureHttpClientBaseAddress();
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _statusMessage = "You must be signed in to view tenants.";
+                _statusIsError = true;
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, "api/v1/dev/tenants");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _statusMessage = "Session expired. Please sign in again.";
+                _statusIsError = true;
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _statusMessage = $"Failed to load tenants ({(int)response.StatusCode}).";
+                _statusIsError = true;
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<IReadOnlyList<DevTenantDto>>>();
+            _tenants.Clear();
+
+            if (payload?.Success == true && payload.Data is not null)
+            {
+                _tenants.AddRange(payload.Data);
+            }
+            else
+            {
+                _statusMessage = payload?.Error ?? "Failed to load tenants.";
+                _statusIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error loading tenants: {ex.Message}";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ConfirmAndDeleteAsync(DevTenantDto tenant)
+    {
+        if (_isDeleting)
+        {
+            return;
+        }
+
+        var confirmed = await Js.InvokeAsync<bool>("confirm", $"Delete tenant '{tenant.Name}'? This removes ALL data.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _isDeleting = true;
+        StateHasChanged();
+
+        try
+        {
+            EnsureHttpClientBaseAddress();
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _statusMessage = "You must be signed in to delete tenants.";
+                _statusIsError = true;
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Delete, $"api/v1/dev/tenants/{tenant.Id}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+
+            if (response.IsSuccessStatusCode && payload?.Success == true)
+            {
+                _statusMessage = $"Deleted tenant '{tenant.Name}'.";
+                _statusIsError = false;
+                await LoadTenantsAsync();
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _statusMessage = "Session expired. Please sign in again.";
+                _statusIsError = true;
+            }
+            else
+            {
+                _statusMessage = payload?.Error ?? $"Failed to delete tenant '{tenant.Name}'.";
+                _statusIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error deleting tenant: {ex.Message}";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _isDeleting = false;
+            StateHasChanged();
+        }
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress == null)
+        {
+            var baseUri = NavigationManager.BaseUri;
+            Http.BaseAddress = new Uri(baseUri);
+        }
+    }
+}
+

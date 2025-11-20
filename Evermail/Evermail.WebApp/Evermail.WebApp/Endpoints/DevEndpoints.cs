@@ -1,13 +1,14 @@
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Auth;
+using Evermail.Common.DTOs.Dev;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
 using Evermail.WebApp.Configuration;
 using Microsoft.AspNetCore.Identity;
-using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -27,6 +28,10 @@ public static class DevEndpoints
             .RequireAuthorization();
         group.MapGet("/user-roles/{email}", GetUserRolesAsync)
             .RequireAuthorization();
+        group.MapGet("/tenants", GetTenantsAsync)
+            .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
+        group.MapDelete("/tenants/{tenantId:guid}", DeleteTenantAsync)
+            .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
         group.MapGet("/test-keyvault", TestKeyVaultAccessAsync)
             .RequireAuthorization();
         group.MapGet("/fulltext-status", GetFullTextStatusAsync)
@@ -438,6 +443,133 @@ public static class DevEndpoints
         }
 
         return values.Any(v => string.Equals(v, triggerValue, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task<IResult> GetTenantsAsync(
+        EvermailDbContext context,
+        IWebHostEnvironment env,
+        CancellationToken cancellationToken)
+    {
+        if (!env.IsDevelopment())
+        {
+            return Results.NotFound();
+        }
+
+        var tenants = await context.Tenants
+            .AsNoTracking()
+            .Include(t => t.Users)
+            .OrderByDescending(t => t.CreatedAt)
+            .ToListAsync(cancellationToken);
+
+        var userRoles = await (from ur in context.UserRoles.AsNoTracking()
+                               join role in context.Roles.AsNoTracking() on ur.RoleId equals role.Id
+                               select new { ur.UserId, role.Name })
+                               .ToListAsync(cancellationToken);
+
+        var roleLookup = userRoles
+            .GroupBy(r => r.UserId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => x.Name).ToList());
+
+        var dto = tenants.Select(t =>
+        {
+            var users = t.Users
+                .OrderBy(u => u.Email)
+                .Select(u =>
+                {
+                    roleLookup.TryGetValue(u.Id, out var roles);
+                    var roleList = roles ?? new List<string>();
+                    return new DevTenantUserDto(
+                        u.Id,
+                        u.Email ?? string.Empty,
+                        u.FirstName,
+                        u.LastName,
+                        roleList.Contains("Admin", StringComparer.OrdinalIgnoreCase),
+                        roleList.Contains("SuperAdmin", StringComparer.OrdinalIgnoreCase),
+                        u.CreatedAt);
+                })
+                .ToList();
+
+            return new DevTenantDto(
+                t.Id,
+                t.Name,
+                t.Slug,
+                t.CreatedAt,
+                users.Count,
+                users);
+        }).ToList();
+
+        return Results.Ok(new ApiResponse<IReadOnlyList<DevTenantDto>>(
+            Success: true,
+            Data: dto));
+    }
+
+    private static async Task<IResult> DeleteTenantAsync(
+        Guid tenantId,
+        EvermailDbContext context,
+        IWebHostEnvironment env,
+        CancellationToken cancellationToken)
+    {
+        if (!env.IsDevelopment())
+        {
+            return Results.NotFound();
+        }
+
+        var tenantExists = await context.Tenants
+            .AsNoTracking()
+            .AnyAsync(t => t.Id == tenantId, cancellationToken);
+
+        if (!tenantExists)
+        {
+            return Results.NotFound(new ApiResponse<object>(
+                Success: false,
+                Error: "Tenant not found"));
+        }
+
+        await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var commands = new (string Sql, object[] Parameters)[]
+            {
+                ("DELETE FROM Attachments WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM EmailRecipients WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM MailboxEncryptionStates WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM MailboxDeletionQueue WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM MailboxUploads WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM EmailMessages WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM Mailboxes WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM EmailThreads WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM AuditLogs WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM RefreshTokens WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM TenantEncryptionSettings WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM Subscriptions WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM AspNetUserTokens WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[]{ tenantId }),
+                ("DELETE FROM AspNetUserLogins WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[]{ tenantId }),
+                ("DELETE FROM AspNetUserClaims WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[]{ tenantId }),
+                ("DELETE FROM AspNetUserRoles WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[]{ tenantId }),
+                ("DELETE FROM AspNetUsers WHERE TenantId = {0}", new object[]{ tenantId }),
+                ("DELETE FROM Tenants WHERE Id = {0}", new object[]{ tenantId })
+            };
+
+            foreach (var (sql, parameters) in commands)
+            {
+                await context.Database.ExecuteSqlRawAsync(sql, parameters, cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: $"Failed to delete tenant: {ex.Message}"));
+        }
+
+        return Results.Ok(new ApiResponse<object>(
+            Success: true,
+            Data: new { TenantId = tenantId }));
     }
 
     private static string DescribePopulationStatus(int status) => status switch

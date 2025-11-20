@@ -50,6 +50,11 @@
                 <p class="text-muted mb-0">We’ll configure your tenant automatically once you submit this form.</p>
             </header>
 
+            <div class="alert alert-info auth-alert mt-3">
+                <strong>You’ll be the first tenant admin.</strong>
+                <span class="d-block text-muted">The initial user is promoted to Tenant Admin automatically so you can invite teammates and finish the security onboarding right away.</span>
+            </div>
+
             <div class="auth-social">
                 <button type="button" class="social-btn social-btn--google"
                     @onclick="@(() => HandleOAuthRegister("Google"))">

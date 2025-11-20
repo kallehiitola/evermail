@@ -1,7 +1,9 @@
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Tenant;
+using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -9,6 +11,9 @@ public static class TenantEndpoints
 {
     public static RouteGroupBuilder MapTenantEndpoints(this RouteGroupBuilder group)
     {
+        group.MapGet("/onboarding/status", GetOnboardingStatusAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
+
         var encryption = group.MapGroup("/encryption")
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
@@ -82,6 +87,47 @@ public static class TenantEndpoints
             Success: dto.Success,
             Data: dto,
             Error: dto.Success ? null : dto.Message));
+    }
+
+    private static async Task<IResult> GetOnboardingStatusAsync(
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var adminRoleId = await context.Roles
+            .Where(r => r.Name == "Admin")
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var hasAdmin = adminRoleId != Guid.Empty &&
+            await (from ur in context.UserRoles
+                   join user in context.Users on ur.UserId equals user.Id
+                   where ur.RoleId == adminRoleId && user.TenantId == tenantContext.TenantId
+                   select ur).AnyAsync(cancellationToken);
+
+        var encryptionConfigured = await context.TenantEncryptionSettings
+            .AsNoTracking()
+            .Where(s => s.TenantId == tenantContext.TenantId)
+            .Select(s => IsEncryptionConfigured(s))
+            .FirstOrDefaultAsync(cancellationToken);
+
+        var hasMailbox = await context.Mailboxes
+            .AsNoTracking()
+            .AnyAsync(m => m.TenantId == tenantContext.TenantId, cancellationToken);
+
+        var dto = new TenantOnboardingStatusDto(
+            HasAdmin: hasAdmin,
+            EncryptionConfigured: encryptionConfigured,
+            HasMailbox: hasMailbox);
+
+        return Results.Ok(new ApiResponse<TenantOnboardingStatusDto>(
+            Success: true,
+            Data: dto));
     }
 
     private static readonly string[] SupportedProviders =
@@ -176,6 +222,20 @@ public static class TenantEndpoints
         }
 
         return provider.Trim();
+    }
+
+    private static bool IsEncryptionConfigured(TenantEncryptionSettings settings)
+    {
+        var provider = settings.Provider ?? "AzureKeyVault";
+
+        return provider switch
+        {
+            "AwsKms" => !string.IsNullOrWhiteSpace(settings.AwsKmsKeyArn) &&
+                        !string.IsNullOrWhiteSpace(settings.AwsIamRoleArn),
+            "EvermailManaged" => true,
+            _ => !string.IsNullOrWhiteSpace(settings.KeyVaultUri) &&
+                 !string.IsNullOrWhiteSpace(settings.KeyVaultKeyName)
+        };
     }
 }
 

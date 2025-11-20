@@ -35,6 +35,10 @@ Register a new user and create a tenant.
 }
 ```
 
+**Behavior notes**
+- The first user created for a tenant is automatically added to the `Admin` role (alongside the default `User` role) so there is always at least one tenant administrator right after registration.
+- Additional admins can be invited later via `/settings/users`. Removing the last admin is blocked; SuperAdmins can always step in through the AdminApp.
+
 ### POST /auth/login
 Authenticate and receive JWT token.
 
@@ -168,6 +172,28 @@ Validates connectivity to the configured provider:
 ```
 
 On failure, `success` is `false` and `error` contains the human-friendly reason (missing permissions, wrong ARN, etc.).
+
+### GET /tenants/onboarding/status
+Returns a lightweight status object used by the guided registration / dashboard checklist so new admins can see what’s left to configure.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "hasAdmin": true,
+    "encryptionConfigured": false,
+    "hasMailbox": false
+  }
+}
+```
+
+Interpretation:
+- `hasAdmin` – `true` as soon as at least one user in the tenant has the `Admin` role. Because the first registrant is auto-promoted, this typically starts as `true`.
+- `encryptionConfigured` – `true` once the tenant has selected Evermail-managed, Azure Key Vault, or AWS KMS and supplied the required fields.
+- `hasMailbox` – `true` once at least one mailbox is uploaded; completes the onboarding checklist.
+
+The endpoint requires `Admin` or `SuperAdmin` role membership and is consumed by `/` (dashboard) to render the checklist + banner.
 
 ---
 
