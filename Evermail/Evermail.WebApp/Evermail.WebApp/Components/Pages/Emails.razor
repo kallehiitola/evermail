@@ -1042,7 +1042,7 @@
                     _orderedEmails.Clear();
                     _orderedEmails.AddRange(_pinnedEmails);
                     _orderedEmails.AddRange(_nonPinnedEmails);
-                    _activeRowIndex = _orderedEmails.Count > 0 ? 0 : -1;
+                    _activeRowIndex = -1;
                     UpdateSummaryCards();
                     
                     // Set up event listeners for attachment buttons after emails are loaded

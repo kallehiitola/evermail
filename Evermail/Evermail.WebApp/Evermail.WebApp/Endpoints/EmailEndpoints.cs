@@ -855,15 +855,24 @@ public static class EmailEndpoints
         var windowMultiplier = 5;
         var ftsWindow = Math.Clamp(page * pageSize * windowMultiplier, pageSize, 5000);
 
+        var fullTextParameter = new SqlParameter("@FullTextCondition", System.Data.SqlDbType.NVarChar, 4000)
+        {
+            Value = fullTextCondition ?? string.Empty
+        };
+        var windowParameter = new SqlParameter("@FullTextWindow", System.Data.SqlDbType.Int)
+        {
+            Value = ftsWindow
+        };
+
         var rankQuery = context.FullTextSearchResults
-            .FromSqlInterpolated($@"
+            .FromSqlRaw(@"
                 SELECT [KEY] AS EmailId, [RANK] AS Rank
                 FROM CONTAINSTABLE(
                     EmailMessages,
                     SearchVector,
-                    {fullTextCondition},
-                    {ftsWindow}
-                )")
+                    @FullTextCondition,
+                    @FullTextWindow
+                )", fullTextParameter, windowParameter)
             .AsNoTracking();
 
         return baseQuery.Join(
