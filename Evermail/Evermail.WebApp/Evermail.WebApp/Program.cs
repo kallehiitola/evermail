@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Cryptography;
+using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,7 +57,7 @@ catch (Exception ex)
 }
 
 // Add database context
-var connectionString = builder.Configuration.GetConnectionString("evermaildb") 
+var connectionString = builder.Configuration.GetConnectionString("evermaildb")
     ?? "Server=(localdb)\\mssqllocaldb;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true";
 
 builder.Services.AddDbContext<EvermailDbContext>((serviceProvider, options) =>
@@ -90,7 +91,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
 // Configure JWT Authentication
 var ecdsaKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
 builder.Services.AddSingleton(ecdsaKey);
-builder.Services.AddScoped<IJwtTokenService>(sp => 
+builder.Services.AddScoped<IJwtTokenService>(sp =>
     new JwtTokenService(
         issuer: "https://api.evermail.com",
         audience: "evermail-webapp",
@@ -123,7 +124,7 @@ var authBuilder = builder.Services.AddAuthentication(options =>
             return Task.CompletedTask;
         }
     };
-    
+
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuer = true,
@@ -223,16 +224,18 @@ builder.Services.AddScoped<AuthenticationStateProvider, Evermail.WebApp.Services
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddScoped<UserPreferencesService>();
+builder.Services.AddMudServices();
+builder.Services.AddScoped<IDateFormatService, DateFormatService>();
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>
 {
     var httpContext = sp.GetRequiredService<IHttpContextAccessor>().HttpContext;
-    
+
     Console.WriteLine($"DEBUG TenantContext: HttpContext exists: {httpContext != null}");
     Console.WriteLine($"DEBUG TenantContext: User exists: {httpContext?.User != null}");
     Console.WriteLine($"DEBUG TenantContext: IsAuthenticated: {httpContext?.User?.Identity?.IsAuthenticated}");
-    
+
     if (httpContext?.User?.Identity?.IsAuthenticated != true)
     {
         Console.WriteLine("DEBUG TenantContext: User NOT authenticated, returning empty GUIDs");
@@ -243,9 +246,9 @@ builder.Services.AddScoped<TenantContext>(sp =>
     var userIdClaim = httpContext.User.FindFirst("sub")?.Value
         ?? httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
         ?? httpContext.User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
-    
+
     var tenantIdClaim = httpContext.User.FindFirst("tenant_id")?.Value;
-    
+
     Console.WriteLine($"DEBUG TenantContext: tenant_id claim: {tenantIdClaim}");
     Console.WriteLine($"DEBUG TenantContext: sub/userId claim: {userIdClaim}");
     Console.WriteLine($"DEBUG TenantContext: All claims: {string.Join(", ", httpContext.User.Claims.Select(c => $"{c.Type}={c.Value?.Substring(0, Math.Min(20, c.Value.Length))}..."))}");
@@ -319,6 +322,7 @@ api.MapGroup("/mailboxes").MapMailboxEndpoints().RequireAuthorization();
 api.MapGroup("/emails").MapEmailEndpoints().RequireAuthorization();
 api.MapGroup("/attachments").MapAttachmentEndpoints().RequireAuthorization();
 api.MapGroup("/tenants").MapTenantEndpoints();
+api.MapGroup("/users").MapUserEndpoints().RequireAuthorization();
 
 // Development-only endpoints (disabled in production)
 if (app.Environment.IsDevelopment())

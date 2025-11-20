@@ -241,6 +241,13 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-20 - Search UI Detail Polish
+- 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.
+- 📚 Clarified `Documentation/API.md` + `Documentation/Security.md` with notes on snippet metadata, attachment previews, and how `EvermailSearchHighlights` keeps sanitized markup intact, keeping API + UI expectations in sync.
+- 🧱 Implemented the refreshed results list in `Emails.razor`: responsive cards, quick actions, saved-filter chips (with pure-inline delete controls), density toggle, keyboard shortcut guardrails, and shimmer skeletons while the virtualized list hydrates.
+- 🧭 Upgraded `EmailDetail.razor` to honor the Match Navigator preference via a floating “Jump to match” pill that synchronizes with the JS highlighter and scrolls through hits without breaking accessibility.
+- 🪄 Expanded `wwwroot/app.css` with the new utility classes (email cards, saved-filter chips, skeletons, floating buttons) so light/dark themes share the same visual language, and cleaned up duplicate date-format helpers while centralizing formatting through `IDateFormatService`.
+
 ### 2025-11-20 - SearchVector FTS & Superadmin Telemetry
 - 🧬 Added a persisted `SearchVector` column to `EmailMessages` (subject + sender + recipients + text/html bodies) and updated ingestion to populate it so SQL Server evaluates boolean queries (`bob AND order`) across the entire document instead of a single field.
 - 🧱 Created migration `20251120163000_AddEmailSearchVector` to add/backfill the column, rebuild the `EmailSearchCatalog`, and reindex FTS against the combined vector; `Documentation/DatabaseSchema.md` + `Deployment.md` now call out the requirement.

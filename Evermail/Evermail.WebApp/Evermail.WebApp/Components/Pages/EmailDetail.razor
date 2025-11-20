@@ -171,26 +171,24 @@
                             <h2 class="mb-0">Content</h2>
                         </div>
                         <div class="d-flex flex-wrap align-items-center gap-2">
-                            @if (_searchTerms.Count > 0)
+                            @if (_preferences.MatchNavigatorEnabled && _searchTerms.Count > 0)
                             {
-                                <button type="button"
-                                        class="btn btn-outline-secondary btn-sm keyword-jump"
-                                        disabled="@(_highlightCount == 0)"
-                                        @onclick="ScrollToMatchAsync">
-                                    <i class="bi bi-search me-1"></i>@(_highlightCount > 0 ? "Next match" : "Jump to match")
+                                <button type="button" class="btn btn-outline-secondary btn-sm keyword-jump"
+                                    disabled="@(_highlightCount == 0)" @onclick="ScrollToMatchAsync">
+                                    <i class="bi bi-search me-1"></i>@MatchNavigatorButtonLabel
                                 </button>
                             }
                             @if (HasBodyToggle)
                             {
                                 <div class="email-body-toggle btn-group">
                                     <button type="button"
-                                            class="btn btn-sm btn-outline-secondary @(!_showPlainTextBody ? "active" : "")"
-                                            @onclick="() => SetBodyMode(false)">
+                                        class="btn btn-sm btn-outline-secondary @(!_showPlainTextBody ? "active" : "")"
+                                        @onclick="() => SetBodyMode(false)">
                                         Rich view
                                     </button>
                                     <button type="button"
-                                            class="btn btn-sm btn-outline-secondary @(_showPlainTextBody ? "active" : "")"
-                                            @onclick="() => SetBodyMode(true)">
+                                        class="btn btn-sm btn-outline-secondary @(_showPlainTextBody ? "active" : "")"
+                                        @onclick="() => SetBodyMode(true)">
                                         Plain text
                                     </button>
                                 </div>
@@ -297,6 +295,14 @@
                     </div>
                 </section>
             }
+
+            @if (_preferences.MatchNavigatorEnabled && _searchTerms.Count > 0)
+            {
+                <button type="button" class="btn btn-primary match-navigator-floating" disabled="@(_highlightCount == 0)"
+                    @onclick="ScrollToMatchAsync">
+                    <i class="bi bi-search me-1"></i>@MatchNavigatorButtonLabel
+                </button>
+            }
         </div>
     </Authorized>
     <NotAuthorized>
@@ -315,6 +321,7 @@
     private IReadOnlyList<string> _searchTerms = Array.Empty<string>();
     private bool _pendingHighlight;
     private int _highlightCount;
+    private int _currentMatchPosition;
     private UserPreferences _preferences = UserPreferences.CreateDefault();
 
     protected override async Task OnInitializedAsync()
@@ -486,8 +493,8 @@
         }
 
         return returnParams.Count > 0
-            ? QueryHelpers.AddQueryString("/emails", returnParams)
-            : "/emails";
+        ? QueryHelpers.AddQueryString("/emails", returnParams)
+        : "/emails";
     }
 
     private void ReadSearchTerms()
@@ -578,16 +585,20 @@
         if (_searchTerms.Count == 0 || _email is null)
         {
             _highlightCount = 0;
+            _currentMatchPosition = 0;
             return;
         }
 
         try
         {
             _highlightCount = await JSRuntime.InvokeAsync<int>(
-                "EvermailSearchHighlights.highlightBody",
-                HighlightSelector,
-                _searchTerms,
-                _preferences.AutoScrollToKeyword);
+            "EvermailSearchHighlights.highlightBody",
+            HighlightSelector,
+            _searchTerms,
+            _preferences.AutoScrollToKeyword);
+            _currentMatchPosition = _highlightCount > 0 && _preferences.AutoScrollToKeyword
+            ? 1
+            : 0;
             StateHasChanged();
         }
         catch (InvalidOperationException)
@@ -606,16 +617,32 @@
         if (_highlightCount == 0)
         {
             await ApplyHighlightsAsync();
-            return;
+            if (_highlightCount == 0)
+            {
+                return;
+            }
         }
 
         try
         {
-            await JSRuntime.InvokeVoidAsync("EvermailSearchHighlights.scrollToMatch", HighlightSelector, "next");
+            var position = await JSRuntime.InvokeAsync<int>(
+            "EvermailSearchHighlights.scrollToMatch",
+            HighlightSelector,
+            "next");
+            if (position > 0)
+            {
+                _currentMatchPosition = position;
+                StateHasChanged();
+            }
         }
         catch (InvalidOperationException)
         {
             // ignored - JS not ready yet
         }
     }
+
+    private string MatchNavigatorButtonLabel =>
+    _highlightCount == 0 || _currentMatchPosition == 0
+    ? "Jump to match"
+    : $"Match {_currentMatchPosition}/{_highlightCount}";
 }

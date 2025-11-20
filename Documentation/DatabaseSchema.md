@@ -790,6 +790,100 @@ The ingestion worker still writes the legacy JSON arrays for backwards compatibi
 now query `EmailRecipients` (and the `RecipientsSearch` column in `EmailMessages`) for fast
 recipient filters.
 
+### UserDisplaySettings
+Persists per-user display preferences (date format, density, highlight behavior) so UI surfaces stay
+consistent across browsers/devices while still respecting tenant isolation.
+
+```sql
+CREATE TABLE UserDisplaySettings (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+
+    DateFormat NVARCHAR(32) NOT NULL DEFAULT 'MMM dd, yyyy', -- Allowed: MMM dd, yyyy | dd.MM.yyyy | ISO_8601
+    ResultDensity NVARCHAR(16) NOT NULL DEFAULT 'Cozy',      -- Cozy | Compact
+    AutoScrollToKeyword BIT NOT NULL DEFAULT 1,
+    MatchNavigatorEnabled BIT NOT NULL DEFAULT 1,
+    KeyboardShortcutsEnabled BIT NOT NULL DEFAULT 1,
+
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 NULL,
+
+    CONSTRAINT FK_UserDisplaySettings_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_UserDisplaySettings_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+    CONSTRAINT UQ_UserDisplaySettings_User UNIQUE (TenantId, UserId),
+    INDEX IX_UserDisplaySettings_Tenant (TenantId)
+);
+```
+
+UI components resolve settings through the API (with a localStorage cache for hydration). Updates
+write back to this table so preferences roam everywhere and stay tenant-scoped.
+
+### SavedSearchFilters
+Stores reusable search/filter definitions that render as chips above the results list (“From Alice,
+last 30 days”). Definitions are JSON blobs so we can evolve criteria without schema churn.
+
+```sql
+CREATE TABLE SavedSearchFilters (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+
+    Name NVARCHAR(128) NOT NULL,
+    DefinitionJson NVARCHAR(MAX) NOT NULL, -- e.g. {"from":"alice@acme.com","dateFrom":"2025-10-20","hasAttachments":true}
+    OrderIndex INT NOT NULL DEFAULT 0,
+    IsFavorite BIT NOT NULL DEFAULT 0,
+
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 NULL,
+
+    CONSTRAINT FK_SavedSearchFilters_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_SavedSearchFilters_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+    INDEX IX_SavedSearchFilters_User (TenantId, UserId, OrderIndex)
+);
+```
+
+### PinnedEmailThreads
+Tracks which threads or single messages a user has pinned so matching items float to the top of the
+result set.
+
+```sql
+CREATE TABLE PinnedEmailThreads (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    ConversationId UNIQUEIDENTIFIER NULL,
+    EmailMessageId UNIQUEIDENTIFIER NULL,
+
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    CreatedByUserId UNIQUEIDENTIFIER NOT NULL,
+
+    CONSTRAINT FK_PinnedEmailThreads_Tenant FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE NO ACTION,
+    CONSTRAINT FK_PinnedEmailThreads_User FOREIGN KEY (UserId) REFERENCES Users(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_PinnedEmailThreads_Conversation FOREIGN KEY (ConversationId) REFERENCES EmailThreads(Id) ON DELETE CASCADE,
+    CONSTRAINT FK_PinnedEmailThreads_Email FOREIGN KEY (EmailMessageId) REFERENCES EmailMessages(Id) ON DELETE CASCADE,
+    CONSTRAINT CHK_PinnedEmailThreads_Target CHECK (ConversationId IS NOT NULL OR EmailMessageId IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX IX_PinnedEmailThreads_Conversation
+    ON PinnedEmailThreads (TenantId, UserId, ConversationId)
+    WHERE ConversationId IS NOT NULL;
+
+CREATE UNIQUE INDEX IX_PinnedEmailThreads_Email
+    ON PinnedEmailThreads (TenantId, UserId, EmailMessageId)
+    WHERE EmailMessageId IS NOT NULL;
+```
+
+Pinned threads surface in the search endpoint as a `isPinned` flag and are always filtered by the
+current tenant/user combo thanks to both the application-level query filters and the unique
+constraint above.
+
+> Note: The tenant foreign key uses `ON DELETE NO ACTION` because `EmailThreads` already cascade from
+> `Tenants`. This avoids SQL Server's “multiple cascade paths” restriction while still ensuring
+> pinned rows disappear when their parent thread or message is deleted. Uniqueness is enforced via
+> two filtered indexes (one for threads, one for single messages) because SQL Server does not support
+> the `OR` filter that EF Core would otherwise generate.
+
 ## Indexes Summary
 
 ### Performance-Critical Indexes
@@ -943,7 +1037,7 @@ WHERE Timestamp < DATEADD(YEAR, -1, GETUTCDATE());
 
 ---
 
-**Last Updated**: 2025-11-11  
+**Last Updated**: 2025-11-20  
 **Schema Version**: 1.0  
 **Next Review**: Before Phase 2 implementation (Workspaces, AI features)
 

@@ -3,6 +3,7 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Email
 @using Evermail.Common.DTOs.Mailbox
+@using Evermail.Common.DTOs.User
 @using Evermail.WebApp.Models
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Authorization
@@ -17,12 +18,13 @@
 @inject IJSRuntime JSRuntime
 @inject AuthenticationStateProvider AuthStateProvider
 @inject UserPreferencesService PreferencesService
+@inject IDateFormatService DateFormatService
 
 <PageTitle>My Emails - Evermail</PageTitle>
 
 <AuthorizeView>
     <Authorized>
-<div class="home-wrapper emails-wrapper">
+<div class="home-wrapper emails-wrapper" tabindex="0" @onkeydown="HandleKeyDown">
     <section class="page-hero tight-hero">
         <div>
             <p class="hero-eyebrow mb-2">Search workspace</p>
@@ -43,7 +45,8 @@
                            class="form-control form-control-xl"
                            placeholder="@SampleQueryPlaceholder"
                            @bind="_searchQuery"
-                           @bind:event="oninput" />
+                           @bind:event="oninput"
+                           @ref="_searchInputRef" />
                 </div>
                 <div class="search-scope">
                     <label class="form-label fw-semibold">Scope</label>
@@ -102,6 +105,14 @@
                             <div class="form-text">Matches email address or display name.</div>
                         </div>
                         <div class="filter-card">
+                            <h4>Sender filter</h4>
+                            <p class="text-muted">Limit results to a specific sender name or address.</p>
+                            <input type="text"
+                                   class="form-control"
+                                   placeholder="billing@company.com"
+                                   @bind="_fromFilter" />
+                        </div>
+                        <div class="filter-card">
                             <h4>Rank by signal</h4>
                             <p class="text-muted">Choose whether to prioritize semantic relevance or metadata such as date.</p>
                             <label class="form-label mb-1">Sort by</label>
@@ -136,6 +147,33 @@
                                 </label>
                             </div>
                         </div>
+                        <div class="filter-card">
+                            <h4>Date range</h4>
+                            <p class="text-muted">Keep queries scoped to the timeframe that matters.</p>
+                            <div class="date-range-grid">
+                                <div>
+                                    <label class="form-label fw-semibold">From</label>
+                                    <InputDate @bind-Value="_dateFrom"
+                                               class="form-control"
+                                               placeholder="Start date" />
+                                </div>
+                                <div>
+                                    <label class="form-label fw-semibold">To</label>
+                                    <InputDate @bind-Value="_dateTo"
+                                               class="form-control"
+                                               placeholder="End date" />
+                                </div>
+                            </div>
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="attachmentsOnlyToggle"
+                                       @bind="_hasAttachmentsOnly" />
+                                <label class="form-check-label" for="attachmentsOnlyToggle">
+                                    Only show emails with attachments
+                                </label>
+                            </div>
+                        </div>
                     </div>
                 </div>
             }
@@ -152,6 +190,18 @@
                     @if (!string.IsNullOrWhiteSpace(_recipientFilter))
                     {
                         <span class="filter-pill">Recipient: @_recipientFilter</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(_fromFilter))
+                    {
+                        <span class="filter-pill">From: @_fromFilter</span>
+                    }
+                    @if (_dateFrom.HasValue || _dateTo.HasValue)
+                    {
+                        <span class="filter-pill">Date: @FormatDateRange()</span>
+                    }
+                    @if (_hasAttachmentsOnly)
+                    {
+                        <span class="filter-pill">Has attachments</span>
                     }
                 </div>
             }
@@ -178,12 +228,30 @@
 
     @if (_isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status">
-                <span class="visually-hidden">Loading...</span>
+        <section class="emails-results emails-results--loading">
+            <div class="loading-summary">
+                <div class="skeleton-line skeleton-line--long"></div>
+                <div class="skeleton-chip-row">
+                    <span class="skeleton-chip"></span>
+                    <span class="skeleton-chip skeleton-chip--sm"></span>
+                    <span class="skeleton-chip skeleton-chip--sm"></span>
+                </div>
             </div>
-            <p class="mt-2">Loading emails...</p>
-        </div>
+            <div class="email-list email-list--skeleton">
+                @foreach (var _ in Enumerable.Range(0, 4))
+                {
+                    <div class="email-card email-card--skeleton">
+                        <div class="skeleton-line skeleton-line--wide"></div>
+                        <div class="skeleton-line skeleton-line--medium"></div>
+                        <div class="skeleton-chip-row">
+                            <span class="skeleton-chip"></span>
+                            <span class="skeleton-chip skeleton-chip--sm"></span>
+                        </div>
+                        <div class="skeleton-line skeleton-line--short"></div>
+                    </div>
+                }
+            </div>
+        </section>
     }
     else if (!string.IsNullOrEmpty(_errorMessage))
     {
@@ -246,19 +314,100 @@
                 {
                     <span class="text-muted small">Query time @_queryTime.Value.ToString("F3")s</span>
                 }
+                <div class="density-toggle ms-auto">
+                    <button type="button"
+                            class="btn btn-sm @( _preferences.ResultDensity == ResultDensityPreference.Cozy ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="async () => await ChangeDensity(ResultDensityPreference.Cozy)">
+                        Cozy
+                    </button>
+                    <button type="button"
+                            class="btn btn-sm @( _preferences.ResultDensity == ResultDensityPreference.Compact ? "btn-primary" : "btn-outline-secondary")"
+                            @onclick="async () => await ChangeDensity(ResultDensityPreference.Compact)">
+                        Compact
+                    </button>
+                </div>
             </header>
 
-            <div class="email-list">
-                @foreach (var email in _emails)
+            <section class="saved-filters-panel">
+                <div class="saved-filters__header">
+                    <div>
+                        <p class="hero-eyebrow mb-1">Saved filters</p>
+                        <h3 class="mb-0">Reuse frequent searches</h3>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                @onclick="OpenSaveFilterModal">
+                            <i class="bi bi-plus-circle me-1"></i>Save current filters
+                        </button>
+                        <button type="button"
+                                class="btn btn-outline-secondary btn-sm"
+                                @onclick="LoadSavedFiltersAsync">
+                            <i class="bi bi-arrow-repeat me-1"></i>Refresh
+                        </button>
+                    </div>
+                </div>
+                @if (_isLoadingSavedFilters)
                 {
-                    var detailQuery = BuildDetailQueryParameters();
-                    var emailUrl = detailQuery.Count > 0
-                        ? QueryHelpers.AddQueryString($"/emails/{email.Id}", detailQuery)
-                        : $"/emails/{email.Id}";
-                    <a href="@emailUrl" class="email-row @(email.IsRead ? "" : "email-row--unread")">
-                        <div class="email-row__header">
+                    <p class="text-muted mb-0">Loading saved filters…</p>
+                }
+                else if (_savedFilters.Count == 0)
+                {
+                    <p class="text-muted mb-0">No saved filters yet. Capture your favorite combinations for one-click reuse.</p>
+                }
+                else
+                {
+                    <div class="saved-filters__chips">
+                        @foreach (var filter in _savedFilters)
+                        {
+                            var isActive = filter.Id == _activeSavedFilterId;
+                            <button type="button"
+                                    class="saved-filter-chip @(isActive ? "saved-filter-chip--active" : string.Empty)"
+                                    @onclick="async () => await ApplySavedFilterAsync(filter)">
+                                @if (filter.IsFavorite)
+                                {
+                                    <i class="bi bi-star-fill text-warning me-1"></i>
+                                }
+                                <span>@filter.Name</span>
+                                <button type="button"
+                                        class="saved-filter-chip__delete"
+                                        title="Delete filter"
+                                        @onclick="async () => await DeleteFilterAsync(filter.Id)"
+                                        @onclick:preventDefault="true"
+                                        @onclick:stopPropagation="true">
+                                    <i class="bi bi-x"></i>
+                                </button>
+                            </button>
+                        }
+                    </div>
+                }
+            </section>
+
+            <div class="email-list">
+                <Virtualize Items="_orderedEmails" Context="email" ItemSize="140">
+                    @{
+                        var rowIndex = GetRowIndex(email);
+                        var detailQuery = BuildDetailQueryParameters();
+                        var emailUrl = detailQuery.Count > 0
+                            ? QueryHelpers.AddQueryString($"/emails/{email.Id}", detailQuery)
+                            : $"/emails/{email.Id}";
+                        var isActive = rowIndex == _activeRowIndex;
+                    }
+                    @if (_pinnedEmails.Count > 0 && rowIndex == 0 && email.IsPinned)
+                    {
+                        <div class="result-group-label">Pinned</div>
+                    }
+                    @if (_pinnedEmails.Count > 0 && rowIndex == _pinnedEmails.Count && !email.IsPinned)
+                    {
+                        <div class="result-group-label">All matches</div>
+                    }
+                    <a @key="email.Id"
+                       href="@emailUrl"
+                       class="email-card @GetDensityClass() @(isActive ? "email-card--active" : string.Empty) @(email.IsRead ? "" : "email-card--unread")"
+                       data-email-id="@email.Id">
+                        <div class="email-card__header">
                             <div>
-                                <div class="email-row__subject-line">
+                                <div class="email-card__subject-line">
                                     <strong>@(email.Subject ?? "(No Subject)")</strong>
                                     @if (email.ConversationId.HasValue)
                                     {
@@ -269,7 +418,12 @@
                                 </div>
                                 @if (email.MatchFields is { Count: > 0 })
                                 {
-                                    <div class="email-row__signals">
+                                    <div class="email-card__signals">
+                                        <div class="match-strength @GetMatchStrengthClass(email.Rank)">
+                                            <span></span>
+                                            <span></span>
+                                            <span></span>
+                                        </div>
                                         @foreach (var match in email.MatchFields)
                                         {
                                             <span class="match-chip">@GetMatchLabel(match)</span>
@@ -277,55 +431,71 @@
                                     </div>
                                 }
                             </div>
-                            <span class="email-row__date">@FormatDate(email.Date)</span>
-                        </div>
-                        <div class="email-row__meta">
-                            <div class="email-row__from">
-                                <span class="email-row__from-name">
-                                    @(!string.IsNullOrEmpty(email.FromName) ? email.FromName : email.FromAddress)
-                                </span>
-                                <span class="email-row__address">@email.FromAddress</span>
-                            </div>
-                            @if (email.HasAttachments)
-                            {
-                                if (email.FirstAttachmentId.HasValue)
-                                {
+                            <div class="email-card__meta">
+                                <span>@FormatDate(email.Date)</span>
+                                <div class="email-card__actions">
                                     <button type="button"
-                                            class="email-row__attachment-btn"
-                                            title="@email.AttachmentCount attachment(s)"
-                                            data-attachment-id="@email.FirstAttachmentId!.Value"
-                                            @onclick="async () => await DownloadAttachment(email.FirstAttachmentId!.Value)"
-                                            @onclick:preventDefault="true"
-                                            @onclick:stopPropagation="true">
-                                        <i class="bi bi-paperclip"></i>
-                                        @if (email.AttachmentCount > 1)
-                                        {
-                                            <small>@email.AttachmentCount</small>
-                                        }
+                                            class="icon-button"
+                                            title="Preview"
+                                            @onclick="async () => await OpenPreviewAsync(email)"
+                                            @onclick:preventDefault="true">
+                                        <i class="bi bi-eye"></i>
                                     </button>
-                                }
-                                else
-                                {
-                                    <span class="email-row__attachment">
-                                        <i class="bi bi-paperclip"></i>
-                                        @if (email.AttachmentCount > 1)
-                                        {
-                                            <small>@email.AttachmentCount</small>
-                                        }
-                                    </span>
-                                }
+                                    <a class="icon-button"
+                                       href="@emailUrl"
+                                       title="Open details">
+                                        <i class="bi bi-arrow-up-right"></i>
+                                    </a>
+                                    <button type="button"
+                                            class="icon-button"
+                                            title="@(email.IsPinned ? "Unpin" : "Pin")"
+                                            @onclick="async () => await TogglePinAsync(email)"
+                                            @onclick:preventDefault="true">
+                                        <i class="bi @(email.IsPinned ? "bi-pin-angle-fill" : "bi-pin")"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="email-card__from-line">
+                            <span class="email-card__from-name">
+                                @(!string.IsNullOrEmpty(email.FromName) ? email.FromName : email.FromAddress)
+                            </span>
+                            <span class="email-card__address">@email.FromAddress</span>
+                            @if (email.MatchSources?.Count > 0)
+                            {
+                                <span class="match-summary">Matched in @string.Join(", ", email.MatchSources)</span>
                             }
                         </div>
+                        @if (email.HasAttachments && email.AttachmentPreviews is { Count: > 0 })
+                        {
+                            <div class="attachment-pill-row">
+                                @foreach (var attachment in email.AttachmentPreviews)
+                                {
+                                    <button type="button"
+                                            class="attachment-pill"
+                                            title="@attachment.FileName"
+                                            @onclick="async () => await DownloadAttachment(attachment.Id)"
+                                            @onclick:preventDefault="true">
+                                        <i class="bi bi-paperclip me-1"></i>
+                                        <span>@attachment.FileName</span>
+                                    </button>
+                                }
+                                @if (email.AttachmentCount > email.AttachmentPreviews.Count)
+                                {
+                                    <span class="attachment-pill attachment-pill--more">+@(email.AttachmentCount - email.AttachmentPreviews.Count)</span>
+                                }
+                            </div>
+                        }
                         @if (!string.IsNullOrEmpty(email.HighlightedSnippet))
                         {
-                            <p class="email-row__snippet">@((MarkupString)email.HighlightedSnippet)</p>
+                            <p class="email-card__snippet">@((MarkupString)email.HighlightedSnippet)</p>
                         }
                         else if (!string.IsNullOrEmpty(email.Snippet))
                         {
-                            <p class="email-row__snippet">@email.Snippet</p>
+                            <p class="email-card__snippet">@email.Snippet</p>
                         }
                     </a>
-                }
+                </Virtualize>
             </div>
 
             @if (_totalPages > 1)
@@ -375,6 +545,80 @@
                 </div>
             }
         </section>
+
+        @if (_showSaveFilterModal)
+        {
+            <div class="modal fade show detail-modal d-block" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content glass-panel">
+                        <div class="modal-header">
+                            <div>
+                                <p class="hero-eyebrow mb-1">Save current filter</p>
+                                <h4 class="mb-0">Make this combination reusable</h4>
+                            </div>
+                            <button type="button" class="btn-close" @onclick="CloseSaveFilterModal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <label class="form-label fw-semibold">Filter name</label>
+                            <input class="form-control"
+                                   maxlength="128"
+                                   placeholder="e.g. From Alice last 30 days"
+                                   @bind="_newFilterName" />
+                            <div class="form-check form-switch mt-3">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       id="favoriteFilterToggle"
+                                       @bind="_newFilterFavorite" />
+                                <label class="form-check-label" for="favoriteFilterToggle">
+                                    Mark as favorite
+                                </label>
+                            </div>
+                        </div>
+                        <div class="modal-footer justify-content-between">
+                            <button class="btn btn-outline-secondary" @onclick="CloseSaveFilterModal">Cancel</button>
+                            <button class="btn btn-primary"
+                                    disabled="@string.IsNullOrWhiteSpace(_newFilterName)"
+                                    @onclick="SaveCurrentFiltersAsync">
+                                <i class="bi bi-check2 me-1"></i>Save filter
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-backdrop fade show"></div>
+        }
+
+        @if (_showPreviewModal && _previewEmail is not null)
+        {
+            <div class="modal fade show detail-modal d-block" tabindex="-1">
+                <div class="modal-dialog modal-lg modal-dialog-centered">
+                    <div class="modal-content glass-panel">
+                        <div class="modal-header">
+                            <div>
+                                <p class="hero-eyebrow mb-1">Quick preview</p>
+                                <h4 class="mb-0">@(_previewEmail.Subject ?? "(No Subject)")</h4>
+                                <small class="text-muted">@FormatDate(_previewEmail.Date)</small>
+                            </div>
+                            <button type="button" class="btn-close" @onclick="ClosePreview"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="preview-snippet">
+                                @((MarkupString)(_previewEmail.HighlightedSnippet ?? _previewEmail.Snippet ?? "No snippet available"))
+                            </div>
+                        </div>
+                        <div class="modal-footer justify-content-between">
+                            <span class="text-muted small">@_previewEmail.FromAddress</span>
+                            <a class="btn btn-primary"
+                               href="@QueryHelpers.AddQueryString($"/emails/{_previewEmail.Id}", BuildDetailQueryParameters())"
+                               @onclick="ClosePreview">
+                                Open full email
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-backdrop fade show"></div>
+        }
     }
 </div>
     </Authorized>
@@ -415,6 +659,23 @@
     private bool _isSuperAdmin;
     private const string SampleQueryPlaceholder = "Try \\\"invoice\\\" from:alice@example.com after:2023-01-01";
     private UserPreferences _preferences = UserPreferences.CreateDefault();
+    private string _fromFilter = string.Empty;
+    private DateTime? _dateFrom;
+    private DateTime? _dateTo;
+    private bool _hasAttachmentsOnly;
+    private List<SavedSearchFilterDto> _savedFilters = new();
+    private bool _isLoadingSavedFilters;
+    private bool _showSaveFilterModal;
+    private string _newFilterName = string.Empty;
+    private bool _newFilterFavorite;
+    private Guid? _activeSavedFilterId;
+    private ElementReference _searchInputRef;
+    private readonly List<EmailListItemDto> _orderedEmails = new();
+    private List<EmailListItemDto> _pinnedEmails = new();
+    private List<EmailListItemDto> _nonPinnedEmails = new();
+    private int _activeRowIndex = -1;
+    private bool _showPreviewModal;
+    private EmailListItemDto? _previewEmail;
 
     protected override async Task OnInitializedAsync()
     {
@@ -498,6 +759,7 @@
         await LoadPreferencesAsync();
         await LoadMailboxes();
         await LoadEmails(_currentPage);
+        await LoadSavedFiltersAsync();
     }
 
     private async Task LoadMailboxes()
@@ -541,6 +803,146 @@
         catch
         {
             _preferences = UserPreferences.CreateDefault();
+        }
+    }
+
+    private async Task LoadSavedFiltersAsync()
+    {
+        _isLoadingSavedFilters = true;
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var url = $"{Navigation.BaseUri}api/v1/emails/saved-filters";
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bearer {token}");
+
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                var payload = await response.Content.ReadFromJsonAsync<ApiResponse<List<SavedSearchFilterDto>>>();
+                if (payload?.Success == true && payload.Data is not null)
+                {
+                    _savedFilters = payload.Data;
+                }
+            }
+        }
+        finally
+        {
+            _isLoadingSavedFilters = false;
+        }
+    }
+
+    private void OpenSaveFilterModal()
+    {
+        _newFilterName = string.IsNullOrWhiteSpace(_searchQuery) ? "New filter" : _searchQuery;
+        _newFilterFavorite = false;
+        _showSaveFilterModal = true;
+    }
+
+    private void CloseSaveFilterModal()
+    {
+        _showSaveFilterModal = false;
+        _newFilterName = string.Empty;
+        _newFilterFavorite = false;
+    }
+
+    private SavedSearchFilterDefinitionDto BuildDefinitionFromState() =>
+        new(
+            string.IsNullOrWhiteSpace(_searchQuery) ? null : _searchQuery,
+            _selectedMailboxId,
+            string.IsNullOrWhiteSpace(_fromFilter) ? null : _fromFilter,
+            _dateFrom,
+            _dateTo,
+            _hasAttachmentsOnly ? true : null,
+            string.IsNullOrWhiteSpace(_recipientFilter) ? null : _recipientFilter,
+            null);
+
+    private async Task SaveCurrentFiltersAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_newFilterName))
+        {
+            return;
+        }
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Post,
+                $"{Navigation.BaseUri}api/v1/emails/saved-filters");
+
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var payload = new CreateSavedSearchFilterRequest(
+                _newFilterName.Trim(),
+                BuildDefinitionFromState(),
+                OrderIndex: null,
+                IsFavorite: _newFilterFavorite);
+            request.Content = JsonContent.Create(payload);
+
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadSavedFiltersAsync();
+                CloseSaveFilterModal();
+            }
+        }
+        catch
+        {
+            // Ignore errors for now
+        }
+    }
+
+    private async Task ApplySavedFilterAsync(SavedSearchFilterDto filter)
+    {
+        var definition = filter.Definition;
+        _searchQuery = definition.Query ?? string.Empty;
+        _selectedMailboxId = definition.MailboxId;
+        _fromFilter = definition.From ?? string.Empty;
+        _dateFrom = definition.DateFrom;
+        _dateTo = definition.DateTo;
+        _hasAttachmentsOnly = definition.HasAttachments ?? false;
+        _recipientFilter = definition.Recipient ?? string.Empty;
+        _activeSavedFilterId = filter.Id;
+        await HandleSearch();
+    }
+
+    private async Task DeleteFilterAsync(Guid filterId)
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Delete,
+                $"{Navigation.BaseUri}api/v1/emails/saved-filters/{filterId}");
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                _savedFilters.RemoveAll(f => f.Id == filterId);
+                if (_activeSavedFilterId == filterId)
+                {
+                    _activeSavedFilterId = null;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore errors during delete
         }
     }
 
@@ -598,6 +1000,26 @@
                 url += $"&recipient={Uri.EscapeDataString(_recipientFilter)}";
             }
 
+            if (!string.IsNullOrWhiteSpace(_fromFilter))
+            {
+                url += $"&from={Uri.EscapeDataString(_fromFilter)}";
+            }
+
+            if (_dateFrom.HasValue)
+            {
+                url += $"&dateFrom={_dateFrom.Value:yyyy-MM-dd}";
+            }
+
+            if (_dateTo.HasValue)
+            {
+                url += $"&dateTo={_dateTo.Value:yyyy-MM-dd}";
+            }
+
+            if (_hasAttachmentsOnly)
+            {
+                url += "&hasAttachments=true";
+            }
+
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Add("Authorization", $"Bearer {token}");
 
@@ -615,6 +1037,12 @@
                     _usedFullTextSearch = result.Data.UsedFullTextSearch;
                     _fullTextHealthy = result.Data.FullTextHealthy;
                     _errorMessage = "";
+                    _pinnedEmails = _emails.Where(e => e.IsPinned).ToList();
+                    _nonPinnedEmails = _emails.Where(e => !e.IsPinned).ToList();
+                    _orderedEmails.Clear();
+                    _orderedEmails.AddRange(_pinnedEmails);
+                    _orderedEmails.AddRange(_nonPinnedEmails);
+                    _activeRowIndex = _orderedEmails.Count > 0 ? 0 : -1;
                     UpdateSummaryCards();
                     
                     // Set up event listeners for attachment buttons after emails are loaded
@@ -777,6 +1205,26 @@
             parameters["recipient"] = _recipientFilter;
         }
 
+        if (!string.IsNullOrWhiteSpace(_fromFilter))
+        {
+            parameters["from"] = _fromFilter;
+        }
+
+        if (_dateFrom.HasValue)
+        {
+            parameters["dateFrom"] = _dateFrom.Value.ToString("yyyy-MM-dd");
+        }
+
+        if (_dateTo.HasValue)
+        {
+            parameters["dateTo"] = _dateTo.Value.ToString("yyyy-MM-dd");
+        }
+
+        if (_hasAttachmentsOnly)
+        {
+            parameters["hasAttachments"] = "true";
+        }
+
         return parameters;
     }
 
@@ -831,11 +1279,6 @@
         }
     }
 
-    private string FormatDate(DateTime date) =>
-        _preferences.DateFormat == DateFormatPreference.DayMonthYear
-            ? date.ToString("dd.MM.yyyy")
-            : date.ToString("MMM dd, yyyy");
-
     private void UpdateSummaryCards()
     {
         var cards = new List<EmailSummaryCard>
@@ -859,6 +1302,53 @@
         _summaryCards = cards;
     }
 
+    private string FormatDate(DateTime date) =>
+        DateFormatService.Format(date, _preferences.DateFormat);
+
+    private string FormatDateRange()
+    {
+        if (_dateFrom.HasValue && _dateTo.HasValue)
+        {
+            return $"{FormatDate(_dateFrom.Value)} → {FormatDate(_dateTo.Value)}";
+        }
+
+        if (_dateFrom.HasValue)
+        {
+            return $"After {FormatDate(_dateFrom.Value)}";
+        }
+
+        if (_dateTo.HasValue)
+        {
+            return $"Before {FormatDate(_dateTo.Value)}";
+        }
+
+        return "Custom";
+    }
+
+    private string GetDensityClass() =>
+        _preferences.ResultDensity == ResultDensityPreference.Compact ? "email-card--compact" : "email-card--cozy";
+
+    private string GetMatchStrengthClass(double? rank)
+    {
+        if (rank is null)
+        {
+            return "match-strength--unknown";
+        }
+
+        return rank switch
+        {
+            >= 800 => "match-strength--high",
+            >= 400 => "match-strength--medium",
+            _ => "match-strength--low"
+        };
+    }
+
+    private int GetRowIndex(EmailListItemDto email)
+    {
+        var index = _orderedEmails.FindIndex(e => e.Id == email.Id);
+        return index < 0 ? 0 : index;
+    }
+
     private static string FormatNumber(long value)
     {
         if (value >= 1_000_000)
@@ -872,6 +1362,162 @@
         }
 
         return value.ToString("N0");
+    }
+
+    private async Task OpenPreviewAsync(EmailListItemDto email)
+    {
+        _previewEmail = email;
+        _showPreviewModal = true;
+        await Task.CompletedTask;
+    }
+
+    private void ClosePreview()
+    {
+        _showPreviewModal = false;
+        _previewEmail = null;
+    }
+
+    private async Task TogglePinAsync(EmailListItemDto email)
+    {
+        if (email.IsPinned)
+        {
+            await UnpinEmailAsync(email.Id);
+        }
+        else
+        {
+            await PinEmailAsync(email.Id);
+        }
+    }
+
+    private async Task PinEmailAsync(Guid emailId)
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Post, $"{Navigation.BaseUri}api/v1/emails/{emailId}/pin");
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadEmails(_currentPage);
+            }
+        }
+        catch
+        {
+            // Ignore pin failures for now
+        }
+    }
+
+    private async Task UnpinEmailAsync(Guid emailId)
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Delete, $"{Navigation.BaseUri}api/v1/emails/{emailId}/pin");
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadEmails(_currentPage);
+            }
+        }
+        catch
+        {
+            // Ignore failures
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs args)
+    {
+        if (!_preferences.KeyboardShortcutsEnabled)
+        {
+            return;
+        }
+
+        if (_orderedEmails.Count == 0)
+        {
+            return;
+        }
+
+        switch (args.Key)
+        {
+            case "/":
+                await _searchInputRef.FocusAsync();
+                break;
+            case "j":
+                MoveActiveRow(1);
+                break;
+            case "k":
+                MoveActiveRow(-1);
+                break;
+            case "Enter":
+                OpenActiveEmail();
+                break;
+            case "p":
+                await PinActiveEmailAsync();
+                break;
+        }
+    }
+
+    private void MoveActiveRow(int delta)
+    {
+        if (_orderedEmails.Count == 0)
+        {
+            _activeRowIndex = -1;
+            return;
+        }
+
+        _activeRowIndex = Math.Clamp(
+            _activeRowIndex < 0 ? 0 : _activeRowIndex + delta,
+            0,
+            _orderedEmails.Count - 1);
+        StateHasChanged();
+    }
+
+    private void OpenActiveEmail()
+    {
+        if (_activeRowIndex < 0 || _activeRowIndex >= _orderedEmails.Count)
+        {
+            return;
+        }
+
+        var email = _orderedEmails[_activeRowIndex];
+        var detailQuery = BuildDetailQueryParameters();
+        var emailUrl = detailQuery.Count > 0
+            ? QueryHelpers.AddQueryString($"/emails/{email.Id}", detailQuery)
+            : $"/emails/{email.Id}";
+        Navigation.NavigateTo(emailUrl);
+    }
+
+    private async Task PinActiveEmailAsync()
+    {
+        if (_activeRowIndex < 0 || _activeRowIndex >= _orderedEmails.Count)
+        {
+            return;
+        }
+
+        await TogglePinAsync(_orderedEmails[_activeRowIndex]);
+    }
+
+    private async Task ChangeDensity(ResultDensityPreference preference)
+    {
+        if (_preferences.ResultDensity == preference)
+        {
+            return;
+        }
+
+        _preferences = await PreferencesService.SetResultDensityAsync(preference);
+        StateHasChanged();
     }
 
     public void Dispose()

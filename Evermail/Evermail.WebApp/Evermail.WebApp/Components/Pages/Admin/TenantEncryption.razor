@@ -282,7 +282,7 @@
         _errorMessage = null;
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/tenants/encryption");
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/encryption"));
             var response = await SendAuthorizedAsync(request);
 
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
@@ -342,7 +342,7 @@
                 azurePayload,
                 awsPayload);
 
-            var message = new HttpRequestMessage(HttpMethod.Put, "/api/v1/tenants/encryption")
+            var message = new HttpRequestMessage(HttpMethod.Put, BuildApiUri("api/v1/tenants/encryption"))
             {
                 Content = JsonContent.Create(request)
             };
@@ -383,7 +383,7 @@
 
         try
         {
-            var message = new HttpRequestMessage(HttpMethod.Post, "/api/v1/tenants/encryption/test");
+            var message = new HttpRequestMessage(HttpMethod.Post, BuildApiUri("api/v1/tenants/encryption/test"));
             var response = await SendAuthorizedAsync(message);
             var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionTestResultDto>>();
 
@@ -413,7 +413,6 @@
 
     private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpRequestMessage request)
     {
-        EnsureHttpClientBaseAddress();
         var token = await AuthStateService.GetTokenAsync();
         if (string.IsNullOrWhiteSpace(token))
         {
@@ -424,12 +423,10 @@
         return await Http.SendAsync(request);
     }
 
-    private void EnsureHttpClientBaseAddress()
+    private Uri BuildApiUri(string relativePath)
     {
-        if (Http.BaseAddress is null && Navigation.BaseUri is { } baseUri)
-        {
-            Http.BaseAddress = new Uri(baseUri);
-        }
+        relativePath = relativePath.TrimStart('/');
+        return new Uri(new Uri(Navigation.BaseUri), relativePath);
     }
 
     private sealed class EncryptionFormModel

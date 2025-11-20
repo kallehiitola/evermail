@@ -254,7 +254,6 @@
 
     protected override async Task OnInitializedAsync()
     {
-        EnsureHttpClientBaseAddress();
         Logger.LogInformation("🏠 Home page loading. Current URL: {Url}", Navigation.Uri);
 
         // Handle OAuth redirect with tokens in query string
@@ -360,8 +359,7 @@
     {
         try
         {
-            EnsureHttpClientBaseAddress();
-            var response = await Http.GetFromJsonAsync<ApiResponse<TenantOnboardingStatusDto>>("api/v1/tenants/onboarding/status");
+            var response = await Http.GetFromJsonAsync<ApiResponse<TenantOnboardingStatusDto>>(BuildApiUri("api/v1/tenants/onboarding/status"));
             if (response?.Success == true && response.Data is not null)
             {
                 _onboardingStatus = response.Data;
@@ -393,7 +391,6 @@
 
     private async Task LoadDashboardSnapshotAsync()
     {
-        EnsureHttpClientBaseAddress();
         _isDashboardLoading = true;
         _dashboardError = null;
         StateHasChanged();
@@ -410,7 +407,7 @@
 
             var request = new HttpRequestMessage(
                 HttpMethod.Get,
-                new Uri(new Uri(Navigation.BaseUri), "api/v1/mailboxes?page=1&pageSize=50"));
+                BuildApiUri("api/v1/mailboxes?page=1&pageSize=50"));
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
             var response = await Http.SendAsync(request);
@@ -454,12 +451,10 @@
         }
     }
 
-    private void EnsureHttpClientBaseAddress()
+    private Uri BuildApiUri(string relativePath)
     {
-        if (Http.BaseAddress is null)
-        {
-            Http.BaseAddress = new Uri(Navigation.BaseUri);
-        }
+        relativePath = relativePath.TrimStart('/');
+        return new Uri(new Uri(Navigation.BaseUri), relativePath);
     }
 
     private DashboardSnapshot BuildSnapshotFromResponse(PagedMailboxesResponse response)

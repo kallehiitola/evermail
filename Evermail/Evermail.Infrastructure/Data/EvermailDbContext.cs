@@ -31,6 +31,9 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
     public DbSet<TenantEncryptionSettings> TenantEncryptionSettings => Set<TenantEncryptionSettings>();
     public DbSet<MailboxEncryptionState> MailboxEncryptionStates => Set<MailboxEncryptionState>();
     public DbSet<FullTextSearchResult> FullTextSearchResults => Set<FullTextSearchResult>();
+    public DbSet<UserDisplaySetting> UserDisplaySettings => Set<UserDisplaySetting>();
+    public DbSet<SavedSearchFilter> SavedSearchFilters => Set<SavedSearchFilter>();
+    public DbSet<PinnedEmailThread> PinnedEmailThreads => Set<PinnedEmailThread>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -71,6 +74,15 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
 
             modelBuilder.Entity<MailboxEncryptionState>()
                 .HasQueryFilter(es => es.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<UserDisplaySetting>()
+                .HasQueryFilter(s => s.TenantId == _tenantContext.TenantId && s.UserId == _tenantContext.UserId);
+
+            modelBuilder.Entity<SavedSearchFilter>()
+                .HasQueryFilter(f => f.TenantId == _tenantContext.TenantId && f.UserId == _tenantContext.UserId);
+
+            modelBuilder.Entity<PinnedEmailThread>()
+                .HasQueryFilter(p => p.TenantId == _tenantContext.TenantId && p.UserId == _tenantContext.UserId);
         }
 
         // Tenant
@@ -286,6 +298,74 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasOne(a => a.EmailMessage)
                 .WithMany(e => e.Attachments)
                 .HasForeignKey(a => a.EmailMessageId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserDisplaySetting>(entity =>
+        {
+            entity.HasKey(s => s.Id);
+            entity.HasIndex(s => new { s.TenantId, s.UserId }).IsUnique();
+            entity.Property(s => s.DateFormat).HasMaxLength(32);
+            entity.Property(s => s.ResultDensity).HasMaxLength(16);
+
+            entity.HasOne(s => s.Tenant)
+                .WithMany()
+                .HasForeignKey(s => s.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(s => s.User)
+                .WithMany()
+                .HasForeignKey(s => s.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<SavedSearchFilter>(entity =>
+        {
+            entity.HasKey(f => f.Id);
+            entity.HasIndex(f => new { f.TenantId, f.UserId, f.OrderIndex });
+            entity.Property(f => f.Name).HasMaxLength(128);
+
+            entity.HasOne(f => f.Tenant)
+                .WithMany()
+                .HasForeignKey(f => f.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(f => f.User)
+                .WithMany()
+                .HasForeignKey(f => f.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PinnedEmailThread>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.HasIndex(p => new { p.TenantId, p.UserId });
+            entity.HasIndex(p => new { p.TenantId, p.UserId, p.ConversationId })
+                .IsUnique()
+                .HasFilter("[ConversationId] IS NOT NULL");
+
+            entity.HasIndex(p => new { p.TenantId, p.UserId, p.EmailMessageId })
+                .IsUnique()
+                .HasFilter("[EmailMessageId] IS NOT NULL");
+
+            entity.HasOne(p => p.Tenant)
+                .WithMany()
+                .HasForeignKey(p => p.TenantId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(p => p.User)
+                .WithMany()
+                .HasForeignKey(p => p.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.Conversation)
+                .WithMany()
+                .HasForeignKey(p => p.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.EmailMessage)
+                .WithMany()
+                .HasForeignKey(p => p.EmailMessageId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

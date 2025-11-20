@@ -72,45 +72,64 @@
                             <p class="hero-eyebrow mb-1">Search & display</p>
                             <h2>Personalize your results</h2>
                         </div>
-                        <span class="status-pill">@(_preferences.AutoScrollToKeyword ? "Auto-scroll on" : "Manual focus")</span>
+                        <div class="settings-pill-stack">
+                            <span class="status-pill">@(_preferences.AutoScrollToKeyword ? "Auto-scroll on" : "Manual focus")</span>
+                            <span class="status-pill">@(_preferences.ResultDensity == ResultDensityPreference.Compact ? "Compact density" : "Cozy density")</span>
+                        </div>
                     </header>
                     @if (_isLoadingPreferences)
                     {
-                        <p class="text-muted mb-0">Loading your preferences…</p>
+                        <MudSkeleton Height="140px" Width="100%" Animation="Animation.Wave" />
                     }
                     else
                     {
                         <div class="settings-columns search-preferences">
                             <div>
                                 <h3>Date format</h3>
-                                <p class="text-muted">Choose how dates appear across search results and detail views.</p>
-                                <div class="btn-group pref-group" role="group" aria-label="Date format">
-                                    <button type="button"
-                                            class="@GetDateFormatButtonClass(DateFormatPreference.MonthDayYear)"
-                                            @onclick="() => SetDateFormatAsync(DateFormatPreference.MonthDayYear)">
-                                        Dec 21, 2025
-                                    </button>
-                                    <button type="button"
-                                            class="@GetDateFormatButtonClass(DateFormatPreference.DayMonthYear)"
-                                            @onclick="() => SetDateFormatAsync(DateFormatPreference.DayMonthYear)">
-                                        21.12.2025
-                                    </button>
-                                </div>
+                                <p class="text-muted">Choose how timestamps appear across results and detail views.</p>
+                                <MudSelect T="DateFormatPreference"
+                                           Value="_preferences.DateFormat"
+                                           ValueChanged="OnDateFormatChanged"
+                                           Variant="Variant.Filled"
+                                           Class="w-100"
+                                           Label="Date appearance">
+                                    <MudSelectItem Value="DateFormatPreference.MonthDayYear">Dec 21, 2025</MudSelectItem>
+                                    <MudSelectItem Value="DateFormatPreference.DayMonthYear">21.12.2025</MudSelectItem>
+                                </MudSelect>
+
+                                <h3 class="mt-4">Result density</h3>
+                                <p class="text-muted">Pick a layout that matches how fast you triage email.</p>
+                                <MudSelect T="ResultDensityPreference"
+                                           Value="_preferences.ResultDensity"
+                                           ValueChanged="OnDensityChanged"
+                                           Variant="Variant.Filled"
+                                           Class="w-100"
+                                           Label="List spacing">
+                                    <MudSelectItem Value="ResultDensityPreference.Cozy">Cozy (default)</MudSelectItem>
+                                    <MudSelectItem Value="ResultDensityPreference.Compact">Compact</MudSelectItem>
+                                </MudSelect>
                             </div>
                             <div>
-                                <h3>Highlights</h3>
-                                <p class="text-muted">Control whether Evermail automatically moves to the first keyword hit.</p>
-                                <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input"
-                                           type="checkbox"
-                                           id="autoScrollToggle"
-                                           checked="@_preferences.AutoScrollToKeyword"
-                                           @onchange="ToggleAutoScrollAsync" />
-                                    <label class="form-check-label" for="autoScrollToggle">
-                                        Auto-scroll to first keyword when opening an email
-                                    </label>
-                                </div>
-                                <small class="text-muted">You can still jump between highlights using the “Next match” button.</small>
+                                <h3>Highlights & shortcuts</h3>
+                                <p class="text-muted">Toggle behaviors that make scanning and navigation faster.</p>
+                                <MudSwitch T="bool"
+                                           Checked="_preferences.AutoScrollToKeyword"
+                                           CheckedChanged="OnAutoScrollChanged"
+                                           Color="Color.Primary"
+                                           Class="mb-2"
+                                           Label="Auto-scroll to first keyword" />
+                                <MudSwitch T="bool"
+                                           Checked="_preferences.MatchNavigatorEnabled"
+                                           CheckedChanged="OnMatchNavigatorChanged"
+                                           Color="Color.Primary"
+                                           Class="mb-2"
+                                           Label="Show match navigator button" />
+                                <MudSwitch T="bool"
+                                           Checked="_preferences.KeyboardShortcutsEnabled"
+                                           CheckedChanged="OnKeyboardShortcutsChanged"
+                                           Color="Color.Primary"
+                                           Label="Keyboard shortcuts (/, j/k, Enter, p)" />
+                                <small class="text-muted d-block mt-2">Shortcuts focus the search box, move between rows, open messages, and pin favorites.</small>
                             </div>
                         </div>
                     }
@@ -184,7 +203,7 @@
         }
     }
 
-    private async Task SetDateFormatAsync(DateFormatPreference preference)
+    private async Task OnDateFormatChanged(DateFormatPreference preference)
     {
         if (_preferences.DateFormat == preference)
         {
@@ -195,19 +214,42 @@
         StateHasChanged();
     }
 
-    private async Task ToggleAutoScrollAsync(ChangeEventArgs e)
+    private async Task OnAutoScrollChanged(bool enabled)
     {
-        var enabled = e.Value switch
-        {
-            bool boolValue => boolValue,
-            string stringValue => stringValue.Equals("true", StringComparison.OrdinalIgnoreCase) || stringValue.Equals("on", StringComparison.OrdinalIgnoreCase),
-            _ => _preferences.AutoScrollToKeyword
-        };
-
         _preferences = await PreferencesService.SetAutoScrollAsync(enabled);
         StateHasChanged();
     }
 
-    private string GetDateFormatButtonClass(DateFormatPreference option) =>
-        _preferences.DateFormat == option ? "btn btn-primary" : "btn btn-outline-secondary";
+    private async Task OnDensityChanged(ResultDensityPreference preference)
+    {
+        if (_preferences.ResultDensity == preference)
+        {
+            return;
+        }
+
+        _preferences = await PreferencesService.SetResultDensityAsync(preference);
+        StateHasChanged();
+    }
+
+    private async Task OnKeyboardShortcutsChanged(bool enabled)
+    {
+        if (_preferences.KeyboardShortcutsEnabled == enabled)
+        {
+            return;
+        }
+
+        _preferences = await PreferencesService.SetKeyboardShortcutsAsync(enabled);
+        StateHasChanged();
+    }
+
+    private async Task OnMatchNavigatorChanged(bool enabled)
+    {
+        if (_preferences.MatchNavigatorEnabled == enabled)
+        {
+            return;
+        }
+
+        _preferences = await PreferencesService.SetMatchNavigatorAsync(enabled);
+        StateHasChanged();
+    }
 }

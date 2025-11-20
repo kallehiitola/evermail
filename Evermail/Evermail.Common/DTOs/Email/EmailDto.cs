@@ -12,14 +12,21 @@ public record EmailListItemDto(
     string? Snippet,
     string? HighlightedSnippet,
     IReadOnlyList<string> MatchFields,
+    IReadOnlyList<string> MatchSources,
+    IReadOnlyList<string> MatchedTerms,
+    int? SnippetOffset,
+    int? SnippetLength,
     bool HasAttachments,
     int AttachmentCount,
+    IReadOnlyList<AttachmentPreviewDto> AttachmentPreviews,
     bool IsRead,
     Guid? FirstAttachmentId = null,
     double? Rank = null,
     Guid? ConversationId = null,
     int ThreadSize = 1,
-    int ThreadDepth = 0
+    int ThreadDepth = 0,
+    bool IsPinned = false,
+    DateTime? PinnedAt = null
 );
 
 public record EmailDetailDto(
@@ -65,6 +72,12 @@ public record AttachmentDto(
     string ContentType,
     long SizeBytes,
     string? DownloadUrl
+);
+
+public record AttachmentPreviewDto(
+    Guid Id,
+    string FileName,
+    long SizeBytes
 );
 
 public record PagedEmailsResponse(
