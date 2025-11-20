@@ -354,7 +354,12 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
         "fromAddress": "billing@company.com",
         "fromName": "Company Billing",
         "date": "2025-01-15T10:00:00Z",
-        "snippet": "Thank you for your payment. Attached is your invoice...",
+        "snippet": "Attached is your invoice for January so you can expense it right away.",
+        "highlightedSnippet": "Attached is your <mark class=\"search-hit\">invoice</mark> for January so you can expense it right away.",
+        "matchFields": [
+          "Subject",
+          "Body"
+        ],
         "hasAttachments": true,
         "attachmentCount": 1,
         "isRead": false,
@@ -373,7 +378,7 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
 }
 ```
 
-When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can surface relevance, plus lightweight thread metadata (`conversationId`, `threadSize`, `threadDepth`) so the UI can cluster or indent results. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
+When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can sort by relevance, plus lightweight thread metadata (`conversationId`, `threadSize`, `threadDepth`) so the UI can cluster or indent results. `matchFields` lists which fields produced a hit so the UI can show “Subject match” pills, and `highlightedSnippet` contains safe HTML (`<mark class="search-hit">`) for the first matching window within the email body/subject. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
 
 ### GET /emails/{id}
 Get full email details.

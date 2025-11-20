@@ -1,6 +1,10 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Components.Authorization
+@using Evermail.WebApp.Models
+@using Evermail.WebApp.Services
+
+@inject UserPreferencesService PreferencesService
 
 <PageTitle>Settings - Evermail</PageTitle>
 
@@ -65,6 +69,58 @@
                 <article class="settings-card span-2">
                     <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
                         <div>
+                            <p class="hero-eyebrow mb-1">Search & display</p>
+                            <h2>Personalize your results</h2>
+                        </div>
+                        <span class="status-pill">@(_preferences.AutoScrollToKeyword ? "Auto-scroll on" : "Manual focus")</span>
+                    </header>
+                    @if (_isLoadingPreferences)
+                    {
+                        <p class="text-muted mb-0">Loading your preferences…</p>
+                    }
+                    else
+                    {
+                        <div class="settings-columns search-preferences">
+                            <div>
+                                <h3>Date format</h3>
+                                <p class="text-muted">Choose how dates appear across search results and detail views.</p>
+                                <div class="btn-group pref-group" role="group" aria-label="Date format">
+                                    <button type="button"
+                                            class="@GetDateFormatButtonClass(DateFormatPreference.MonthDayYear)"
+                                            @onclick="() => SetDateFormatAsync(DateFormatPreference.MonthDayYear)">
+                                        Dec 21, 2025
+                                    </button>
+                                    <button type="button"
+                                            class="@GetDateFormatButtonClass(DateFormatPreference.DayMonthYear)"
+                                            @onclick="() => SetDateFormatAsync(DateFormatPreference.DayMonthYear)">
+                                        21.12.2025
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <h3>Highlights</h3>
+                                <p class="text-muted">Control whether Evermail automatically moves to the first keyword hit.</p>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="autoScrollToggle"
+                                           checked="@_preferences.AutoScrollToKeyword"
+                                           @onchange="ToggleAutoScrollAsync" />
+                                    <label class="form-check-label" for="autoScrollToggle">
+                                        Auto-scroll to first keyword when opening an email
+                                    </label>
+                                </div>
+                                <small class="text-muted">You can still jump between highlights using the “Next match” button.</small>
+                            </div>
+                        </div>
+                    }
+                </article>
+            </section>
+
+            <section class="settings-grid">
+                <article class="settings-card span-2">
+                    <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
+                        <div>
                             <p class="hero-eyebrow mb-1">Subscription</p>
                             <h2>Coming in Phase 1</h2>
                         </div>
@@ -99,3 +155,59 @@
     </NotAuthorized>
 </AuthorizeView>
 
+@code {
+    private UserPreferences _preferences = UserPreferences.CreateDefault();
+    private bool _isLoadingPreferences = true;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadPreferencesAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task LoadPreferencesAsync()
+    {
+        try
+        {
+            _preferences = await PreferencesService.GetPreferencesAsync();
+        }
+        catch
+        {
+            _preferences = UserPreferences.CreateDefault();
+        }
+        finally
+        {
+            _isLoadingPreferences = false;
+        }
+    }
+
+    private async Task SetDateFormatAsync(DateFormatPreference preference)
+    {
+        if (_preferences.DateFormat == preference)
+        {
+            return;
+        }
+
+        _preferences = await PreferencesService.SetDateFormatAsync(preference);
+        StateHasChanged();
+    }
+
+    private async Task ToggleAutoScrollAsync(ChangeEventArgs e)
+    {
+        var enabled = e.Value switch
+        {
+            bool boolValue => boolValue,
+            string stringValue => stringValue.Equals("true", StringComparison.OrdinalIgnoreCase) || stringValue.Equals("on", StringComparison.OrdinalIgnoreCase),
+            _ => _preferences.AutoScrollToKeyword
+        };
+
+        _preferences = await PreferencesService.SetAutoScrollAsync(enabled);
+        StateHasChanged();
+    }
+
+    private string GetDateFormatButtonClass(DateFormatPreference option) =>
+        _preferences.DateFormat == option ? "btn btn-primary" : "btn btn-outline-secondary";
+}

@@ -236,6 +236,14 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
 - **Recipient index**: `EmailRecipients` table (plus a flattened `RecipientsSearch` column) enables instant filtering by To/Cc/Bcc/Reply-To/Sender without scanning JSON payloads.
 - **Full-text coverage**: SQL Server CONTAINSTABLE now searches `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`, matching Microsoft Learn guidance for multi-column FTS catalogues. The endpoint falls back to `LIKE` queries across the same set when FTS is unavailable.
 
+#### Search Experience Enhancements (Nov 2025)
+- **Contextual snippets**: Search results no longer show the ingestion-time `Snippet`. Instead the API inspects `TextBody`/`HtmlBody`/`Subject` for the first real match to the user’s query (respecting `stopWords`) and returns the surrounding 160 characters in both plain text and `<mark class="search-hit">` form. This ensures every preview explains *why* the email surfaced.
+- **Match signals**: The projection now reports `matchFields` (e.g., `["Subject","Body","Sender"]`) so the Blazor list can draw pills like “Subject hit” or “Body hit” instead of exposing SQL Server’s raw rank. Rank is still available for telemetry/sorting, but the UI only shows human-readable badges.
+- **Highlight pipeline**: `SearchQueryParser` (shared between API + Blazor) tokenizes user queries, strips boolean operators, and feeds both the server-side snippet builder and the new `EvermailSearchHighlights` JS helper that wraps `<mark>` tags inside the full email view. When a user opens an email from the results page the body highlights the same terms and can auto-scroll to the first hit (respecting preferences below).
+- **User preferences service**: `UserPreferencesService` persists lightweight preferences in `localStorage` via `EvermailPreferences.*` JS functions so Blazor can read/write settings without a backend round-trip. Initial flags include `DateFormat` (US “Dec 21, 2025” vs. Nordic “21.12.2025”) and `AutoScrollToKeyword`.
+- **Settings UX**: `/settings` exposes a “Search & display” card with radio buttons for the date style and a toggle for keyword auto-scroll. Choices apply immediately across the search list and email detail view because both components resolve `UserPreferencesService` and re-render their date/highlight helpers.
+- **Parser sync warning**: Highlight accuracy depends on the shared `SearchQueryParser`. Any future advanced search syntax (e.g., new operators or grouping) must update both the parser and the snippet/highlight builders together so the UI and API stay in lock-step.
+
 #### Search Indexer (Optional, Phase 2)
 - **Purpose**: Synchronize database to Azure AI Search
 - **Technology**: .NET BackgroundService with change feed

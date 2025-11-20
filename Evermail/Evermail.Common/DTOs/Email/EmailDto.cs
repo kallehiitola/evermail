@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Evermail.Common.DTOs.Email;
 
 public record EmailListItemDto(
@@ -8,6 +10,8 @@ public record EmailListItemDto(
     string? FromName,
     DateTime Date,
     string? Snippet,
+    string? HighlightedSnippet,
+    IReadOnlyList<string> MatchFields,
     bool HasAttachments,
     int AttachmentCount,
     bool IsRead,

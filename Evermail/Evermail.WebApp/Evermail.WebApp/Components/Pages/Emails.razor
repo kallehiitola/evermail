@@ -3,6 +3,7 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Email
 @using Evermail.Common.DTOs.Mailbox
+@using Evermail.WebApp.Models
 @using System.Linq
 @using Microsoft.AspNetCore.Components.Authorization
 @using Evermail.WebApp.Services
@@ -15,6 +16,7 @@
 @inject IAuthenticationStateService AuthStateService
 @inject IJSRuntime JSRuntime
 @inject AuthenticationStateProvider AuthStateProvider
+@inject UserPreferencesService PreferencesService
 
 <PageTitle>My Emails - Evermail</PageTitle>
 
@@ -231,64 +233,76 @@
             <div class="email-list">
                 @foreach (var email in _emails)
                 {
-                    var emailUrl = $"/emails/{email.Id}";
-                    if (_selectedMailboxId.HasValue && _selectedMailboxId.Value != Guid.Empty)
-                    {
-                        emailUrl += $"?mailbox={_selectedMailboxId.Value}";
-                    }
+                    var detailQuery = BuildDetailQueryParameters();
+                    var emailUrl = detailQuery.Count > 0
+                        ? QueryHelpers.AddQueryString($"/emails/{email.Id}", detailQuery)
+                        : $"/emails/{email.Id}";
                     <a href="@emailUrl" class="email-row @(email.IsRead ? "" : "email-row--unread")">
-                        <div class="email-row__meta">
+                        <div class="email-row__header">
                             <div>
-                                <span class="email-row__from">
-                                    @(!string.IsNullOrEmpty(email.FromName) ? email.FromName : email.FromAddress)
-                                </span>
-                                <span class="email-row__address">@email.FromAddress</span>
-                                @if (email.HasAttachments)
-                                {
-                                    if (email.FirstAttachmentId.HasValue)
+                                <div class="email-row__subject-line">
+                                    <strong>@(email.Subject ?? "(No Subject)")</strong>
+                                    @if (email.ConversationId.HasValue)
                                     {
-                                        <button type="button"
-                                                class="email-row__attachment-btn"
-                                                title="@email.AttachmentCount attachment(s)"
-                                                data-attachment-id="@email.FirstAttachmentId!.Value"
-                                                @onclick="async () => await DownloadAttachment(email.FirstAttachmentId!.Value)"
-                                                @onclick:preventDefault="true"
-                                                @onclick:stopPropagation="true">
-                                            <i class="bi bi-paperclip"></i>
-                                            @if (email.AttachmentCount > 1)
-                                            {
-                                                <small>@email.AttachmentCount</small>
-                                            }
-                                        </button>
-                                    }
-                                    else
-                                    {
-                                        <span class="email-row__attachment">
-                                            <i class="bi bi-paperclip"></i>
-                                            @if (email.AttachmentCount > 1)
-                                            {
-                                                <small>@email.AttachmentCount</small>
-                                            }
+                                        <span class="badge bg-secondary-subtle text-dark ms-2">
+                                            Thread @(email.ThreadDepth + 1)/@Math.Max(email.ThreadSize, 1)
                                         </span>
                                     }
+                                </div>
+                                @if (email.MatchFields is { Count: > 0 })
+                                {
+                                    <div class="email-row__signals">
+                                        @foreach (var match in email.MatchFields)
+                                        {
+                                            <span class="match-chip">@GetMatchLabel(match)</span>
+                                        }
+                                    </div>
                                 }
                             </div>
                             <span class="email-row__date">@FormatDate(email.Date)</span>
                         </div>
-                        <div class="email-row__subject">
-                            <strong>@(email.Subject ?? "(No Subject)")</strong>
-                            @if (email.Rank.HasValue)
-                            {
-                                <span class="badge bg-info text-dark ms-2">Rank @Math.Round(email.Rank.Value)</span>
-                            }
-                            @if (email.ConversationId.HasValue)
-                            {
-                                <span class="badge bg-secondary-subtle text-dark ms-2">
-                                    Thread @(email.ThreadDepth + 1)/@Math.Max(email.ThreadSize, 1)
+                        <div class="email-row__meta">
+                            <div class="email-row__from">
+                                <span class="email-row__from-name">
+                                    @(!string.IsNullOrEmpty(email.FromName) ? email.FromName : email.FromAddress)
                                 </span>
+                                <span class="email-row__address">@email.FromAddress</span>
+                            </div>
+                            @if (email.HasAttachments)
+                            {
+                                if (email.FirstAttachmentId.HasValue)
+                                {
+                                    <button type="button"
+                                            class="email-row__attachment-btn"
+                                            title="@email.AttachmentCount attachment(s)"
+                                            data-attachment-id="@email.FirstAttachmentId!.Value"
+                                            @onclick="async () => await DownloadAttachment(email.FirstAttachmentId!.Value)"
+                                            @onclick:preventDefault="true"
+                                            @onclick:stopPropagation="true">
+                                        <i class="bi bi-paperclip"></i>
+                                        @if (email.AttachmentCount > 1)
+                                        {
+                                            <small>@email.AttachmentCount</small>
+                                        }
+                                    </button>
+                                }
+                                else
+                                {
+                                    <span class="email-row__attachment">
+                                        <i class="bi bi-paperclip"></i>
+                                        @if (email.AttachmentCount > 1)
+                                        {
+                                            <small>@email.AttachmentCount</small>
+                                        }
+                                    </span>
+                                }
                             }
                         </div>
-                        @if (!string.IsNullOrEmpty(email.Snippet))
+                        @if (!string.IsNullOrEmpty(email.HighlightedSnippet))
+                        {
+                            <p class="email-row__snippet">@((MarkupString)email.HighlightedSnippet)</p>
+                        }
+                        else if (!string.IsNullOrEmpty(email.Snippet))
                         {
                             <p class="email-row__snippet">@email.Snippet</p>
                         }
@@ -379,6 +393,7 @@
     private bool _showAdvancedFilters;
     private IReadOnlyList<EmailSummaryCard> _summaryCards = Array.Empty<EmailSummaryCard>();
     private const string SampleQueryPlaceholder = "Try \\\"invoice\\\" from:alice@example.com after:2023-01-01";
+    private UserPreferences _preferences = UserPreferences.CreateDefault();
 
     protected override async Task OnInitializedAsync()
     {
@@ -456,6 +471,7 @@
             _sortBy = "rank";
         }
 
+        await LoadPreferencesAsync();
         await LoadMailboxes();
         await LoadEmails(_currentPage);
     }
@@ -489,6 +505,18 @@
         catch
         {
             // Silently fail - mailboxes filter is optional
+        }
+    }
+
+    private async Task LoadPreferencesAsync()
+    {
+        try
+        {
+            _preferences = await PreferencesService.GetPreferencesAsync();
+        }
+        catch
+        {
+            _preferences = UserPreferences.CreateDefault();
         }
     }
 
@@ -691,6 +719,39 @@
         Navigation.NavigateTo($"{baseUri}{queryString}", replace: true);
     }
 
+    private Dictionary<string, string?> BuildDetailQueryParameters()
+    {
+        var parameters = new Dictionary<string, string?>();
+
+        if (_selectedMailboxId.HasValue && _selectedMailboxId.Value != Guid.Empty)
+        {
+            parameters["mailbox"] = _selectedMailboxId.Value.ToString();
+        }
+
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            parameters["q"] = _searchQuery;
+        }
+
+        var trimmedStopWords = _stopWords?.Trim();
+        if (!string.IsNullOrWhiteSpace(trimmedStopWords))
+        {
+            parameters["stopWords"] = trimmedStopWords;
+        }
+
+        if (_useInflectionalForms)
+        {
+            parameters["useInflectionalForms"] = "true";
+        }
+
+        if (!string.IsNullOrWhiteSpace(_recipientFilter))
+        {
+            parameters["recipient"] = _recipientFilter;
+        }
+
+        return parameters;
+    }
+
     private string AdvancedToggleIconClass => _showAdvancedFilters ? "bi bi-dash-circle" : "bi bi-sliders";
     private string AdvancedToggleLabel => _showAdvancedFilters ? "Hide advanced filters" : "Advanced filters";
 
@@ -701,6 +762,15 @@
         "subject" => "Subject",
         "from" => "Sender",
         _ => _sortBy
+    };
+
+    private static string GetMatchLabel(string field) => field switch
+    {
+        "Subject" => "Subject match",
+        "Body" => "Body match",
+        "Sender" => "Sender match",
+        "Recipients" => "Recipient match",
+        _ => field
     };
 
     private static string GetMailboxDisplayName(MailboxDto mailbox) =>
@@ -733,28 +803,10 @@
         }
     }
 
-    private string FormatDate(DateTime date)
-    {
-        var now = DateTime.UtcNow;
-        var diff = now - date;
-
-        if (diff.TotalDays < 1)
-        {
-            return date.ToString("HH:mm");
-        }
-        else if (diff.TotalDays < 7)
-        {
-            return date.ToString("ddd HH:mm");
-        }
-        else if (diff.TotalDays < 365)
-        {
-            return date.ToString("MMM d");
-        }
-        else
-        {
-            return date.ToString("MMM d, yyyy");
-        }
-    }
+    private string FormatDate(DateTime date) =>
+        _preferences.DateFormat == DateFormatPreference.DayMonthYear
+            ? date.ToString("dd.MM.yyyy")
+            : date.ToString("MMM dd, yyyy");
 
     private void UpdateSummaryCards()
     {

@@ -830,21 +830,60 @@ h1:focus {
     background: rgba(37, 99, 235, 0.04);
 }
 
-.email-row__meta {
+.email-row__header {
     display: flex;
     justify-content: space-between;
     gap: 1rem;
     margin-bottom: 0.4rem;
+}
+
+.email-row__subject-line {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 1rem;
+}
+
+.email-row__signals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+}
+
+.match-chip {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-radius: 999px;
+    padding: 0.15rem 0.6rem;
+    background: rgba(37, 99, 235, 0.08);
+    color: #1d4ed8;
+    font-weight: 600;
+}
+
+.email-row__meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 0.5rem;
     font-size: 0.95rem;
 }
 
 .email-row__from {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.email-row__from-name {
     font-weight: 600;
 }
 
 .email-row__address {
-    margin-left: 0.6rem;
     color: var(--color-text-secondary);
+    font-size: 0.85rem;
 }
 
 .email-row__attachment {
@@ -864,23 +903,40 @@ h1:focus {
     padding: 0;
 }
 
-.email-row__subject {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-bottom: 0.3rem;
-}
-
 .email-row__snippet {
     margin: 0;
     color: var(--color-text-secondary);
     font-size: 0.9rem;
 }
 
+.email-row__snippet mark {
+    background: rgba(250, 204, 21, 0.4);
+    color: var(--color-text-primary);
+    border-radius: 6px;
+    padding: 0 0.2rem;
+}
+
 .email-row__date {
     color: var(--color-text-secondary);
     font-size: 0.9rem;
+}
+
+.email-body-toolbar {
+    border-bottom: 1px solid var(--color-border);
+    padding-bottom: 1rem;
+    width: 100%;
+    margin-bottom: 1.5rem;
+}
+
+.keyword-jump {
+    white-space: nowrap;
+}
+
+.email-body-card mark.search-hit {
+    background: rgba(250, 204, 21, 0.4);
+    color: var(--color-text-primary);
+    border-radius: 4px;
+    padding: 0 0.15rem;
 }
 
 .emails-pagination {
@@ -909,6 +965,20 @@ h1:focus {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 1.75rem;
+}
+
+.search-preferences {
+    align-items: stretch;
+}
+
+.pref-group .btn {
+    min-width: 140px;
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.pref-group .btn + .btn {
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .settings-card {

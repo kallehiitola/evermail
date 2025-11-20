@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
+using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Email;
+using Evermail.Common.Search;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Microsoft.Data.SqlClient;
@@ -113,6 +116,7 @@ public static class EmailEndpoints
         }
 
         var stopWordSet = BuildStopWordSet(stopWords);
+        var searchTerms = SearchQueryParser.ExtractTerms(q, stopWordSet);
         var fullTextCondition = BuildFullTextSearchCondition(q, stopWordSet, useInflectionalForms);
         var isFullTextSearch = !string.IsNullOrWhiteSpace(fullTextCondition);
 
@@ -192,6 +196,7 @@ public static class EmailEndpoints
         {
             rankLookup.TryGetValue(e.Id, out var rank);
             var hasAttachmentId = firstAttachmentIds.TryGetValue(e.Id, out var attachmentId) ? attachmentId : (Guid?)null;
+            var snippet = BuildSnippetResult(e, searchTerms);
 
             return new EmailListItemDto(
                 e.Id,
@@ -200,7 +205,9 @@ public static class EmailEndpoints
                 e.FromAddress,
                 e.FromName,
                 e.Date,
-                e.Snippet,
+                snippet.PlainText,
+                snippet.HighlightHtml,
+                snippet.MatchFields,
                 e.HasAttachments,
                 e.AttachmentCount,
                 e.IsRead,
@@ -508,5 +515,195 @@ public static class EmailEndpoints
 
         return segments.Count == 0 ? null : string.Join(' ', segments);
     }
+
+    private static SnippetResult BuildSnippetResult(EmailMessage email, IReadOnlyList<string> searchTerms)
+    {
+        var matchFields = DetectMatchFields(email, searchTerms);
+
+        if (searchTerms.Count == 0)
+        {
+            var fallback = email.Snippet ?? email.Subject ?? string.Empty;
+            var sanitized = string.IsNullOrWhiteSpace(fallback) ? null : WebUtility.HtmlEncode(fallback);
+            return new SnippetResult(
+                string.IsNullOrWhiteSpace(fallback) ? null : fallback,
+                sanitized,
+                matchFields);
+        }
+
+        var candidateTexts = new[]
+        {
+            email.TextBody,
+            StripHtml(email.HtmlBody),
+            email.Subject,
+            email.Snippet,
+            email.FromName,
+            email.FromAddress
+        };
+
+        foreach (var text in candidateTexts)
+        {
+            var window = ExtractSnippetWindow(text, searchTerms);
+            if (!string.IsNullOrWhiteSpace(window))
+            {
+                return new SnippetResult(
+                    window,
+                    BuildHighlightHtml(window, searchTerms),
+                    matchFields);
+            }
+        }
+
+        var fallbackPlain = email.Snippet ?? email.Subject ?? string.Empty;
+        return new SnippetResult(
+            string.IsNullOrWhiteSpace(fallbackPlain) ? null : fallbackPlain,
+            BuildHighlightHtml(fallbackPlain, searchTerms),
+            matchFields);
+    }
+
+    private static string? ExtractSnippetWindow(string? source, IReadOnlyList<string> searchTerms)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+        {
+            return null;
+        }
+
+        var compareInfo = CultureInfo.InvariantCulture.CompareInfo;
+        var bestIndex = int.MaxValue;
+        var bestTermLength = 0;
+
+        foreach (var term in searchTerms)
+        {
+            var index = compareInfo.IndexOf(source, term, CompareOptions.IgnoreCase);
+            if (index >= 0 && index < bestIndex)
+            {
+                bestIndex = index;
+                bestTermLength = term.Length;
+            }
+        }
+
+        if (bestIndex == int.MaxValue)
+        {
+            return null;
+        }
+
+        const int radius = 80;
+        var start = Math.Max(0, bestIndex - radius);
+        var end = Math.Min(source.Length, bestIndex + bestTermLength + radius);
+        var window = source[start..end].Trim();
+
+        if (start > 0)
+        {
+            window = $"…{window}";
+        }
+        if (end < source.Length)
+        {
+            window = $"{window}…";
+        }
+
+        return window;
+    }
+
+    private static string? BuildHighlightHtml(string? snippet, IReadOnlyList<string> searchTerms)
+    {
+        if (string.IsNullOrWhiteSpace(snippet))
+        {
+            return null;
+        }
+
+        if (searchTerms.Count == 0)
+        {
+            return WebUtility.HtmlEncode(snippet);
+        }
+
+        var escapedTerms = searchTerms
+            .Where(term => !string.IsNullOrWhiteSpace(term))
+            .Select(Regex.Escape)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (escapedTerms.Length == 0)
+        {
+            return WebUtility.HtmlEncode(snippet);
+        }
+
+        var regex = new Regex(string.Join("|", escapedTerms), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        var sb = new System.Text.StringBuilder();
+        var lastIndex = 0;
+
+        foreach (Match match in regex.Matches(snippet))
+        {
+            if (match.Index > lastIndex)
+            {
+                sb.Append(WebUtility.HtmlEncode(snippet.Substring(lastIndex, match.Index - lastIndex)));
+            }
+
+            sb.Append("<mark class=\"search-hit\">");
+            sb.Append(WebUtility.HtmlEncode(match.Value));
+            sb.Append("</mark>");
+
+            lastIndex = match.Index + match.Length;
+        }
+
+        if (lastIndex < snippet.Length)
+        {
+            sb.Append(WebUtility.HtmlEncode(snippet[lastIndex..]));
+        }
+
+        return sb.ToString();
+    }
+
+    private static IReadOnlyList<string> DetectMatchFields(EmailMessage email, IReadOnlyList<string> searchTerms)
+    {
+        if (searchTerms.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var fields = new List<string>(capacity: 4);
+
+        if (ContainsTerm(email.Subject, searchTerms))
+        {
+            fields.Add("Subject");
+        }
+
+        if (ContainsTerm(email.TextBody, searchTerms) || ContainsTerm(email.HtmlBody, searchTerms))
+        {
+            fields.Add("Body");
+        }
+
+        if (ContainsTerm(email.FromName, searchTerms) || ContainsTerm(email.FromAddress, searchTerms))
+        {
+            fields.Add("Sender");
+        }
+
+        if (ContainsTerm(email.RecipientsSearch, searchTerms))
+        {
+            fields.Add("Recipients");
+        }
+
+        return fields.Count == 0 ? Array.Empty<string>() : fields;
+    }
+
+    private static bool ContainsTerm(string? source, IReadOnlyList<string> searchTerms)
+    {
+        if (string.IsNullOrWhiteSpace(source) || searchTerms.Count == 0)
+        {
+            return false;
+        }
+
+        var compareInfo = CultureInfo.InvariantCulture.CompareInfo;
+        return searchTerms.Any(term => compareInfo.IndexOf(source, term, CompareOptions.IgnoreCase) >= 0);
+    }
+
+    private static string? StripHtml(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return html;
+        }
+
+        return Regex.Replace(html, "<.*?>", " ");
+    }
+
+    private sealed record SnippetResult(string? PlainText, string? HighlightHtml, IReadOnlyList<string> MatchFields);
 }
 
