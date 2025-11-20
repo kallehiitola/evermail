@@ -66,6 +66,9 @@ public static class EmailEndpoints
         group.MapDelete("/saved-filters/{id:guid}", DeleteSavedFilterAsync)
             .RequireAuthorization();
 
+        group.MapGet("/pinned", GetPinnedEmailsAsync)
+            .RequireAuthorization();
+
         group.MapPost("/{id:guid}/pin", PinEmailAsync)
             .RequireAuthorization();
 
@@ -748,6 +751,24 @@ public static class EmailEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> GetPinnedEmailsAsync(
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        int take = 12)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var limit = Math.Clamp(take, 1, 50);
+        var summaries = await BuildPinnedSummariesAsync(context, tenantContext, limit);
+
+        return Results.Ok(new ApiResponse<List<PinnedEmailSummaryDto>>(
+            Success: true,
+            Data: summaries));
+    }
+
     private static IQueryable<EmailWithRank> AttachPinnedMetadata(
         IQueryable<EmailWithRank> source,
         EvermailDbContext context,
@@ -793,6 +814,123 @@ public static class EmailEndpoints
 
         return sanitized;
     }
+
+    private static async Task<List<PinnedEmailSummaryDto>> BuildPinnedSummariesAsync(
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        int limit)
+    {
+        var pinnedEntries = await context.PinnedEmailThreads
+            .AsNoTracking()
+            .Where(p => p.TenantId == tenantContext.TenantId && p.UserId == tenantContext.UserId)
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(limit)
+            .ToListAsync();
+
+        if (pinnedEntries.Count == 0)
+        {
+            return [];
+        }
+
+        var emailIds = pinnedEntries
+            .Where(p => p.EmailMessageId.HasValue)
+            .Select(p => p.EmailMessageId!.Value)
+            .ToList();
+        var conversationIds = pinnedEntries
+            .Where(p => p.ConversationId.HasValue)
+            .Select(p => p.ConversationId!.Value)
+            .Distinct()
+            .ToList();
+
+        var emails = await context.EmailMessages
+            .AsNoTracking()
+            .Where(e => emailIds.Contains(e.Id) ||
+                        (e.ConversationId.HasValue && conversationIds.Contains(e.ConversationId.Value)))
+            .Include(e => e.Thread)
+            .ToListAsync();
+
+        var emailsById = emails.ToDictionary(e => e.Id, e => e);
+        var emailsByConversation = emails
+            .Where(e => e.ConversationId.HasValue)
+            .GroupBy(e => e.ConversationId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.Date).ToList());
+
+        var summaries = new List<PinnedEmailSummaryDto>(pinnedEntries.Count);
+
+        foreach (var entry in pinnedEntries)
+        {
+            EmailMessage? email = null;
+
+            if (entry.EmailMessageId.HasValue &&
+                emailsById.TryGetValue(entry.EmailMessageId.Value, out var directEmail))
+            {
+                email = directEmail;
+            }
+            else if (entry.ConversationId.HasValue &&
+                     emailsByConversation.TryGetValue(entry.ConversationId.Value, out var convoEmails) &&
+                     convoEmails.Count > 0)
+            {
+                email = convoEmails[0];
+            }
+
+            if (email is null)
+            {
+                email = await context.EmailMessages
+                    .AsNoTracking()
+                    .Where(e => e.TenantId == tenantContext.TenantId &&
+                                ((entry.EmailMessageId.HasValue && e.Id == entry.EmailMessageId.Value) ||
+                                 (entry.ConversationId.HasValue && e.ConversationId == entry.ConversationId)))
+                    .OrderByDescending(e => e.Date)
+                    .FirstOrDefaultAsync();
+
+                if (email is null)
+                {
+                    continue;
+                }
+            }
+
+            var snippet = BuildPinnedSnippet(email);
+            var subject = email.Subject ?? "(No subject)";
+            var fromLabel = !string.IsNullOrWhiteSpace(email.FromName) ? email.FromName! : email.FromAddress;
+            var messageCount = email.Thread?.MessageCount ?? 1;
+
+            summaries.Add(new PinnedEmailSummaryDto(
+                GroupKey: entry.ConversationId ?? entry.EmailMessageId ?? email.Id,
+                EmailId: email.Id,
+                ConversationId: email.ConversationId,
+                Subject: subject,
+                FromLabel: fromLabel,
+                Snippet: snippet,
+                LastActivity: email.Date,
+                MessageCount: messageCount,
+                PinnedAt: entry.CreatedAt,
+                HasMultipleMessages: messageCount > 1));
+        }
+
+        return summaries;
+    }
+
+    private static string BuildPinnedSnippet(EmailMessage email)
+    {
+        var source = email.Snippet ??
+                     email.TextBody ??
+                     StripMarkup(SanitizeHtml(email.HtmlBody) ?? string.Empty);
+
+        var trimmed = source?.Trim() ?? string.Empty;
+        if (trimmed.Length > 200)
+        {
+            trimmed = $"{trimmed[..200]}…";
+        }
+
+        return trimmed;
+    }
+
+    private static string StripMarkup(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : Regex.Replace(value, "<.*?>", string.Empty);
 
     private static bool TryEnsureTenant(TenantContext tenantContext, out IResult? error)
     {

@@ -383,6 +383,56 @@
                 }
             </section>
 
+            @if (_pinnedThreadSummaries.Count > 0)
+            {
+                <section class="pinned-threads-panel">
+                    <div class="pinned-threads-header">
+                        <div>
+                            <p class="hero-eyebrow mb-1">Pinned</p>
+                            <h3 class="mb-0">Priority threads</h3>
+                        </div>
+                        <span class="text-muted small">@_pinnedThreadSummaries.Count thread@(_pinnedThreadSummaries.Count == 1 ? string.Empty : "s")</span>
+                    </div>
+                    <div class="pinned-threads-stack">
+                        @foreach (var summary in _pinnedThreadSummaries)
+                        {
+                            <div class="pinned-thread-card" @onclick="async () => await OpenPinnedSummaryAsync(summary)">
+                                <div class="pinned-thread-card__stack">
+                                    <span class="stack-indicator @(summary.HasMultipleMessages ? "stack-indicator--multi" : string.Empty)">
+                                        <i class="bi bi-layers"></i>
+                                        @if (summary.HasMultipleMessages)
+                                        {
+                                            <span>@summary.MessageCount</span>
+                                        }
+                                    </span>
+                                </div>
+                                <div class="pinned-thread-card__body">
+                                    <div class="pinned-thread-card__title">@summary.Subject</div>
+                                    <div class="pinned-thread-card__meta">
+                                        <span>@summary.FromLabel</span>
+                                        <span class="mx-1">•</span>
+                                        <span>@FormatDate(summary.LastActivity)</span>
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(summary.Snippet))
+                                    {
+                                        <p class="pinned-thread-card__snippet">@summary.Snippet</p>
+                                    }
+                                </div>
+                                <div class="pinned-thread-card__actions">
+                                    <button type="button"
+                                            class="icon-button"
+                                            title="Unpin"
+                                            @onclick="async () => await UnpinFromSummaryAsync(summary)"
+                                            @onclick:stopPropagation="true">
+                                        <i class="bi bi-pin-angle-fill"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
             <div class="email-list">
                 <Virtualize Items="_orderedEmails" Context="email" ItemSize="140">
                     @{
@@ -392,14 +442,6 @@
                             ? QueryHelpers.AddQueryString($"/emails/{email.Id}", detailQuery)
                             : $"/emails/{email.Id}";
                         var isActive = rowIndex == _activeRowIndex;
-                    }
-                    @if (_pinnedEmails.Count > 0 && rowIndex == 0 && email.IsPinned)
-                    {
-                        <div class="result-group-label">Pinned</div>
-                    }
-                    @if (_pinnedEmails.Count > 0 && rowIndex == _pinnedEmails.Count && !email.IsPinned)
-                    {
-                        <div class="result-group-label">All matches</div>
                     }
                     <a @key="email.Id"
                        href="@emailUrl"
@@ -671,8 +713,7 @@
     private Guid? _activeSavedFilterId;
     private ElementReference _searchInputRef;
     private readonly List<EmailListItemDto> _orderedEmails = new();
-    private List<EmailListItemDto> _pinnedEmails = new();
-    private List<EmailListItemDto> _nonPinnedEmails = new();
+    private readonly List<PinnedEmailSummaryDto> _pinnedThreadSummaries = new();
     private int _activeRowIndex = -1;
     private bool _showPreviewModal;
     private EmailListItemDto? _previewEmail;
@@ -1037,13 +1078,11 @@
                     _usedFullTextSearch = result.Data.UsedFullTextSearch;
                     _fullTextHealthy = result.Data.FullTextHealthy;
                     _errorMessage = "";
-                    _pinnedEmails = _emails.Where(e => e.IsPinned).ToList();
-                    _nonPinnedEmails = _emails.Where(e => !e.IsPinned).ToList();
                     _orderedEmails.Clear();
-                    _orderedEmails.AddRange(_pinnedEmails);
-                    _orderedEmails.AddRange(_nonPinnedEmails);
+                    _orderedEmails.AddRange(_emails.Where(e => !e.IsPinned));
                     _activeRowIndex = -1;
                     UpdateSummaryCards();
+                    await LoadPinnedSummariesAsync();
                     
                     // Set up event listeners for attachment buttons after emails are loaded
                     await JSRuntime.InvokeVoidAsync("attachmentDownload.setupAttachmentButtonListeners");
@@ -1061,6 +1100,38 @@
         finally
         {
             _isLoading = false;
+        }
+    }
+
+    private async Task LoadPinnedSummariesAsync()
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrEmpty(token))
+            {
+                _pinnedThreadSummaries.Clear();
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Get, $"{Navigation.BaseUri}api/v1/emails/pinned");
+            request.Headers.Add("Authorization", $"Bearer {token}");
+            var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                return;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<ApiResponse<List<PinnedEmailSummaryDto>>>();
+            _pinnedThreadSummaries.Clear();
+            if (result?.Success == true && result.Data is not null)
+            {
+                _pinnedThreadSummaries.AddRange(result.Data);
+            }
+        }
+        catch
+        {
+            // Ignore failures fetching pinned summaries
         }
     }
 
@@ -1437,6 +1508,21 @@
         }
     }
 
+    private async Task UnpinFromSummaryAsync(PinnedEmailSummaryDto summary)
+    {
+        await UnpinEmailAsync(summary.EmailId);
+    }
+
+    private async Task OpenPinnedSummaryAsync(PinnedEmailSummaryDto summary)
+    {
+        var detailQuery = BuildDetailQueryParameters();
+        var emailUrl = detailQuery.Count > 0
+            ? QueryHelpers.AddQueryString($"/emails/{summary.EmailId}", detailQuery)
+            : $"/emails/{summary.EmailId}";
+        Navigation.NavigateTo(emailUrl);
+        await Task.CompletedTask;
+    }
+
     private async Task HandleKeyDown(KeyboardEventArgs args)
     {
         if (!_preferences.KeyboardShortcutsEnabled)
@@ -1526,4 +1612,18 @@
     }
 
     private record EmailSummaryCard(string Label, string Value, string? Caption);
+
+    private sealed record PinnedThreadSummary(
+        Guid GroupKey,
+        Guid EmailId,
+        Guid? ConversationId,
+        string Subject,
+        string FromLabel,
+        string Snippet,
+        DateTime LastActivity,
+        int MessageCount,
+        DateTime PinnedAt)
+    {
+        public bool HasMultipleMessages => MessageCount > 1;
+    }
 }

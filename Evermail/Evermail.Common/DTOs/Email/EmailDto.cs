@@ -90,6 +90,18 @@ public record PagedEmailsResponse(
     bool FullTextHealthy = true
 );
 
+public record PinnedEmailSummaryDto(
+    Guid GroupKey,
+    Guid EmailId,
+    Guid? ConversationId,
+    string Subject,
+    string FromLabel,
+    string Snippet,
+    DateTime LastActivity,
+    int MessageCount,
+    DateTime PinnedAt,
+    bool HasMultipleMessages);
+
 public record AttachmentDownloadDto(
     string DownloadUrl,
     string FileName,
