@@ -192,6 +192,7 @@ builder.Services.AddSingleton(sp =>
     return new Azure.Storage.Queues.QueueServiceClient(connectionString);
 });
 builder.Services.AddScoped<IQueueService, QueueService>();
+builder.Services.AddScoped<ITenantEncryptionService, TenantEncryptionService>();
 
 // Add authentication state services for Blazor
 builder.Services.AddScoped<Evermail.WebApp.Services.IAuthenticationStateService, Evermail.WebApp.Services.AuthenticationStateService>();
@@ -293,6 +294,7 @@ api.MapGroup("/upload").MapUploadEndpoints().RequireAuthorization();
 api.MapGroup("/mailboxes").MapMailboxEndpoints().RequireAuthorization();
 api.MapGroup("/emails").MapEmailEndpoints().RequireAuthorization();
 api.MapGroup("/attachments").MapAttachmentEndpoints().RequireAuthorization();
+api.MapGroup("/tenants").MapTenantEndpoints();
 
 // Development-only endpoints (disabled in production)
 if (app.Environment.IsDevelopment())

@@ -44,5 +44,6 @@ public class MailboxUpload
     
     // Navigation
     public Mailbox Mailbox { get; set; } = null!;
+    public MailboxEncryptionState? EncryptionState { get; set; }
 }
 

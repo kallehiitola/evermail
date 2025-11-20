@@ -16,13 +16,14 @@ public class QueueService : IQueueService
         _deletionQueue = queueServiceClient.GetQueueClient(DeletionQueueName);
     }
 
-    public async Task EnqueueMailboxProcessingAsync(Guid mailboxId, Guid mailboxUploadId)
+    public async Task EnqueueMailboxProcessingAsync(Guid mailboxId, Guid mailboxUploadId, Guid mailboxEncryptionStateId)
     {
         await _ingestionQueue.CreateIfNotExistsAsync();
 
         var message = JsonSerializer.Serialize(new MailboxProcessingMessage(
             mailboxId,
             mailboxUploadId,
+            mailboxEncryptionStateId,
             DateTime.UtcNow));
 
         await _ingestionQueue.SendMessageAsync(message);
@@ -43,7 +44,7 @@ public class QueueService : IQueueService
             timeToLive: TimeSpan.FromSeconds(-1));
     }
 
-    private record MailboxProcessingMessage(Guid MailboxId, Guid UploadId, DateTime EnqueuedAt);
+    private record MailboxProcessingMessage(Guid MailboxId, Guid UploadId, Guid EncryptionStateId, DateTime EnqueuedAt);
     private record MailboxDeletionMessage(Guid JobId, Guid MailboxId, DateTime EnqueuedAt);
 }
 
