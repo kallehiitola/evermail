@@ -611,6 +611,8 @@ public string SanitizeHtmlBody(string html)
 
 > **Ingestion note**: `MailboxProcessingService` stores both the `TextBody` and raw `HtmlBody` that MimeKit extracts so the viewer can render the original context. Treat every stored HTML fragment as untrusted input—always run it through the sanitizer above (or an equivalent CSP-safe renderer) before using `MarkupString`, otherwise hostile emails could persistently inject scripts into the UI.
 
+`EmailEndpoints.SanitizeHtml` applies the same allowlist before returning `EmailDetailDto.HtmlBody`, and the Blazor client highlights keywords via `EvermailSearchHighlights`, which walks the DOM and injects `<mark class="search-hit">` spans only after the sanitized markup renders. The highlight helper never concatenates strings into the HTML payload, so existing CSP/XSS guarantees remain intact even when auto-scrolling through matches.
+
 ### File Upload Security
 
 #### .mbox File Validation
