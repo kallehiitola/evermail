@@ -37,5 +37,6 @@ public class Tenant
     public ICollection<Mailbox> Mailboxes { get; set; } = new List<Mailbox>();
     public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
     public ICollection<EmailThread> EmailThreads { get; set; } = new List<EmailThread>();
+    public TenantEncryptionSettings? EncryptionSettings { get; set; }
 }
 

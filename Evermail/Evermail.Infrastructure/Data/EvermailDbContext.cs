@@ -28,6 +28,8 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<TenantEncryptionSettings> TenantEncryptionSettings => Set<TenantEncryptionSettings>();
+    public DbSet<MailboxEncryptionState> MailboxEncryptionStates => Set<MailboxEncryptionState>();
     public DbSet<FullTextSearchResult> FullTextSearchResults => Set<FullTextSearchResult>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -63,6 +65,12 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
 
             modelBuilder.Entity<EmailRecipient>()
                 .HasQueryFilter(r => r.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<TenantEncryptionSettings>()
+                .HasQueryFilter(s => s.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<MailboxEncryptionState>()
+                .HasQueryFilter(es => es.TenantId == _tenantContext.TenantId);
         }
 
         // Tenant
@@ -71,6 +79,25 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasKey(t => t.Id);
             entity.HasIndex(t => t.Slug).IsUnique();
             entity.HasIndex(t => t.StripeCustomerId);
+        });
+
+        modelBuilder.Entity<TenantEncryptionSettings>(entity =>
+        {
+            entity.HasKey(s => s.TenantId);
+            entity.Property(s => s.KeyVaultUri).HasMaxLength(500);
+            entity.Property(s => s.KeyVaultKeyName).HasMaxLength(200);
+            entity.Property(s => s.KeyVaultKeyVersion).HasMaxLength(200);
+            entity.Property(s => s.KeyVaultTenantId).HasMaxLength(64);
+            entity.Property(s => s.ManagedIdentityObjectId).HasMaxLength(100);
+            entity.Property(s => s.EncryptionPhase).HasMaxLength(50);
+            entity.Property(s => s.LastVerificationMessage).HasMaxLength(500);
+            entity.Property(s => s.SecureKeyReleasePolicyHash).HasMaxLength(128);
+            entity.Property(s => s.AttestationProvider).HasMaxLength(128);
+
+            entity.HasOne(s => s.Tenant)
+                .WithOne(t => t.EncryptionSettings)
+                .HasForeignKey<TenantEncryptionSettings>(s => s.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ApplicationUser (extends IdentityUser)
@@ -119,6 +146,32 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasOne(mu => mu.Mailbox)
                 .WithMany(m => m.Uploads)
                 .HasForeignKey(mu => mu.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MailboxEncryptionState>(entity =>
+        {
+            entity.HasKey(es => es.Id);
+            entity.HasIndex(es => es.MailboxUploadId).IsUnique();
+            entity.HasIndex(es => es.MailboxId);
+            entity.HasIndex(es => new { es.TenantId, es.CreatedAt });
+
+            entity.Property(es => es.Algorithm).HasMaxLength(50);
+            entity.Property(es => es.DekVersion).HasMaxLength(100);
+            entity.Property(es => es.TenantKeyVersion).HasMaxLength(100);
+            entity.Property(es => es.LastKeyReleaseComponent).HasMaxLength(200);
+            entity.Property(es => es.LastKeyReleaseLedgerEntryId).HasMaxLength(200);
+            entity.Property(es => es.AttestationPolicyId).HasMaxLength(200);
+            entity.Property(es => es.KeyVaultKeyVersion).HasMaxLength(200);
+
+            entity.HasOne(es => es.Mailbox)
+                .WithMany()
+                .HasForeignKey(es => es.MailboxId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            entity.HasOne(es => es.MailboxUpload)
+                .WithOne(mu => mu.EncryptionState)
+                .HasForeignKey<MailboxEncryptionState>(es => es.MailboxUploadId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

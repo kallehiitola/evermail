@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-19  
+> **Last Updated**: 2025-11-20  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -241,6 +241,13 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-20 - BYOK Admin Surface & Key Lifecycle
+- 🗝️ Shipped the `/admin/encryption` Blazor page so tenant admins (Admin/SuperAdmin roles) can register their Azure Key Vault URI/key name, run live verification tests, and view the last attestation check without leaving the app.
+- 🧰 Added a repo-tracked helper script (`scripts/tenant-keyvault-onboarding.ps1`) that provisions a Premium Key Vault, creates the RSA-HSM TMK, grants the Evermail managed identity the minimum release permissions, and prints the values the UI expects.
+- 🔄 Extended the ingestion pipeline: every upload now mints a per-mailbox `MailboxEncryptionState`, the queue payload carries that ID, and the worker records key-release telemetry so DEK usage is auditable ahead of Phase 2.
+- 🔐 Replaced the placeholder `/api/v1/tenants/encryption/test` endpoint with a real Azure Key Vault call via `DefaultAzureCredential`, storing the key version + diagnostic note on success/failure.
+- 📘 Updated `Documentation/Security.md` with Phase 1 guardrails (PIM requirements, Log Analytics alerts, break-glass policy) and refreshed the implementation plan to reflect the completed work plus the next engineering focus areas (attestation stub, deterministic token encryption, ledger POC).
+
 ### 2025-11-19 - Zero-Trust Content Protection
 - 🔐 Captured the customer-managed key + envelope encryption model in `Documentation/Security.md`, covering per-mailbox DEKs, tenant BYOK onboarding, confidential compute attestation, deterministic encrypted search tokens, and audit/alerting requirements.
 - 🧱 Updated `Documentation/Architecture.md` with a dedicated “Confidential Content Protection Layer” so the system diagram now explains how ingestion/search/AI workloads run inside Azure Confidential Container Apps and why wrapped DEKs keep admins out of tenant mail.
@@ -305,12 +312,11 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Next Steps
 
-1. **Lifecycle QA & automation** - Add integration tests for rename/re-import/delete flows and worker queue handlers.
-2. **Microsoft OAuth Credentials** - Complete OAuth setup
-3. **Email Parsing Enhancements** - Expand attachment coverage (inline images, large binaries) + add metrics
-4. **Blob Storage Integration** - Harden upload JS (resume/cancel, chunk retries)
-5. **Email Search** - Full-text search implementation
-6. **Stripe Integration** - Payment processing setup
+1. **Confidential attestation stub** – Build the MAA/SKR handshake locally so we can validate policies before the confidential container environment lands.
+2. **Deterministic search tokens** – Wire AES-SIV tokenization (with tenant salt) into the ingestion/search services while Phase 1 still runs in non-TEE containers.
+3. **Immutable key release ledger** – Stand up Azure Confidential Ledger, pipe Key Vault diagnostic events, and surface references in the admin UI.
+4. **Lifecycle QA & automation** – Expand integration coverage for rename/re-import/delete + new encryption workflows.
+5. **Stripe integration** – Payment setup + plan gating (blocked on security/compliance messaging).
 
 ---
 

@@ -7,6 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Azure.Identity" Version="1.14.2" />
+    <PackageReference Include="Azure.Security.KeyVault.Keys" Version="4.7.0" />
     <PackageReference Include="Azure.Storage.Blobs" Version="12.26.0" />
     <PackageReference Include="Azure.Storage.Queues" Version="12.24.0" />
     <PackageReference Include="MimeKit" Version="4.8.0" />
@@ -23,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Evermail.Common\Evermail.Common.csproj" />
     <ProjectReference Include="..\Evermail.Domain\Evermail.Domain.csproj" />
   </ItemGroup>
 

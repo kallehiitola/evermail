@@ -451,6 +451,13 @@ await _emailStore.SaveAsync(ciphertextBody, token, ...);
 
 This model preserves usability while ensuring that legitimately paranoid customers can trust the platform: even Evermail operators cannot read their archives without the tenant-controlled keys and a verified confidential workload.
 
+#### Operational guardrails (Phase 1)
+- **Least privilege identity** – The Azure AD object that can call `ReleaseKey` is in its own PIM role (“Evermail Key Release”). Elevation requires MFA + approval; every activation is logged.
+- **Mandatory logging** – Key Vault diagnostic settings stream `AuditEvent` → Log Analytics. Saved KQL alert (`KeyReleaseSpike`) fires if `count(ReleaseKey) > 5` in 10 minutes for the same tenant.
+- **Repo-tracked onboarding script** – `scripts/tenant-keyvault-onboarding.ps1` provisions the Key Vault, creates the RSA-HSM TMK, and grants only the minimum permissions. Tenants can review/modify the script before running.
+- **Admin UI** – `/admin/encryption` (Blazor) writes into `/api/v1/tenants/encryption`. Only Admin/SuperAdmin roles can access it. Every change writes to `TenantEncryptionSettings.LastVerifiedAt` + audit log.
+- **Break-glass doc** – For Phase 1 we keep a manual decryption path, but invoking it requires: (1) customer ticket, (2) CTO approval, (3) after-action note in `Documentation/Security.md#Incident Response`. This policy is linked from the admin UI so that tenants understand the current safeguard.
+
 ## Input Validation & Sanitization
 
 ### API Input Validation
@@ -791,7 +798,7 @@ az network front-door waf-policy create \
 
 ---
 
-**Last Updated**: 2025-11-11  
+**Last Updated**: 2025-11-20  
 **Security Contact**: security@evermail.com  
 **Next Security Audit**: Quarterly
 

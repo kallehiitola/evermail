@@ -192,6 +192,7 @@ public static class UploadEndpoints
         CompleteUploadRequest request,
         EvermailDbContext context,
         IQueueService queueService,
+        IMailboxEncryptionStateService encryptionStateService,
         TenantContext tenantContext)
     {
         // Validate tenant is authenticated
@@ -243,8 +244,14 @@ public static class UploadEndpoints
 
         await context.SaveChangesAsync();
 
+        var encryptionState = await encryptionStateService.CreateAsync(
+            tenantContext.TenantId,
+            mailbox.Id,
+            upload.Id,
+            tenantContext.UserId);
+
         // Send message to queue for background processing
-        await queueService.EnqueueMailboxProcessingAsync(mailbox.Id, upload.Id);
+        await queueService.EnqueueMailboxProcessingAsync(mailbox.Id, upload.Id, encryptionState.Id);
         
         return Results.Ok(new ApiResponse<CompleteUploadResponse>(
             Success: true,

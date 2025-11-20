@@ -111,11 +111,15 @@ public class Worker : BackgroundService
     {
         Guid mailboxId = Guid.Empty;
         Guid uploadId = Guid.Empty;
+        Guid encryptionStateId = Guid.Empty;
 
         try
         {
             var queueData = JsonSerializer.Deserialize<MailboxQueueMessage>(message.MessageText);
-            if (queueData == null || queueData.MailboxId == Guid.Empty || queueData.UploadId == Guid.Empty)
+            if (queueData == null ||
+                queueData.MailboxId == Guid.Empty ||
+                queueData.UploadId == Guid.Empty ||
+                queueData.EncryptionStateId == Guid.Empty)
             {
                 _logger.LogWarning("Invalid ingestion queue message: {MessageText}", message.MessageText);
                 await _ingestionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
@@ -124,6 +128,7 @@ public class Worker : BackgroundService
 
             mailboxId = queueData.MailboxId;
             uploadId = queueData.UploadId;
+            encryptionStateId = queueData.EncryptionStateId;
             _logger.LogInformation(
                 "Processing mailbox {MailboxId} upload {UploadId} (enqueued {EnqueuedAt:O})",
                 mailboxId,
@@ -133,7 +138,7 @@ public class Worker : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var processingService = scope.ServiceProvider.GetRequiredService<MailboxProcessingService>();
 
-            await processingService.ProcessMailboxAsync(mailboxId, uploadId, cancellationToken);
+            await processingService.ProcessMailboxAsync(mailboxId, uploadId, encryptionStateId, cancellationToken);
 
             await _ingestionQueue.DeleteMessageAsync(message.MessageId, message.PopReceipt, cancellationToken);
 
@@ -231,6 +236,6 @@ public class Worker : BackgroundService
         }
     }
 
-    private record MailboxQueueMessage(Guid MailboxId, Guid UploadId, DateTime EnqueuedAt);
+    private record MailboxQueueMessage(Guid MailboxId, Guid UploadId, Guid EncryptionStateId, DateTime EnqueuedAt);
     private record MailboxDeletionMessage(Guid JobId, Guid MailboxId, DateTime EnqueuedAt);
 }

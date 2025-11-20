@@ -19,22 +19,26 @@ public class MailboxProcessingService
     private readonly EvermailDbContext _context;
     private readonly BlobServiceClient _blobServiceClient;
     private readonly ILogger<MailboxProcessingService> _logger;
+    private readonly IMailboxEncryptionStateService _encryptionStateService;
     private const string ContainerName = "mailbox-archives";
     private const int BatchSize = 500;
 
     public MailboxProcessingService(
         EvermailDbContext context,
         BlobServiceClient blobServiceClient,
-        ILogger<MailboxProcessingService> logger)
+        ILogger<MailboxProcessingService> logger,
+        IMailboxEncryptionStateService encryptionStateService)
     {
         _context = context;
         _blobServiceClient = blobServiceClient;
         _logger = logger;
+        _encryptionStateService = encryptionStateService;
     }
 
     public async Task ProcessMailboxAsync(
         Guid mailboxId,
         Guid mailboxUploadId,
+        Guid? mailboxEncryptionStateId = null,
         CancellationToken cancellationToken = default)
     {
         _logger.LogInformation(
@@ -129,6 +133,14 @@ public class MailboxProcessingService
             upload.FailedEmails = mailbox.FailedEmails;
 
             await _context.SaveChangesAsync(cancellationToken);
+
+            if (mailboxEncryptionStateId.HasValue)
+            {
+                await _encryptionStateService.RecordKeyReleaseAsync(
+                    mailboxEncryptionStateId.Value,
+                    "ingestion-worker",
+                    cancellationToken);
+            }
 
             _logger.LogInformation(
                 "Completed processing mailbox {MailboxId}: {Total} emails processed, {Failed} failed",
