@@ -12,6 +12,7 @@
 **What’s done**
 - `TenantEncryptionSettings` + `MailboxEncryptionState` entities, EF configuration, migrations, and REST endpoints under `/api/v1/tenants/encryption` are live (Phase 1 schema/API).
 - Documentation, security white paper, and marketing draft updated to reflect the zero-trust roadmap.
+- Guided registration: first user auto-promoted to tenant admin, `/admin/encryption?onboarding=1` wizard surfaced after signup, and dashboard checklist/alerts show remaining steps (key connection, mailbox upload).
 
 **Done on 20 Nov**
 - Admin encryption UI (`/admin/encryption`) and Key Vault onboarding script (`scripts/tenant-keyvault-onboarding.ps1`).

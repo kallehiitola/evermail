@@ -73,6 +73,9 @@ public static class AuthEndpoints
         // Add to User role
         await userManager.AddToRoleAsync(user, "User");
 
+        // Promote first tenant user to Admin automatically (guarantees at least one admin)
+        await PromoteFirstAdminAsync(context, userManager, user);
+
         // Generate token pair (access token + refresh token)
         var roles = await userManager.GetRolesAsync(user);
         var ipAddress = httpContext.Connection.RemoteIpAddress?.ToString();
@@ -269,6 +272,33 @@ public static class AuthEndpoints
             .Replace(" ", "-")
             .Replace("'", "")
             .Trim();
+    }
+
+    private static async Task PromoteFirstAdminAsync(
+        EvermailDbContext context,
+        UserManager<ApplicationUser> userManager,
+        ApplicationUser user,
+        CancellationToken cancellationToken = default)
+    {
+        var adminRoleId = await context.Roles
+            .Where(r => r.Name == "Admin")
+            .Select(r => r.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (adminRoleId == Guid.Empty)
+        {
+            return;
+        }
+
+        var adminExists = await (from ur in context.UserRoles
+                                 join u in context.Users on ur.UserId equals u.Id
+                                 where ur.RoleId == adminRoleId && u.TenantId == user.TenantId
+                                 select ur).AnyAsync(cancellationToken);
+
+        if (!adminExists)
+        {
+            await userManager.AddToRoleAsync(user, "Admin");
+        }
     }
 }
 

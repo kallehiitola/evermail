@@ -157,6 +157,13 @@
                                     <i class="bi bi-tools" aria-hidden="true"></i> Dev: Admin Roles
                                 </NavLink>
                             </div>
+                            <AuthorizeView Roles="SuperAdmin" Context="superAdminContext">
+                                <div class="nav-item px-3 nav-item--sub">
+                                    <NavLink class="nav-link nav-link--sub" href="dev/tenant-manager">
+                                        <i class="bi bi-people" aria-hidden="true"></i> Dev: Tenant Manager
+                                    </NavLink>
+                                </div>
+                            </AuthorizeView>
                             <div class="nav-item px-3 nav-item--sub">
                                 <NavLink class="nav-link nav-link--sub" href="dev/auth-status">
                                     <i class="bi bi-shield-check" aria-hidden="true"></i> Dev: Auth Status

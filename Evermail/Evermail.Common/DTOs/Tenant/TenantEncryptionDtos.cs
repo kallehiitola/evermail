@@ -53,4 +53,9 @@ public record TenantEncryptionTestResultDto(
     string Message,
     DateTime Timestamp);
 
+public record TenantOnboardingStatusDto(
+    bool HasAdmin,
+    bool EncryptionConfigured,
+    bool HasMailbox);
+
 

@@ -244,8 +244,8 @@ public async Task<string> GetAttachmentDownloadUrlAsync(Guid attachmentId)
 
 **Roles**:
 - `User`: Standard user (read/write own data)
-- `Admin`: Tenant admin (manage users, view billing)
-- `SuperAdmin`: Platform admin (view all tenants, system config)
+- `Admin`: Tenant admin (manage users, view billing, configure BYOK). The very first user created for a tenant is promoted to `Admin` automatically so every tenant starts with at least one administrator. Additional admins can be added/removed from `/settings/users`.
+- `SuperAdmin`: Platform admin (view all tenants, system config, AdminApp access). Only SuperAdmins can reach the standalone AdminApp; tenant admins are limited to the in-tenant Blazor admin pages.
 
 **Authorization**:
 ```csharp
