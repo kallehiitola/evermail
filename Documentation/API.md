@@ -443,10 +443,29 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
           "Subject",
           "Body"
         ],
+        "matchSources": [
+          "Subject",
+          "TextBody"
+        ],
+        "matchedTerms": [
+          "invoice",
+          "payment"
+        ],
+        "snippetOffset": 128,
+        "snippetLength": 160,
         "hasAttachments": true,
         "attachmentCount": 1,
+        "attachmentPreviews": [
+          {
+            "id": "fd0a21c5-1815-4c9d-a8f6-4e34cd0f57e8",
+            "fileName": "invoice-12345.pdf",
+            "sizeBytes": 102400
+          }
+        ],
         "isRead": false,
         "firstAttachmentId": "fd0a21c5-1815-4c9d-a8f6-4e34cd0f57e8",
+        "isPinned": false,
+        "pinnedAt": null,
         "rank": 765,
         "conversationId": "0b1a1b2c-4567-890a-bcde-ff1122334455",
         "threadSize": 7,
@@ -461,7 +480,14 @@ GET /emails/search?q="invoice NEAR payment"&hasAttachments=true&stopWords=the,an
 }
 ```
 
-When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`. The response includes the raw `rank` value returned by SQL Server so clients can sort by relevance, plus lightweight thread metadata (`conversationId`, `threadSize`, `threadDepth`) so the UI can cluster or indent results. `matchFields` lists which fields produced a hit so the UI can show “Subject match” pills, and `highlightedSnippet` contains safe HTML (`<mark class="search-hit">`) for the first matching window within the email body/subject. Use the optional `stopWords` parameter to exclude filler terms per request, and turn on `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)` searches (for example, `plan` matches `planned`, `planning`, etc.). The default sort order switches to `rank desc` whenever `q` is present, but you can still override `sortBy`/`sortOrder`.
+When `q` is provided the API issues a SQL Server `CONTAINSTABLE` query across `Subject`, `TextBody`, `HtmlBody`, `RecipientsSearch`, `FromName`, and `FromAddress`. The response still exposes the raw `rank` value for telemetry and sorting, but the UI relies on `matchFields`, `matchSources`, and `matchedTerms` to explain why a row surfaced (“Matched in Subject + Body”). `snippetOffset`/`snippetLength` point to the source window (roughly 160 characters) so highlight navigators can jump directly to the span, and `highlightedSnippet` contains sanitized HTML (`<mark class="search-hit">`). `attachmentPreviews` lists up to 3 attachments (filename/id/size) so inline pills can render without fetching full detail. `isPinned`/`pinnedAt` tell the UI whether this message/thread is favorited; pinned matches are grouped at the top but remain tenant-scoped. Use `stopWords` to drop filler terms per request, and `useInflectionalForms=true` to expand each token into `FORMSOF(INFLECTIONAL, ...)`. Default sort switches to `rank desc` when `q` is present, but you can still override `sortBy`/`sortOrder`.
+
+Key response fields:
+- `matchFields` vs `matchSources`: the first describes which logical columns satisfied the query (Subject, Body, Sender, Recipients), while the second lists the concrete source (TextBody, HtmlBody, Attachment filename, etc.) so the client can render friendly chips (“Matched in subject + attachment”).
+- `snippetOffset`/`snippetLength`: allow the detail view to scroll to the exact hit when `autoScrollToKeyword` is enabled. Even though SQL Server doesn’t emit offsets, the backend computes them from the snippet builder so navigation stays deterministic.
+- `highlightedSnippet`: sanitized/encoded HTML that already contains `<mark class="search-hit">` spans. The cards reuse it verbatim while the plain `snippet` field is there for text-only surfaces.
+- `attachmentPreviews`: up to three attachment IDs + filenames + sizes so the card layout can show inline download pills. Full attachment metadata remains on the detail endpoint.
+- `isPinned`/`pinnedAt`: drive the “Pinned” section at the top of the results. Pins are scoped to the current tenant/user and respect multi-tenant filters automatically.
 
 ### GET /emails/{id}
 Get full email details.
@@ -513,6 +539,89 @@ Every email now returns its thread GUID + depth, letting clients prefetch adjace
 between replies. Envelope metadata (Reply-To, Sender, Return-Path, ListId, Thread-Topic, Importance,
 Priority, Categories) mirrors common Outlook/Gmail headers so downstream automation can plug in
 without re-parsing raw MIME.
+
+### GET /emails/saved-filters
+Return the caller’s reusable search filters so the UI can render chips above the results list.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "a4e6c131-7c03-4eb0-8b18-1ce7a9ed6e1f",
+      "name": "From Alice (30 days)",
+      "definition": {
+        "from": "alice@acme.com",
+        "dateFrom": "2025-10-20",
+        "hasAttachments": true
+      },
+      "orderIndex": 0,
+      "isFavorite": true,
+      "createdAt": "2025-11-19T08:30:00Z",
+      "updatedAt": "2025-11-20T07:02:00Z"
+    }
+  ]
+}
+```
+
+### POST /emails/saved-filters
+Create a new saved filter. Definition payload mirrors `GET /emails/search` query parameters.
+
+**Request Body**:
+```json
+{
+  "name": "Invoices last quarter",
+  "definition": {
+    "q": "\"invoice\" NEAR payment",
+    "dateFrom": "2025-09-01",
+    "dateTo": "2025-11-30",
+    "hasAttachments": true
+  },
+  "orderIndex": 2,
+  "isFavorite": false
+}
+```
+
+**Response (201 Created)** returns the saved filter resource (same shape as GET).
+
+### PUT /emails/saved-filters/{id}
+Update name, definition, order, or favorite state.
+
+**Request Body** mirrors POST; fields you omit remain unchanged.
+
+**Response (200 OK)** returns the updated resource.
+
+### DELETE /emails/saved-filters/{id}
+Delete a saved filter. Response is `204 No Content`.
+
+### POST /emails/{id}/pin
+Pin a specific email so it floats to the “Pinned” block whenever it matches a query. Pinned state is
+per-user, per-tenant.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "emailId": "guid",
+    "conversationId": "guid",
+    "isPinned": true,
+    "pinnedAt": "2025-11-20T09:30:00Z"
+  }
+}
+```
+
+### DELETE /emails/{id}/pin
+Unpin a previously pinned email. Response: `204 No Content`.
+
+### POST /emails/conversations/{conversationId}/pin
+Pin an entire conversation/thread so any message within it floats to the pinned block.
+
+**Response (200 OK)** mirrors the single-email pin response but only includes `conversationId`.
+
+### DELETE /emails/conversations/{conversationId}/pin
+Remove the pin for the given conversation. Response: `204 No Content`.
 
 ### PATCH /emails/{id}/read
 Mark email as read/unread.
@@ -605,6 +714,37 @@ Enable two-factor authentication.
   }
 }
 ```
+
+### GET /users/me/settings/display
+Fetch display/search preferences persisted in `UserDisplaySettings`.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "dateFormat": "MMM dd, yyyy",
+    "resultDensity": "Cozy",
+    "autoScrollToKeyword": true,
+    "matchNavigatorEnabled": true,
+    "keyboardShortcutsEnabled": true
+  }
+}
+```
+
+### PUT /users/me/settings/display
+Update any subset of display preferences. Omitted fields remain unchanged.
+
+**Request Body**:
+```json
+{
+  "dateFormat": "dd.MM.yyyy",
+  "resultDensity": "Compact",
+  "autoScrollToKeyword": false
+}
+```
+
+**Response (200 OK)** mirrors GET and returns the persisted values.
 
 ### POST /users/me/verify-2fa
 Verify 2FA setup.
@@ -949,7 +1089,7 @@ if (result.success) {
 
 ---
 
-**Last Updated**: 2025-11-11  
+**Last Updated**: 2025-11-20  
 **API Version**: v1  
 **Support**: api@evermail.com
 
