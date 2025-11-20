@@ -235,10 +235,85 @@ ALTER TABLE Mailboxes
         FOREIGN KEY (LatestUploadId) REFERENCES MailboxUploads(Id);
 ```
 
+### TenantEncryptionSettings
+
+Captures per-tenant customer-managed key (CMK) configuration, Azure Key Vault linkage, and secure key release setup.
+
+```sql
+CREATE TABLE TenantEncryptionSettings (
+    TenantId UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+    
+    KeyVaultUri NVARCHAR(500) NULL,
+    KeyVaultKeyName NVARCHAR(200) NULL,
+    KeyVaultKeyVersion NVARCHAR(200) NULL,
+    KeyVaultTenantId NVARCHAR(64) NULL,
+    ManagedIdentityObjectId NVARCHAR(100) NULL,
+    
+    EncryptionPhase NVARCHAR(50) NOT NULL DEFAULT 'NotConfigured', -- NotConfigured, WrapOnly, BYOK, Sealed
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 NULL,
+    UpdatedByUserId UNIQUEIDENTIFIER NULL,
+    
+    LastVerifiedAt DATETIME2 NULL,
+    LastVerificationMessage NVARCHAR(500) NULL,
+    
+    IsSecureKeyReleaseConfigured BIT NOT NULL DEFAULT 0,
+    SecureKeyReleaseConfiguredAt DATETIME2 NULL,
+    SecureKeyReleaseConfiguredByUserId UNIQUEIDENTIFIER NULL,
+    SecureKeyReleasePolicyJson NVARCHAR(MAX) NULL,
+    SecureKeyReleasePolicyHash NVARCHAR(128) NULL,
+    AttestationProvider NVARCHAR(128) NULL,
+    
+    CONSTRAINT FK_TenantEncryptionSettings_Tenant
+        FOREIGN KEY (TenantId) REFERENCES Tenants(Id) ON DELETE CASCADE
+);
+```
+
+> This table uses a 1:1 relationship with `Tenants` so deleting a tenant automatically removes its encryption metadata.
+
+### MailboxEncryptionStates
+
+Immutable audit trail that records how each mailbox upload was encrypted (wrapped DEKs, attestation info, secure key release events). There is exactly one row per `MailboxUpload`.
+
+```sql
+CREATE TABLE MailboxEncryptionStates (
+    Id UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    TenantId UNIQUEIDENTIFIER NOT NULL,
+    MailboxId UNIQUEIDENTIFIER NOT NULL,
+    MailboxUploadId UNIQUEIDENTIFIER NOT NULL,
+    
+    Algorithm NVARCHAR(50) NOT NULL DEFAULT 'AES-256-GCM',
+    WrappedDek NVARCHAR(MAX) NOT NULL,        -- base64 of the wrapped DEK envelope
+    DekVersion NVARCHAR(100) NULL,
+    TenantKeyVersion NVARCHAR(100) NULL,
+    
+    CreatedByUserId UNIQUEIDENTIFIER NOT NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETUTCDATE(),
+    LastKeyReleaseAt DATETIME2 NULL,
+    LastKeyReleaseComponent NVARCHAR(200) NULL,
+    LastKeyReleaseLedgerEntryId NVARCHAR(200) NULL,
+    KeyVaultKeyVersion NVARCHAR(200) NULL,
+    AttestationPolicyId NVARCHAR(200) NULL,
+    
+    CONSTRAINT FK_MailboxEncryptionStates_Mailbox
+        FOREIGN KEY (MailboxId) REFERENCES Mailboxes(Id) ON DELETE NO ACTION,
+    CONSTRAINT FK_MailboxEncryptionStates_MailboxUpload
+        FOREIGN KEY (MailboxUploadId) REFERENCES MailboxUploads(Id) ON DELETE CASCADE,
+    
+    UNIQUE (MailboxUploadId),
+    INDEX IX_MailboxEncryptionStates_MailboxId (MailboxId),
+    INDEX IX_MailboxEncryptionStates_Tenant_CreatedAt (TenantId, CreatedAt)
+);
+```
+
+> Deleting a `MailboxUpload` cascades to its encryption state directly. Deleting the parent mailbox cascades through `MailboxUploads` (which then cascade to `MailboxEncryptionStates`), avoiding SQL Server's "multiple cascade paths" restriction while still preventing orphaned key material. Tenant scoping is enforced at the application layer plus the composite index on `(TenantId, CreatedAt)`.
+
 ### EmailMessages
 Core email data extracted from .mbox files. As of November 2025 the table also captures
-conversation metadata, additional SMTP headers, and a flattened recipient search column so
-threading + advanced queries can run without JSON parsing.
+conversation metadata, additional SMTP headers, a flattened recipient search column, and a persisted
+`SearchVector` column that concatenates the most useful pieces of text (subject, sender, recipients,
+plain text body, stripped HTML body). SQL Server Full-Text Search is scoped to this single column so
+boolean operators like `AND` can match across fields (“bob” in the sender, “order” in the subject).
 
 ```sql
 CREATE TABLE EmailMessages (
@@ -275,7 +350,8 @@ CREATE TABLE EmailMessages (
     CcNames NVARCHAR(MAX) NULL,
     BccAddresses NVARCHAR(MAX) NULL,
     BccNames NVARCHAR(MAX) NULL,
-    RecipientsSearch NVARCHAR(2000) NULL, -- Flattened "to/cc/bcc/reply-to" blob for FTS
+    RecipientsSearch NVARCHAR(2000) NULL, -- Flattened "to/cc/bcc/reply-to" blob for UI filters
+    SearchVector NVARCHAR(MAX) NOT NULL DEFAULT '', -- Subject + sender + recipients + bodies (FTS source)
     
     -- Date
     Date DATETIME2 NOT NULL,
@@ -317,11 +393,13 @@ CREATE TABLE EmailMessages (
 -- Full-Text Search Catalog
 CREATE FULLTEXT CATALOG EmailSearchCatalog AS DEFAULT;
 
-CREATE FULLTEXT INDEX ON EmailMessages(Subject, TextBody, HtmlBody, RecipientsSearch, FromName, FromAddress)
+CREATE FULLTEXT INDEX ON EmailMessages(SearchVector)
     KEY INDEX PK__EmailMessages
     ON EmailSearchCatalog
     WITH STOPLIST = SYSTEM;
 ```
+
+> **Operational requirement**: SQL Server **must** have the Full-Text Search feature installed. The `20251120_EnsureEmailFullTextCatalog` migration verifies `FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') = 1`, enables full-text at the database level if needed, creates the `EmailSearchCatalog` (as the default catalog), and rebuilds the `EmailMessages` index. The follow-up migration (`20251120_AddEmailSearchVector`) backfills the persisted `SearchVector` column and recreates the catalog so boolean queries operate on the combined document text. Both migrations throw if the feature is missing so deployments fail fast instead of silently skipping index creation.
 
 **Query Filter for Multi-Tenancy (EF Core)**:
 ```csharp

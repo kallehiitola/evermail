@@ -72,7 +72,9 @@ public record PagedEmailsResponse(
     int TotalCount,
     int Page,
     int PageSize,
-    double? QueryTime = null
+    double? QueryTime = null,
+    bool UsedFullTextSearch = false,
+    bool FullTextHealthy = true
 );
 
 public record AttachmentDownloadDto(

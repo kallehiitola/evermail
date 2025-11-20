@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Azure.Storage.Blobs;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
@@ -324,6 +325,14 @@ public class MailboxProcessingService
             recipientsSearchTokens.Add(senderMailbox!.Name!);
         }
 
+        var searchVector = BuildSearchVector(
+            mimeMessage.Subject,
+            fromAddress,
+            fromName,
+            recipientsSearchTokens,
+            textBody,
+            htmlBody);
+
         return new EmailMessage
         {
             Id = Guid.NewGuid(),
@@ -357,6 +366,7 @@ public class MailboxProcessingService
             BccAddresses = JsonSerializer.Serialize(bccAddresses),
             BccNames = JsonSerializer.Serialize(bccNames),
             RecipientsSearch = string.Join(' ', recipientsSearchTokens.Where(t => !string.IsNullOrWhiteSpace(t))),
+            SearchVector = searchVector,
 
             Snippet = snippet,
             TextBody = textBody,
@@ -369,6 +379,78 @@ public class MailboxProcessingService
             MailboxUploadId = upload.Id
         };
     }
+
+    private const int MaxSearchVectorLength = 64000;
+    private static readonly Regex HtmlTagRegex = new("<.*?>", RegexOptions.Compiled);
+
+    private static string BuildSearchVector(
+        string? subject,
+        string fromAddress,
+        string? fromName,
+        IEnumerable<string> recipientTokens,
+        string textBody,
+        string htmlBody)
+    {
+        var builder = new StringBuilder();
+
+        AppendWithLimit(builder, subject);
+        AppendWithLimit(builder, fromName);
+        AppendWithLimit(builder, fromAddress);
+
+        foreach (var token in recipientTokens)
+        {
+            AppendWithLimit(builder, token);
+        }
+
+        AppendWithLimit(builder, textBody);
+
+        if (!string.IsNullOrWhiteSpace(htmlBody))
+        {
+            var stripped = StripHtmlToText(htmlBody);
+            AppendWithLimit(builder, stripped);
+        }
+
+        return builder.ToString();
+    }
+
+    private static void AppendWithLimit(StringBuilder builder, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || builder.Length >= MaxSearchVectorLength)
+        {
+            return;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return;
+        }
+
+        if (builder.Length > 0)
+        {
+            builder.Append(' ');
+        }
+
+        var remaining = MaxSearchVectorLength - builder.Length;
+        if (remaining <= 0)
+        {
+            return;
+        }
+
+        if (trimmed.Length > remaining)
+        {
+            builder.Append(trimmed.AsSpan(0, remaining));
+        }
+        else
+        {
+            builder.Append(trimmed);
+        }
+    }
+
+    private static string StripHtmlToText(string? html) =>
+        string.IsNullOrWhiteSpace(html)
+            ? string.Empty
+            : HtmlTagRegex.Replace(html, " ");
 
     private async Task ProcessAttachmentsAsync(
         MimeMessage mimeMessage,

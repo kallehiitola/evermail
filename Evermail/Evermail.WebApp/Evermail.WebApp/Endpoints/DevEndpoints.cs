@@ -1,11 +1,13 @@
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Auth;
 using Evermail.Domain.Entities;
+using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
 using Evermail.WebApp.Configuration;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -26,6 +28,8 @@ public static class DevEndpoints
         group.MapGet("/user-roles/{email}", GetUserRolesAsync)
             .RequireAuthorization();
         group.MapGet("/test-keyvault", TestKeyVaultAccessAsync)
+            .RequireAuthorization();
+        group.MapGet("/fulltext-status", GetFullTextStatusAsync)
             .RequireAuthorization();
         group.MapGet("/ai-auth", GenerateAiAuthTokenAsync)
             .AllowAnonymous();
@@ -277,6 +281,85 @@ public static class DevEndpoints
         ));
     }
 
+    private static async Task<IResult> GetFullTextStatusAsync(
+        EvermailDbContext context,
+        IWebHostEnvironment env,
+        bool reset = false)
+    {
+        if (!env.IsDevelopment())
+        {
+            return Results.NotFound();
+        }
+
+        if (reset)
+        {
+            EmailEndpoints.ClearFullTextCircuitBreaker();
+        }
+
+        var installed = await context.Database
+            .SqlQueryRaw<int>("SELECT FULLTEXTSERVICEPROPERTY('IsFullTextInstalled')")
+            .AsAsyncEnumerable()
+            .FirstAsync();
+
+        var dbEnabled = await context.Database
+            .SqlQueryRaw<int>("SELECT is_fulltext_enabled FROM sys.databases WHERE name = DB_NAME()")
+            .AsAsyncEnumerable()
+            .FirstAsync();
+
+        var catalogs = await context.Database
+            .SqlQueryRaw<string>("SELECT name FROM sys.fulltext_catalogs ORDER BY name")
+            .ToListAsync();
+
+        var indexes = await context.Database
+            .SqlQueryRaw<string>(
+                """
+                SELECT o.name
+                FROM sys.fulltext_indexes fi
+                JOIN sys.objects o ON fi.object_id = o.object_id
+                ORDER BY o.name
+                """)
+            .ToListAsync();
+
+        var population = await context.Database
+            .SqlQueryRaw<FullTextPopulationRow>(
+                """
+                SELECT TOP (5)
+                    catalog_id AS CatalogId,
+                    table_id AS TableId,
+                    status AS Status,
+                    start_time AS StartTime,
+                    completion_time AS CompletionTime
+                FROM sys.dm_fts_index_population
+                ORDER BY start_time DESC
+                """)
+            .ToListAsync();
+
+        var populationInfo = population.Select(p => new
+        {
+            p.CatalogId,
+            p.TableId,
+            p.Status,
+            StatusDescription = DescribePopulationStatus(p.Status),
+            p.StartTime,
+            p.CompletionTime
+        }).ToList();
+
+        return Results.Ok(new ApiResponse<object>(
+            Success: true,
+            Data: new
+            {
+                ServiceInstalled = installed == 1,
+                DatabaseEnabled = dbEnabled == 1,
+                Catalogs = catalogs,
+                Indexes = indexes,
+                Population = populationInfo,
+                CircuitBreakerOpen = EmailEndpoints.IsFullTextCircuitOpen,
+                CircuitReset = reset,
+                Timestamp = DateTime.UtcNow
+            }
+        ));
+    }
+
     private static async Task<IResult> GenerateAiAuthTokenAsync(
         HttpContext httpContext,
         IWebHostEnvironment env,
@@ -356,5 +439,22 @@ public static class DevEndpoints
 
         return values.Any(v => string.Equals(v, triggerValue, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static string DescribePopulationStatus(int status) => status switch
+    {
+        0 => "Idle",
+        1 => "Full population in progress",
+        2 => "Paused",
+        3 => "Throttled",
+        4 => "Recovering",
+        _ => $"Status {status}"
+    };
+
+    private sealed record FullTextPopulationRow(
+        int CatalogId,
+        int TableId,
+        int Status,
+        DateTime? StartTime,
+        DateTime? CompletionTime);
 }
 

@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-19  
+> **Last Updated**: 2025-11-20  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -240,6 +240,21 @@ Your Evermail SaaS project is now fully configured with world-class development 
 ---
 
 ## Recent Updates
+
+### 2025-11-20 - SearchVector FTS & Superadmin Telemetry
+- 🧬 Added a persisted `SearchVector` column to `EmailMessages` (subject + sender + recipients + text/html bodies) and updated ingestion to populate it so SQL Server evaluates boolean queries (`bob AND order`) across the entire document instead of a single field.
+- 🧱 Created migration `20251120163000_AddEmailSearchVector` to add/backfill the column, rebuild the `EmailSearchCatalog`, and reindex FTS against the combined vector; `Documentation/DatabaseSchema.md` + `Deployment.md` now call out the requirement.
+- 🔎 Updated `/api/v1/emails/search` to execute CONTAINSTABLE against `SearchVector`, report whether the request used FTS, and expose that telemetry to the Blazor client so SuperAdmins get an inline “FTS fallback” warning banner instead of needing curl/sqlcmd.
+
+### 2025-11-20 - Full-Text Guardrails & Boolean Fallback
+- 🛡️ Added the `EnsureEmailFullTextCatalog` migration that fails fast when the SQL instance is missing the Full-Text Search feature, auto-enables it when possible, and recreates the `EmailSearchCatalog` + `EmailMessages` index so Aspire/production no longer rely on manual SQL.
+- 📘 Updated `Documentation/DatabaseSchema.md` and `Deployment.md` with the exact verification commands (`FULLTEXTSERVICEPROPERTY`, `sys.fulltext_catalogs`, etc.) so prod rollouts always provision the correct SQL SKU before migrations run.
+- 🔍 Fixed the simple search fallback to treat whitespace/boolean operators as individual terms (stacked `AND` semantics), so queries like `david AND github` still return matches even when we intentionally skip CONTAINSTABLE (e.g., dev machines without FTS).
+
+### 2025-11-20 - Encryption State Cascade & Migration Fix
+- 📚 Documented the new BYOK artifacts (`TenantEncryptionSettings`, `MailboxEncryptionStates`) in `Documentation/DatabaseSchema.md`, clarifying that encryption states cascade via `MailboxUploads` to avoid SQL Server’s multiple-cascade restriction while still preventing orphaned wrapped DEKs.
+- 🧩 Regenerated the EF model snapshot (no new migration needed) so `Evermail.MigrationService` now sees a clean model and can apply `20251119234329_TenantEncryptionPhase` without triggering `PendingModelChangesWarning` or FK errors.
+- 🐳 Reconfirmed the Aspire SQL resource uses our custom `mssql/server:2022-latest` image (AMD64). Apple Silicon runs it via emulation, so plan for slower cold starts but no functional blockers.
 
 ### 2025-11-19 - Search UX Highlighting & Preferences
 - 🔎 Reworked `/api/v1/emails/search` so every result includes contextual snippets from the first real keyword hit plus a `matchFields` array, letting the Blazor UI replace opaque “Rank 765” badges with “Subject hit” / “Body hit” pills. Documented the API response changes in `Documentation/API.md`.

@@ -158,6 +158,24 @@
         </form>
     </section>
 
+    @if (_isSuperAdmin)
+    {
+        if (!_fullTextHealthy)
+        {
+            <div class="alert alert-warning modern-alert mt-3">
+                <strong>Full-text search is offline.</strong>
+                Queries are using the slower LIKE fallback. Check <code>/api/v1/dev/fulltext-status</code> to re-enable once SQL is ready.
+            </div>
+        }
+        else if (!string.IsNullOrWhiteSpace(_searchQuery) && !_usedFullTextSearch)
+        {
+            <div class="alert alert-info modern-alert mt-3">
+                <strong>FTS fallback for this query.</strong>
+                The catalog is healthy, but this search was handled by the basic filter (usually because the terms were all stop words).
+            </div>
+        }
+    }
+
     @if (_isLoading)
     {
         <div class="text-center py-5">
@@ -392,6 +410,9 @@
     private string _recipientFilter = string.Empty;
     private bool _showAdvancedFilters;
     private IReadOnlyList<EmailSummaryCard> _summaryCards = Array.Empty<EmailSummaryCard>();
+    private bool _usedFullTextSearch;
+    private bool _fullTextHealthy = true;
+    private bool _isSuperAdmin;
     private const string SampleQueryPlaceholder = "Try \\\"invoice\\\" from:alice@example.com after:2023-01-01";
     private UserPreferences _preferences = UserPreferences.CreateDefault();
 
@@ -416,6 +437,9 @@
             // The AuthorizeView will handle this
             return;
         }
+
+        var principal = await AuthStateService.GetUserFromTokenAsync();
+        _isSuperAdmin = principal?.IsInRole("SuperAdmin") ?? false;
 
         // Read URL parameters to preserve mailbox filter
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
@@ -524,6 +548,8 @@
     {
         _isLoading = true;
         _currentPage = page;
+        _usedFullTextSearch = false;
+        _fullTextHealthy = true;
 
         try
         {
@@ -586,6 +612,8 @@
                     _totalCount = result.Data.TotalCount;
                     _totalPages = (int)Math.Ceiling((double)_totalCount / _pageSize);
                     _queryTime = result.Data.QueryTime;
+                    _usedFullTextSearch = result.Data.UsedFullTextSearch;
+                    _fullTextHealthy = result.Data.FullTextHealthy;
                     _errorMessage = "";
                     UpdateSummaryCards();
                     
@@ -810,12 +838,25 @@
 
     private void UpdateSummaryCards()
     {
-        _summaryCards = new[]
+        var cards = new List<EmailSummaryCard>
         {
-            new EmailSummaryCard("Results", FormatNumber(_totalCount), _selectedMailboxId.HasValue ? "Filtered mailbox" : "All mailboxes"),
-            new EmailSummaryCard("Page Size", _pageSize.ToString("N0"), $"{_currentPage} / {_totalPages} pages"),
-            new EmailSummaryCard("Search Speed", _queryTime.HasValue ? $"{_queryTime.Value:F3}s" : "—", _useInflectionalForms ? "Inflections enabled" : "Exact terms")
+            new("Results", FormatNumber(_totalCount), _selectedMailboxId.HasValue ? "Filtered mailbox" : "All mailboxes"),
+            new("Page Size", _pageSize.ToString("N0"), $"{_currentPage} / {_totalPages} pages"),
+            new("Search Speed", _queryTime.HasValue ? $"{_queryTime.Value:F3}s" : "—", _useInflectionalForms ? "Inflections enabled" : "Exact terms")
         };
+
+        if (_isSuperAdmin)
+        {
+            var statusLabel = _fullTextHealthy ? "Healthy" : "Fallback";
+            var caption = !_fullTextHealthy
+                ? "LIKE fallback (dev › fulltext-status)"
+                : (_usedFullTextSearch
+                    ? "CONTAINSTABLE used"
+                    : "This query used LIKE fallback");
+            cards.Add(new EmailSummaryCard("Full-Text", statusLabel, caption));
+        }
+
+        _summaryCards = cards;
     }
 
     private static string FormatNumber(long value)

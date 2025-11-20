@@ -73,6 +73,8 @@ public class EmailMessage
     [MaxLength(2000)]
     public string? RecipientsSearch { get; set; }
     
+    public string SearchVector { get; set; } = string.Empty;
+    
     // Date
     public DateTime Date { get; set; }
     

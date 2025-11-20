@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Email;
 using Evermail.Common.Search;
@@ -21,6 +22,9 @@ public static class EmailEndpoints
         "OR",
         "NOT"
     };
+    private static volatile bool FullTextUnavailable;
+    internal static bool IsFullTextCircuitOpen => FullTextUnavailable;
+    internal static void ClearFullTextCircuitBreaker() => FullTextUnavailable = false;
     public static RouteGroupBuilder MapEmailEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/search", SearchEmailsAsync)
@@ -118,12 +122,13 @@ public static class EmailEndpoints
         var stopWordSet = BuildStopWordSet(stopWords);
         var searchTerms = SearchQueryParser.ExtractTerms(q, stopWordSet);
         var fullTextCondition = BuildFullTextSearchCondition(q, stopWordSet, useInflectionalForms);
-        var isFullTextSearch = !string.IsNullOrWhiteSpace(fullTextCondition);
+        var isFullTextSearch = !FullTextUnavailable && !string.IsNullOrWhiteSpace(fullTextCondition);
 
         var searchProjection = BuildSearchProjection(
             context,
             query,
             q,
+            searchTerms,
             fullTextCondition,
             page,
             pageSize,
@@ -149,12 +154,20 @@ public static class EmailEndpoints
                 .Take(pageSize)
                 .ToListAsync();
         }
-        catch (SqlException ex) when (isFullTextSearch && (ex.Number == 7601 || ex.Number == 7609))
+        catch (SqlException ex) when (isFullTextSearch && IsRecoverableFullTextError(ex))
         {
-            logger?.LogWarning(ex, "Full-text search unavailable. Falling back to basic search for tenant {TenantId}", tenantContext.TenantId);
+            logger?.LogWarning(ex,
+                "Full-text search failed with error {ErrorNumber}. Falling back to basic search for tenant {TenantId}",
+                ex.Number,
+                tenantContext.TenantId);
             isFullTextSearch = false;
+            if (!FullTextUnavailable && ShouldDisableFullText(ex))
+            {
+                FullTextUnavailable = true;
+                logger?.LogWarning("Disabling full-text search for remainder of process because SQL Server reported error {ErrorNumber}", ex.Number);
+            }
 
-            searchProjection = BuildFallbackProjection(query, q);
+            searchProjection = BuildFallbackProjection(query, q, searchTerms);
             effectiveSortBy = string.IsNullOrWhiteSpace(normalizedSortBy) ? "date" : normalizedSortBy;
 
             totalCount = await searchProjection.CountAsync();
@@ -165,6 +178,11 @@ public static class EmailEndpoints
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
+        }
+
+        if (isFullTextSearch)
+        {
+            FullTextUnavailable = false;
         }
 
         var emailEntities = pageResults.Select(r => r.Email).ToList();
@@ -227,7 +245,9 @@ public static class EmailEndpoints
                 totalCount,
                 page,
                 pageSize,
-                stopwatch.Elapsed.TotalSeconds
+                stopwatch.Elapsed.TotalSeconds,
+                UsedFullTextSearch: isFullTextSearch,
+                FullTextHealthy: !FullTextUnavailable
             )
         ));
     }
@@ -345,6 +365,7 @@ public static class EmailEndpoints
         EvermailDbContext context,
         IQueryable<EmailMessage> baseQuery,
         string? q,
+        IReadOnlyList<string> searchTerms,
         string? fullTextCondition,
         int page,
         int pageSize,
@@ -352,7 +373,7 @@ public static class EmailEndpoints
     {
         if (!isFullTextSearch)
         {
-            return BuildFallbackProjection(baseQuery, q);
+            return BuildFallbackProjection(baseQuery, q, searchTerms);
         }
 
         var windowMultiplier = 5;
@@ -363,7 +384,7 @@ public static class EmailEndpoints
                 SELECT [KEY] AS EmailId, [RANK] AS Rank
                 FROM CONTAINSTABLE(
                     EmailMessages,
-                    (Subject, TextBody, HtmlBody, RecipientsSearch, FromName, FromAddress),
+                    SearchVector,
                     {fullTextCondition},
                     {ftsWindow}
                 )")
@@ -376,23 +397,54 @@ public static class EmailEndpoints
             (email, rank) => new EmailWithRank { Email = email, Rank = rank.Rank });
     }
 
-    private static IQueryable<EmailWithRank> BuildFallbackProjection(IQueryable<EmailMessage> query, string? q)
+    private static IQueryable<EmailWithRank> BuildFallbackProjection(
+        IQueryable<EmailMessage> query,
+        string? q,
+        IReadOnlyList<string> searchTerms)
     {
-        if (!string.IsNullOrWhiteSpace(q))
+        var terms = searchTerms?
+            .Where(static term => !string.IsNullOrWhiteSpace(term))
+            .Select(static term => term.Trim())
+            .Where(static term => term.Length > 0)
+            .ToList() ?? new List<string>();
+
+        if (terms.Count == 0 && !string.IsNullOrWhiteSpace(q))
         {
-            var fallbackTerm = q.Trim();
-            query = query.Where(e =>
-                (e.Subject != null && e.Subject.Contains(fallbackTerm)) ||
-                (e.TextBody != null && e.TextBody.Contains(fallbackTerm)) ||
-                (e.HtmlBody != null && e.HtmlBody.Contains(fallbackTerm)) ||
-                (e.RecipientsSearch != null && e.RecipientsSearch.Contains(fallbackTerm)) ||
-                (e.Snippet != null && e.Snippet.Contains(fallbackTerm)) ||
-                e.FromAddress.Contains(fallbackTerm) ||
-                (e.FromName != null && e.FromName.Contains(fallbackTerm)));
+            terms.Add(q.Trim());
+        }
+
+        foreach (var term in terms)
+        {
+            query = ApplyFallbackTermFilter(query, term);
         }
 
         return query.Select(e => new EmailWithRank { Email = e, Rank = null });
     }
+
+    private static IQueryable<EmailMessage> ApplyFallbackTermFilter(IQueryable<EmailMessage> query, string term)
+    {
+        if (string.IsNullOrWhiteSpace(term))
+        {
+            return query;
+        }
+
+        var pattern = $"%{EscapeLikePattern(term)}%";
+
+        return query.Where(e =>
+            (e.Subject != null && EF.Functions.Like(e.Subject, pattern)) ||
+            (e.TextBody != null && EF.Functions.Like(e.TextBody, pattern)) ||
+            (e.HtmlBody != null && EF.Functions.Like(e.HtmlBody, pattern)) ||
+            (e.RecipientsSearch != null && EF.Functions.Like(e.RecipientsSearch, pattern)) ||
+            (e.Snippet != null && EF.Functions.Like(e.Snippet, pattern)) ||
+            EF.Functions.Like(e.FromAddress, pattern) ||
+            (e.FromName != null && EF.Functions.Like(e.FromName, pattern)) ||
+            EF.Functions.Like(e.SearchVector, pattern));
+    }
+
+    private static string EscapeLikePattern(string value) =>
+        value.Replace("[", "[[]", StringComparison.Ordinal)
+             .Replace("%", "[%]", StringComparison.Ordinal)
+             .Replace("_", "[_]", StringComparison.Ordinal);
 
     private static IQueryable<EmailWithRank> ApplySorting(
         IQueryable<EmailWithRank> source,
@@ -702,6 +754,55 @@ public static class EmailEndpoints
         }
 
         return Regex.Replace(html, "<.*?>", " ");
+    }
+
+    private static readonly HashSet<int> RecoverableFullTextErrors = new()
+    {
+        7600, // generic parsing issues
+        7601, // noise/stop words
+        7609, // full-text not enabled
+        7619, // clause contains only ignored words
+        7635, // invalid proximity / boolean syntax
+        30053 // transient catalog issues
+    };
+
+    private static bool IsRecoverableFullTextError(SqlException exception)
+    {
+        if (RecoverableFullTextErrors.Contains(exception.Number))
+        {
+            return true;
+        }
+
+        foreach (SqlError error in exception.Errors)
+        {
+            if (RecoverableFullTextErrors.Contains(error.Number))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool ShouldDisableFullText(SqlException exception)
+    {
+        const int NotIndexed = 7601;
+        const int NotEnabled = 7609;
+
+        if (exception.Number == NotIndexed || exception.Number == NotEnabled)
+        {
+            return true;
+        }
+
+        foreach (SqlError error in exception.Errors)
+        {
+            if (error.Number == NotIndexed || error.Number == NotEnabled)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private sealed record SnippetResult(string? PlainText, string? HighlightHtml, IReadOnlyList<string> MatchFields);

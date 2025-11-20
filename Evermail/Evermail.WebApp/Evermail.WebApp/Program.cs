@@ -1,3 +1,5 @@
+using Azure.Core;
+using Azure.Identity;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
@@ -19,6 +21,18 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add service defaults (Aspire telemetry, service discovery)
 builder.AddServiceDefaults();
+
+// Provide TokenCredential (DefaultAzureCredential ordered chain) for Key Vault + BYOK services
+// Ref: https://learn.microsoft.com/dotnet/azure/sdk/authentication/credential-chains#defaultazurecredential-overview
+builder.Services.AddSingleton<TokenCredential>(_ =>
+{
+    var credentialOptions = new DefaultAzureCredentialOptions
+    {
+        ExcludeInteractiveBrowserCredential = !builder.Environment.IsDevelopment(),
+    };
+
+    return new DefaultAzureCredential(credentialOptions);
+});
 
 builder.Services.Configure<AiImpersonationOptions>(
     builder.Configuration.GetSection(AiImpersonationOptions.SectionName));
@@ -193,12 +207,14 @@ builder.Services.AddSingleton(sp =>
 });
 builder.Services.AddScoped<IQueueService, QueueService>();
 builder.Services.AddScoped<ITenantEncryptionService, TenantEncryptionService>();
+builder.Services.AddScoped<IMailboxEncryptionStateService, MailboxEncryptionStateService>();
 
 // Add authentication state services for Blazor
 builder.Services.AddScoped<Evermail.WebApp.Services.IAuthenticationStateService, Evermail.WebApp.Services.AuthenticationStateService>();
 builder.Services.AddScoped<AuthenticationStateProvider, Evermail.WebApp.Services.CustomAuthenticationStateProvider>();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<ThemeService>();
+builder.Services.AddScoped<UserPreferencesService>();
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>

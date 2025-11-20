@@ -167,7 +167,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasOne(es => es.Mailbox)
                 .WithMany()
                 .HasForeignKey(es => es.MailboxId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.NoAction);
 
             entity.HasOne(es => es.MailboxUpload)
                 .WithOne(mu => mu.EncryptionState)

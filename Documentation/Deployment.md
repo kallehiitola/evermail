@@ -172,6 +172,23 @@ This creates:
 - Application Insights
 - Azure Key Vault
 
+#### Full-Text Search Requirement (SQL)
+
+- The SQL Server/Database **must include Full-Text Search** (FTS). For local dev we use the `mcr.microsoft.com/mssql/server:2022-latest` image with `mssql-server-fts`; for Azure SQL use service tiers that support FTS (S3+ or Hyperscale).
+- The migration `20251120_EnsureEmailFullTextCatalog` will:
+  - Verify `FULLTEXTSERVICEPROPERTY('IsFullTextInstalled') = 1` (and fail if not).
+  - Enable FTS at the database level if needed (`sp_fulltext_database 'enable'`).
+  - Create the `EmailSearchCatalog` (default) and rebuild the `EmailMessages` full-text index.
+- The migration `20251120_AddEmailSearchVector` introduces the persisted `SearchVector` column (subject + sender + recipients + text/html bodies) and recreates the catalog so boolean queries like `bob AND order` match even when tokens live in different original columns.
+- **Validation commands** (run in the SQL container or Azure SQL):
+  ```sql
+  SELECT FULLTEXTSERVICEPROPERTY('IsFullTextInstalled');           -- expect 1
+  SELECT is_fulltext_enabled FROM sys.databases WHERE name = DB_NAME();
+  SELECT name FROM sys.fulltext_catalogs;                          -- expect EmailSearchCatalog
+  SELECT o.name FROM sys.fulltext_indexes fi JOIN sys.objects o ON fi.object_id = o.object_id;
+  ```
+- If any command returns 0/empty, install the FTS feature or move to an SKU that supports it before running migrations.
+
 #### 3. Set Secrets in Key Vault
 
 **Key Vaults Created:**
