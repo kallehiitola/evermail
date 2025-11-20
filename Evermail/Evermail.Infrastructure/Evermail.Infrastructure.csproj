@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Evermail.Common\Evermail.Common.csproj" />
     <ProjectReference Include="..\Evermail.Domain\Evermail.Domain.csproj" />
   </ItemGroup>
 
