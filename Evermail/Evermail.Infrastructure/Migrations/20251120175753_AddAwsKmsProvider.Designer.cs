@@ -4,6 +4,7 @@ using Evermail.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Evermail.Infrastructure.Migrations
 {
     [DbContext(typeof(EvermailDbContext))]
-    partial class EvermailDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251120175753_AddAwsKmsProvider")]
+    partial class AddAwsKmsProvider
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -675,27 +678,11 @@ namespace Evermail.Infrastructure.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
-                    b.Property<string>("LastUnwrapRequestId")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
                     b.Property<Guid>("MailboxId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<Guid>("MailboxUploadId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Provider")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("ProviderKeyVersion")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("ProviderMetadata")
-                        .HasColumnType("nvarchar(max)");
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
@@ -703,10 +690,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<string>("TenantKeyVersion")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("WrapRequestId")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
 
                     b.Property<string>("WrappedDek")
                         .IsRequired()
@@ -1125,10 +1108,8 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<string>("Provider")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasDefaultValue("AzureKeyVault");
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("ProviderMetadata")
                         .HasColumnType("nvarchar(max)");

@@ -8,6 +8,9 @@ public class TenantEncryptionSettings
     public Guid TenantId { get; set; }
     
     public Tenant Tenant { get; set; } = null!;
+
+    [MaxLength(50)]
+    public string Provider { get; set; } = "AzureKeyVault"; // EvermailManaged, AzureKeyVault, AwsKms, …
     
     [MaxLength(500)]
     public string? KeyVaultUri { get; set; }
@@ -23,6 +26,23 @@ public class TenantEncryptionSettings
     
     [MaxLength(100)]
     public string? ManagedIdentityObjectId { get; set; }
+
+    [MaxLength(32)]
+    public string? AwsAccountId { get; set; }
+    
+    [MaxLength(32)]
+    public string? AwsRegion { get; set; }
+    
+    [MaxLength(2048)]
+    public string? AwsKmsKeyArn { get; set; }
+    
+    [MaxLength(2048)]
+    public string? AwsIamRoleArn { get; set; }
+    
+    [MaxLength(128)]
+    public string? AwsExternalId { get; set; }
+    
+    public string? ProviderMetadata { get; set; }
     
     [MaxLength(50)]
     public string EncryptionPhase { get; set; } = "NotConfigured";

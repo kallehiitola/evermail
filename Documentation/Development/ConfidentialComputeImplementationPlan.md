@@ -24,6 +24,7 @@
 2. **MAA handshake prototype** – Build a local attestation stub so we can plug in SKR policies before confidential containers are ready.
 3. **Encrypted search path** – Start plumbing deterministic token encryption so Phase 2 isn’t blocked on schema changes.
 4. **Ledger POC** – Stand up Azure Confidential Ledger + health dashboards to capture key release proofs.
+5. **AWS KMS connector** – Deliver an external-provider path (STS role assumption, IAM template, metrics) so enterprises can supply existing AWS keys without hand-editing policies.
 
 ### Phase 1 (MVP) – BYOK foundation
 
@@ -33,6 +34,7 @@
 | DEK lifecycle | - Generate a new AES-256-GCM DEK per mailbox upload. <br> - Call `WrapKey` with tenant TMK, store `WrappedDekBlob`, `DekVersion`, `CreatedAt`, `CreatedBy`, `TmKeyVersion`. <br> - Add rotation job that re-wraps DEKs when the tenant rotates their key version. | All metadata lives in `MailboxEncryptionState` table with TenantId FK. |
 | Queue schema | - Add `WrappedDekId` and `DekVersion` to ingestion/deletion messages so background workers know which wrapped key to unwrap. <br> - Store `AttestationPolicyId` for future validation. | |
 | Operational guardrails | - Enforce Azure AD PIM on the “Evermail Key Release” identity. <br> - Enable Key Vault logging → Log Analytics, alert on unexpected `ReleaseKey` calls. <br> - Document that superadmins retain break-glass access until Phase 2. | |
+| External KMS connector (AWS) | - Provide an “External KMS” option in the admin UI with provider picker. <br> - Publish an IAM CloudFormation/TF snippet that creates a limited-permission role (`GenerateDataKeyWithoutPlaintext`, `Decrypt`). <br> - Implement an AWS connector service that assumes the role via STS, wraps/unwraps DEKs, and captures CloudTrail request IDs in `MailboxEncryptionState`. <br> - Add health checks + throttling so outages in AWS KMS don’t stall the ingestion worker. | Future iterations can reuse the same abstraction for GCP KMS or on-prem HSMs. |
 
 ### Phase 2 – Zero-trust enforcement
 

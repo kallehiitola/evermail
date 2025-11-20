@@ -4,6 +4,61 @@
 
 Evermail handles sensitive email data and must maintain the highest security standards. This document outlines our security architecture, threat model, and compliance measures.
 
+### Security Modes & Zero-Access Strategy
+
+Evermail now offers two complementary protection tiers so tenants can choose the balance between usability and cryptographic isolation:
+
+| Tier | Description | Capabilities | Trade-offs |
+| --- | --- | --- | --- |
+| **Confidential Compute Mode (default)** | Data is stored encrypted at rest and only decrypted inside attested TEEs with Secure Key Release and tenant-controlled master keys. Operators cannot read data during normal operations and every unwrap is audited. | Full-text search, AI features, server-side processing, automated retention & export. | In absolute emergencies a break-glass process could still grant plaintext access (logged + tenant-approved). |
+| **Zero-Access Archive Mode (opt-in)** | All mailbox content is encrypted *in the browser* before upload using tenant-held keys (Blazor WebAssembly). Evermail infrastructure only ever sees ciphertext, even inside TEEs. | Strongest “we never see your mail” guarantee, BYOK support, optional deterministic token indexing. | Limited or client-side-only search, no key recovery if the tenant loses their passphrase, larger uploads due to encryption overhead. |
+
+#### Zero-Access Archive Mode (Client-Side Encryption)
+
+1. **Key generation & custody**
+   - Blazor WebAssembly generates a 256-bit AES-GCM Data Encryption Key (DEK) per mailbox/upload.
+   - Tenants can either accept a random key stored in their password manager or derive it from a passphrase via Argon2id (salted, high-iteration).
+   - The DEK is wrapped twice:
+     - **Tenant-held wrap**: encrypted with the passphrase-derived key and stored client-side or exported as a `.evermail-key` file. Evermail never stores this share.
+     - **Infrastructure wrap**: encrypted with the tenant’s TMK (Key Vault/Managed HSM) so metadata workflows can still reference the blob. This wrap is useless without the tenant-held share.
+
+2. **Blazor WASM encryption pipeline**
+   - `<InputFile>` streams the `.mbox` file in 1–4 MB chunks.
+   - Each chunk is encrypted in-browser with AES-GCM (unique nonce per chunk), producing ciphertext + auth tag.
+   - Optional deterministic tokens: normalized terms are HMAC’d with the DEK (or a derived token key) so the server can index opaque tokens for equality search.
+   - The browser uploads ciphertext, nonce, and metadata via HTTPS to `/api/v1/mailboxes/encrypted-upload` with `X-Evermail-Encrypted` headers describing the scheme.
+
+3. **Server-side handling**
+   - APIs treat uploads as opaque blobs; no parsing occurs server-side.
+   - Storage paths continue to include `tenantId` for multi-tenancy, and blobs remain under our existing TMK/DEK governance.
+   - Workers skip ingestion for these mailboxes; exports simply return ciphertext for client-side decryption.
+
+4. **Search & UX**
+   - Default behavior: users download/decrypt locally and search within the Blazor client (WASM reuses the same C# parser).
+   - Advanced tenants can enable deterministic token indexing to allow server-side filtering (e.g., “from:alice”), but snippets still decrypt locally.
+   - UI surfaces clear warnings:
+     - “Lose your passphrase = data unrecoverable.”
+     - “Some features (AI summaries, cross-mailbox search) are unavailable in zero-access mode.”
+     - “Switching a mailbox into zero-access requires re-upload because plaintext never leaves your device.”
+
+5. **Transparency & trust**
+   - WASM bundles are reproducible and signed; publish hashes so tenants can verify the client code that handles encryption.
+   - Long-term roadmap: integrate browser extensions or attestation (e.g., Subresource Integrity + CSP) to prove the delivered client matches the audited build.
+
+Zero-Access Archive Mode inherits every safeguard from Confidential Compute Mode (tenant TMKs, audit logging, retention policies) while guaranteeing Evermail’s infrastructure never observes plaintext. This tier is aimed at compliance-sensitive customers who accept reduced functionality in exchange for cryptographic separation.
+
+#### External KMS Providers (AWS First)
+
+Some tenants already operate their own Hardware Security Modules in clouds other than Azure. Evermail supports this as an advanced option without requiring admins to understand the underlying crypto:
+
+1. **Provider picker** – Admin UI exposes three options: Evermail-managed (default), Azure BYOK, or External KMS. Selecting External prompts for provider (AWS today), key ARN, and IAM role ARN.
+2. **AWS KMS connector** – Evermail assumes a customer-provided role via AWS STS, then uses `GenerateDataKeyWithoutPlaintext` / `Decrypt` to wrap and unwrap DEKs. The connector enforces:
+   - Least-privilege IAM template (Encrypt/Decrypt/GenerateDataKeyWithoutPlaintext only).
+   - Rate limiting + exponential backoff to respect tenant KMS quotas.
+   - Structured audit logs capturing AWS request IDs for every operation.
+3. **Security guarantees** – Because AWS KMS lacks Azure’s Secure Key Release + TEE attestation, the “Confidential Compute Mode” promise becomes “operators cannot access plaintext during normal operations,” but a malicious Evermail release could theoretically abuse the IAM role. Tenants who need absolute zero-access should pair External KMS with Zero-Access Archive Mode so plaintext never leaves the browser.
+4. **Future providers** – The same connector pattern (provider picker + automation script + signed requests) lets us add GCP KMS or on-prem HSMs later without reworking ingestion.
+
 ## Threat Model
 
 ### Assets to Protect

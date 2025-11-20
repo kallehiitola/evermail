@@ -1,8 +1,12 @@
+using Amazon.SecurityToken;
+using Azure.Core;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Evermail.IngestionWorker;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Evermail.Infrastructure.Services.Encryption;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 
@@ -50,6 +54,13 @@ builder.Services.AddSingleton(sp =>
 });
 
 // Services
+builder.Services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential());
+builder.Services.AddSingleton<IAmazonSecurityTokenService>(_ => new AmazonSecurityTokenServiceClient());
+builder.Services.AddSingleton<IAwsKmsConnector, AwsKmsConnector>();
+builder.Services.AddSingleton<IKeyWrappingProvider, EvermailManagedWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingProvider, AzureKeyVaultWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingProvider, AwsKmsWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingService, KeyWrappingService>();
 builder.Services.AddScoped<MailboxProcessingService>();
 builder.Services.AddScoped<MailboxDeletionService>();
 builder.Services.AddScoped<IMailboxEncryptionStateService, MailboxEncryptionStateService>();

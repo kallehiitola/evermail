@@ -1,8 +1,10 @@
+using Amazon.SecurityToken;
 using Azure.Core;
 using Azure.Identity;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Evermail.Infrastructure.Services.Encryption;
 using Evermail.WebApp.Client.Pages;
 using Evermail.WebApp.Components;
 using Evermail.WebApp.Endpoints;
@@ -206,6 +208,12 @@ builder.Services.AddSingleton(sp =>
     return new Azure.Storage.Queues.QueueServiceClient(connectionString);
 });
 builder.Services.AddScoped<IQueueService, QueueService>();
+builder.Services.AddSingleton<IAmazonSecurityTokenService>(_ => new AmazonSecurityTokenServiceClient());
+builder.Services.AddSingleton<IAwsKmsConnector, AwsKmsConnector>();
+builder.Services.AddSingleton<IKeyWrappingProvider, EvermailManagedWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingProvider, AzureKeyVaultWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingProvider, AwsKmsWrappingProvider>();
+builder.Services.AddSingleton<IKeyWrappingService, KeyWrappingService>();
 builder.Services.AddScoped<ITenantEncryptionService, TenantEncryptionService>();
 builder.Services.AddScoped<IMailboxEncryptionStateService, MailboxEncryptionStateService>();
 

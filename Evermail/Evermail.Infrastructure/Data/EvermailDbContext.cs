@@ -84,11 +84,19 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
         modelBuilder.Entity<TenantEncryptionSettings>(entity =>
         {
             entity.HasKey(s => s.TenantId);
+            entity.Property(s => s.Provider)
+                .HasMaxLength(50)
+                .HasDefaultValue("AzureKeyVault");
             entity.Property(s => s.KeyVaultUri).HasMaxLength(500);
             entity.Property(s => s.KeyVaultKeyName).HasMaxLength(200);
             entity.Property(s => s.KeyVaultKeyVersion).HasMaxLength(200);
             entity.Property(s => s.KeyVaultTenantId).HasMaxLength(64);
             entity.Property(s => s.ManagedIdentityObjectId).HasMaxLength(100);
+            entity.Property(s => s.AwsAccountId).HasMaxLength(32);
+            entity.Property(s => s.AwsRegion).HasMaxLength(32);
+            entity.Property(s => s.AwsKmsKeyArn).HasMaxLength(2048);
+            entity.Property(s => s.AwsIamRoleArn).HasMaxLength(2048);
+            entity.Property(s => s.AwsExternalId).HasMaxLength(128);
             entity.Property(s => s.EncryptionPhase).HasMaxLength(50);
             entity.Property(s => s.LastVerificationMessage).HasMaxLength(500);
             entity.Property(s => s.SecureKeyReleasePolicyHash).HasMaxLength(128);
@@ -163,6 +171,10 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.Property(es => es.LastKeyReleaseLedgerEntryId).HasMaxLength(200);
             entity.Property(es => es.AttestationPolicyId).HasMaxLength(200);
             entity.Property(es => es.KeyVaultKeyVersion).HasMaxLength(200);
+            entity.Property(es => es.Provider).HasMaxLength(50);
+            entity.Property(es => es.ProviderKeyVersion).HasMaxLength(200);
+            entity.Property(es => es.WrapRequestId).HasMaxLength(200);
+            entity.Property(es => es.LastUnwrapRequestId).HasMaxLength(200);
 
             entity.HasOne(es => es.Mailbox)
                 .WithMany()
@@ -315,7 +327,6 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasIndex(rt => rt.UserId);
             entity.HasIndex(rt => rt.TenantId);
             entity.HasIndex(rt => rt.ExpiresAt);
-            entity.HasIndex(rt => new { rt.UserId, rt.IsActive });
 
             entity.HasOne(rt => rt.User)
                 .WithMany()

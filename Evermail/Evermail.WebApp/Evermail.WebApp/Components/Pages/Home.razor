@@ -4,6 +4,7 @@
 @using System.Linq
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Mailbox
+@using Evermail.Common.DTOs.Tenant
 @using Microsoft.AspNetCore.Components.Authorization
 @using Evermail.WebApp.Services
 @using Evermail.WebApp.Extensions
@@ -17,6 +18,16 @@
 <PageTitle>Evermail · Email Intelligence</PageTitle>
 
 <div class="home-wrapper">
+    @if (_needsEncryptionSetup)
+    {
+        <div class="alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
+            <i class="bi bi-shield-lock-fill fs-4"></i>
+            <div class="flex-grow-1">
+                <strong>Finish security setup:</strong> Connect your tenant-owned key so new uploads are wrapped before processing.
+            </div>
+            <a href="/admin/encryption" class="btn btn-sm btn-outline-dark">Open wizard</a>
+        </div>
+    }
     <section class="hero-section">
         <div>
             <p class="hero-eyebrow mb-2">Effortless Email Archiving</p>
@@ -209,6 +220,7 @@
     private DashboardSnapshot _snapshot = DashboardSnapshot.Sample;
     private IReadOnlyList<DashboardStat> _stats = Array.Empty<DashboardStat>();
     private IReadOnlyList<ResourceUsageItem> _resourceUsage = Array.Empty<ResourceUsageItem>();
+    private bool _needsEncryptionSetup;
     private readonly IReadOnlyList<OnboardingStep> _steps =
     [
         new("Upload your .mbox archive", "Drag & drop Gmail Takeout or Outlook exports. Up to 5GB per upload today.", "/upload"),
@@ -334,10 +346,26 @@
         if (_isAuthenticated)
         {
             await LoadDashboardSnapshotAsync();
+            await CheckEncryptionStatusAsync();
         }
         else
         {
             UseSampleData();
+            _needsEncryptionSetup = false;
+        }
+    }
+
+    private async Task CheckEncryptionStatusAsync()
+    {
+        try
+        {
+            EnsureHttpClientBaseAddress();
+            var response = await Http.GetFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>("api/v1/tenants/encryption");
+            _needsEncryptionSetup = response?.Success == true && response.Data?.IsConfigured != true;
+        }
+        catch
+        {
+            _needsEncryptionSetup = false;
         }
     }
 

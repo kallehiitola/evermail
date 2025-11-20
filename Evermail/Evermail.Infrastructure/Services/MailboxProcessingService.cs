@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Azure.Storage.Blobs;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services.Encryption;
 using MimeKit;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -21,6 +22,7 @@ public class MailboxProcessingService
     private readonly BlobServiceClient _blobServiceClient;
     private readonly ILogger<MailboxProcessingService> _logger;
     private readonly IMailboxEncryptionStateService _encryptionStateService;
+    private readonly IKeyWrappingService _keyWrappingService;
     private const string ContainerName = "mailbox-archives";
     private const int BatchSize = 500;
 
@@ -28,12 +30,14 @@ public class MailboxProcessingService
         EvermailDbContext context,
         BlobServiceClient blobServiceClient,
         ILogger<MailboxProcessingService> logger,
-        IMailboxEncryptionStateService encryptionStateService)
+        IMailboxEncryptionStateService encryptionStateService,
+        IKeyWrappingService keyWrappingService)
     {
         _context = context;
         _blobServiceClient = blobServiceClient;
         _logger = logger;
         _encryptionStateService = encryptionStateService;
+        _keyWrappingService = keyWrappingService;
     }
 
     public async Task ProcessMailboxAsync(
@@ -76,8 +80,34 @@ public class MailboxProcessingService
         upload.ProcessingStartedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync(cancellationToken);
 
+        byte[]? decryptedDek = null;
+        string? unwrapRequestId = null;
+        string? unwrapMetadata = null;
+
         try
         {
+            if (mailboxEncryptionStateId.HasValue)
+            {
+                var encryptionState = await _context.MailboxEncryptionStates
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.Id == mailboxEncryptionStateId.Value, cancellationToken)
+                    ?? throw new InvalidOperationException("Encryption state not found for upload.");
+
+                var tenantSettings = await _context.TenantEncryptionSettings
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(s => s.TenantId == mailbox.TenantId, cancellationToken)
+                    ?? throw new InvalidOperationException("Tenant encryption settings missing.");
+
+                var unwrapResult = await _keyWrappingService.UnwrapDataKeyAsync(
+                    tenantSettings,
+                    encryptionState.WrappedDek,
+                    cancellationToken);
+
+                decryptedDek = unwrapResult.PlaintextDek;
+                unwrapRequestId = unwrapResult.ProviderRequestId;
+                unwrapMetadata = unwrapResult.ProviderMetadataJson;
+            }
+
             // Download blob from Azure Storage
             var containerClient = _blobServiceClient.GetBlobContainerClient(ContainerName);
             var blobClient = containerClient.GetBlobClient(mailbox.BlobPath);
@@ -140,6 +170,8 @@ public class MailboxProcessingService
                 await _encryptionStateService.RecordKeyReleaseAsync(
                     mailboxEncryptionStateId.Value,
                     "ingestion-worker",
+                    unwrapRequestId,
+                    unwrapMetadata,
                     cancellationToken);
             }
 
@@ -166,6 +198,13 @@ public class MailboxProcessingService
             await _context.SaveChangesAsync(cancellationToken);
 
             throw;
+        }
+        finally
+        {
+            if (decryptedDek is not null)
+            {
+                CryptographicOperations.ZeroMemory(decryptedDek);
+            }
         }
     }
 

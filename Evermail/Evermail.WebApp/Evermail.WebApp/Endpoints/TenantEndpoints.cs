@@ -84,6 +84,13 @@ public static class TenantEndpoints
             Error: dto.Success ? null : dto.Message));
     }
 
+    private static readonly string[] SupportedProviders =
+    [
+        "AzureKeyVault",
+        "AwsKms",
+        "EvermailManaged"
+    ];
+
     private static string? ValidateRequest(UpsertTenantEncryptionSettingsRequest request)
     {
         if (request is null)
@@ -91,27 +98,84 @@ public static class TenantEndpoints
             return "Request payload is required.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.KeyVaultUri))
+        var provider = NormalizeProvider(request.Provider);
+        if (!Array.Exists(SupportedProviders, p => string.Equals(p, provider, StringComparison.OrdinalIgnoreCase)))
+        {
+            return $"Provider '{request.Provider}' is not supported.";
+        }
+
+        if (provider.Equals("AwsKms", StringComparison.OrdinalIgnoreCase))
+        {
+            if (request.Aws is null)
+            {
+                return "AWS settings are required.";
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Aws.KmsKeyArn) || !request.Aws.KmsKeyArn.Trim().StartsWith("arn:", StringComparison.OrdinalIgnoreCase))
+            {
+                return "A valid AWS KMS Key ARN is required.";
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Aws.IamRoleArn) || !request.Aws.IamRoleArn.Trim().StartsWith("arn:", StringComparison.OrdinalIgnoreCase))
+            {
+                return "A valid AWS IAM Role ARN is required.";
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Aws.AccountId))
+            {
+                return "AWS account ID is required.";
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Aws.Region))
+            {
+                return "AWS region is required.";
+            }
+
+            return null;
+        }
+
+        if (provider.Equals("EvermailManaged", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Default to Azure Key Vault validation
+        if (request.Azure is null)
+        {
+            return "Azure Key Vault settings are required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Azure.KeyVaultUri))
         {
             return "Key Vault URI is required.";
         }
 
-        if (!Uri.TryCreate(request.KeyVaultUri, UriKind.Absolute, out _))
+        if (!Uri.TryCreate(request.Azure.KeyVaultUri, UriKind.Absolute, out _))
         {
             return "Key Vault URI must be an absolute URI.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.KeyVaultKeyName))
+        if (string.IsNullOrWhiteSpace(request.Azure.KeyVaultKeyName))
         {
             return "Key name is required.";
         }
 
-        if (string.IsNullOrWhiteSpace(request.KeyVaultTenantId))
+        if (string.IsNullOrWhiteSpace(request.Azure.KeyVaultTenantId))
         {
             return "Azure AD tenant ID for the Key Vault is required.";
         }
 
         return null;
+    }
+
+    private static string NormalizeProvider(string provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            return "AzureKeyVault";
+        }
+
+        return provider.Trim();
     }
 }
 

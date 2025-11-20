@@ -88,6 +88,89 @@ Refresh JWT token.
 
 ---
 
+## Tenant Security & BYOK
+
+All endpoints under `/tenants/encryption` require `Admin` or `SuperAdmin` role membership. They let a tenant choose between Evermail-managed keys, Azure Key Vault BYOK, or the new AWS KMS connector.
+
+### GET /tenants/encryption
+Fetch the current encryption settings for the authenticated tenant. The payload includes provider-agnostic status plus provider-specific metadata (Azure or AWS). Fields that don’t apply to the selected provider are omitted/null.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "provider": "AwsKms",
+    "encryptionPhase": "WrapOnly",
+    "isConfigured": true,
+    "lastVerifiedAt": "2025-11-20T13:45:00Z",
+    "lastVerificationMessage": "IAM role assumed and KMS key reachable.",
+    "secureKeyRelease": {
+      "isConfigured": false,
+      "attestationProvider": null
+    },
+    "azure": null,
+    "aws": {
+      "kmsKeyArn": "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
+      "iamRoleArn": "arn:aws:iam::123456789012:role/EvermailKeyRelease",
+      "region": "us-east-1",
+      "accountId": "123456789012",
+      "externalId": "evermail-tenant-2fda3f8b09d1445f" // Read-only identifier the tenant configures in AWS AssumeRole policy
+    }
+  }
+}
+```
+
+### PUT /tenants/encryption
+Upsert encryption settings. The request specifies a `provider` plus the required provider-specific payload.
+
+**Request Body**:
+```json
+{
+  "provider": "AwsKms",                     // EvermailManaged | AzureKeyVault | AwsKms
+  "azure": {
+    "keyVaultUri": "https://tenant-kv.vault.azure.net/",
+    "keyName": "evermail-tmk",
+    "keyVersion": "0a1b2c3d4e",             // optional
+    "tenantId": "11111111-2222-3333-4444-555555555555",
+    "managedIdentityObjectId": "99999999-aaaa-bbbb-cccc-111111111111" // optional, used when tenant supplies their own MI
+  },
+  "aws": {
+    "kmsKeyArn": "arn:aws:kms:us-east-1:123456789012:key/abcd-1234",
+    "iamRoleArn": "arn:aws:iam::123456789012:role/EvermailKeyRelease",
+    "region": "us-east-1",
+    "accountId": "123456789012"
+  }
+}
+```
+
+- When `provider` is `EvermailManaged`, omit the `azure`/`aws` objects and the backend provisions an Azure Key Vault + TMK automatically inside Evermail’s subscription.
+- When `provider` is `AzureKeyVault`, the `azure` object is required and `aws` must be omitted.
+- When `provider` is `AwsKms`, the `aws` object is required and `azure` must be omitted. The server returns a generated `externalId` on the next GET response so the tenant can plug it into their AssumeRole policy.
+
+**Response (200 OK)** mirrors `GET /tenants/encryption`.
+
+### POST /tenants/encryption/test
+Validates connectivity to the configured provider:
+- `EvermailManaged` / `AzureKeyVault`: Calls `KeyClient.GetKeyAsync` (and later `WrapKey`) using `DefaultAzureCredential`.
+- `AwsKms`: Uses AWS STS to assume the tenant-provided IAM role with the stored external ID, then calls `GenerateDataKeyWithoutPlaintext` on the supplied key ARN (result is discarded). The response includes request IDs for audit.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "success": true,
+    "message": "AWS KMS key reachable. RequestId: 4d61a4f9-7bf9-4d3a-a0ed-3acfd389c101",
+    "timestamp": "2025-11-20T14:03:12Z"
+  }
+}
+```
+
+On failure, `success` is `false` and `error` contains the human-friendly reason (missing permissions, wrong ARN, etc.).
+
+---
+
 ## Mailboxes
 
 ### GET /mailboxes

@@ -246,6 +246,11 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 🧱 Created migration `20251120163000_AddEmailSearchVector` to add/backfill the column, rebuild the `EmailSearchCatalog`, and reindex FTS against the combined vector; `Documentation/DatabaseSchema.md` + `Deployment.md` now call out the requirement.
 - 🔎 Updated `/api/v1/emails/search` to execute CONTAINSTABLE against `SearchVector`, report whether the request used FTS, and expose that telemetry to the Blazor client so SuperAdmins get an inline “FTS fallback” warning banner instead of needing curl/sqlcmd.
 
+### 2025-11-20 - AWS BYOK Connector
+- 🌍 Added AWS KMS as an external provider option for Tenant Encryption. Admins can now choose Evermail-managed (Azure Key Vault) or bring their own AWS key via the updated `/api/v1/tenants/encryption` contract + Blazor UI provider picker.
+- 🔐 Introduced `IAwsKmsConnector` that assumes tenant-supplied IAM roles via STS, runs `GenerateDataKeyWithoutPlaintext`, and records request IDs for audit. EF schema now stores provider type, AWS metadata, and an Evermail-generated External ID.
+- 🧰 Installed & configured AWS CLI (profile defaulting to `eu-west-1`) using the new `evermail-dev` IAM access keys so local services can call STS/KMS while we build out automation.
+
 ### 2025-11-20 - Full-Text Guardrails & Boolean Fallback
 - 🛡️ Added the `EnsureEmailFullTextCatalog` migration that fails fast when the SQL instance is missing the Full-Text Search feature, auto-enables it when possible, and recreates the `EmailSearchCatalog` + `EmailMessages` index so Aspire/production no longer rely on manual SQL.
 - 📘 Updated `Documentation/DatabaseSchema.md` and `Deployment.md` with the exact verification commands (`FULLTEXTSERVICEPROPERTY`, `sys.fulltext_catalogs`, etc.) so prod rollouts always provision the correct SQL SKU before migrations run.

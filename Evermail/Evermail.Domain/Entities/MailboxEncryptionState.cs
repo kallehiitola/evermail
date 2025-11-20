@@ -45,6 +45,20 @@ public class MailboxEncryptionState
     [MaxLength(200)]
     public string? KeyVaultKeyVersion { get; set; }
     
+    [MaxLength(50)]
+    public string Provider { get; set; } = "AzureKeyVault";
+    
+    [MaxLength(200)]
+    public string? ProviderKeyVersion { get; set; }
+    
+    [MaxLength(200)]
+    public string? WrapRequestId { get; set; }
+    
+    [MaxLength(200)]
+    public string? LastUnwrapRequestId { get; set; }
+    
+    public string? ProviderMetadata { get; set; }
+    
     public Mailbox Mailbox { get; set; } = null!;
     public MailboxUpload MailboxUpload { get; set; } = null!;
 }

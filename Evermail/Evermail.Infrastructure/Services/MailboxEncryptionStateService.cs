@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services.Encryption;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -9,11 +10,16 @@ namespace Evermail.Infrastructure.Services;
 public class MailboxEncryptionStateService : IMailboxEncryptionStateService
 {
     private readonly EvermailDbContext _context;
+    private readonly IKeyWrappingService _keyWrappingService;
     private readonly ILogger<MailboxEncryptionStateService> _logger;
 
-    public MailboxEncryptionStateService(EvermailDbContext context, ILogger<MailboxEncryptionStateService> logger)
+    public MailboxEncryptionStateService(
+        EvermailDbContext context,
+        IKeyWrappingService keyWrappingService,
+        ILogger<MailboxEncryptionStateService> logger)
     {
         _context = context;
+        _keyWrappingService = keyWrappingService;
         _logger = logger;
     }
 
@@ -34,8 +40,29 @@ public class MailboxEncryptionStateService : IMailboxEncryptionStateService
             return existing;
         }
 
-        var dekBytes = RandomNumberGenerator.GetBytes(32);
-        var wrappedDek = Convert.ToBase64String(dekBytes);
+        var settings = await _context.TenantEncryptionSettings
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId, cancellationToken);
+
+        if (settings is null)
+        {
+            settings = new TenantEncryptionSettings
+            {
+                TenantId = tenantId,
+                Provider = "EvermailManaged",
+                EncryptionPhase = "EvermailManaged",
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.TenantEncryptionSettings.Add(settings);
+            await _context.SaveChangesAsync(cancellationToken);
+        }
+        else
+        {
+            _context.Entry(settings).State = EntityState.Detached;
+        }
+
+        var wrapResult = await _keyWrappingService.GenerateDataKeyAsync(
+            settings,
+            cancellationToken);
 
         var state = new MailboxEncryptionState
         {
@@ -44,9 +71,14 @@ public class MailboxEncryptionStateService : IMailboxEncryptionStateService
             MailboxId = mailboxId,
             MailboxUploadId = mailboxUploadId,
             Algorithm = "AES-256-GCM",
-            WrappedDek = wrappedDek,
+            WrappedDek = wrapResult.WrappedDekBase64,
             DekVersion = "v1",
-            TenantKeyVersion = null,
+            TenantKeyVersion = wrapResult.ProviderKeyVersion,
+            KeyVaultKeyVersion = wrapResult.ProviderKeyVersion,
+            Provider = settings.Provider,
+            ProviderKeyVersion = wrapResult.ProviderKeyVersion,
+            WrapRequestId = wrapResult.ProviderRequestId,
+            ProviderMetadata = wrapResult.ProviderMetadataJson,
             CreatedAt = DateTime.UtcNow,
             CreatedByUserId = userId
         };
@@ -54,7 +86,9 @@ public class MailboxEncryptionStateService : IMailboxEncryptionStateService
         _context.MailboxEncryptionStates.Add(state);
         await _context.SaveChangesAsync(cancellationToken);
 
-        _logger.LogInformation("Created encryption state {StateId} for mailbox {MailboxId}", state.Id, mailboxId);
+        CryptographicOperations.ZeroMemory(wrapResult.PlaintextDek);
+
+        _logger.LogInformation("Created encryption state {StateId} for mailbox {MailboxId} with provider {Provider}", state.Id, mailboxId, settings.Provider);
 
         return state;
     }
@@ -62,6 +96,8 @@ public class MailboxEncryptionStateService : IMailboxEncryptionStateService
     public async Task RecordKeyReleaseAsync(
         Guid encryptionStateId,
         string componentName,
+        string? providerRequestId = null,
+        string? providerMetadata = null,
         CancellationToken cancellationToken = default)
     {
         var state = await _context.MailboxEncryptionStates
@@ -75,6 +111,16 @@ public class MailboxEncryptionStateService : IMailboxEncryptionStateService
 
         state.LastKeyReleaseAt = DateTime.UtcNow;
         state.LastKeyReleaseComponent = componentName;
+        if (!string.IsNullOrWhiteSpace(providerRequestId))
+        {
+            state.LastUnwrapRequestId = providerRequestId;
+        }
+
+        if (!string.IsNullOrWhiteSpace(providerMetadata))
+        {
+            state.ProviderMetadata = providerMetadata;
+        }
+
         await _context.SaveChangesAsync(cancellationToken);
     }
 }

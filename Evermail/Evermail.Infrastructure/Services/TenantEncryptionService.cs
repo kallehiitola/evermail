@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Keys;
@@ -10,13 +11,22 @@ namespace Evermail.Infrastructure.Services;
 
 public class TenantEncryptionService : ITenantEncryptionService
 {
+    private const string ProviderAzureKeyVault = "AzureKeyVault";
+    private const string ProviderAwsKms = "AwsKms";
+    private const string ProviderEvermailManaged = "EvermailManaged";
+
     private readonly EvermailDbContext _context;
     private readonly TokenCredential _credential;
+    private readonly IAwsKmsConnector _awsKmsConnector;
 
-    public TenantEncryptionService(EvermailDbContext context, TokenCredential credential)
+    public TenantEncryptionService(
+        EvermailDbContext context,
+        TokenCredential credential,
+        IAwsKmsConnector awsKmsConnector)
     {
         _context = context;
         _credential = credential;
+        _awsKmsConnector = awsKmsConnector;
     }
 
     public async Task<TenantEncryptionSettingsDto> GetSettingsAsync(Guid tenantId, CancellationToken cancellationToken = default)
@@ -33,6 +43,82 @@ public class TenantEncryptionService : ITenantEncryptionService
     {
         var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
 
+        var normalizedProvider = NormalizeProvider(request.Provider);
+        entity.Provider = normalizedProvider;
+
+        switch (normalizedProvider)
+        {
+            case ProviderAzureKeyVault:
+                ApplyAzureSettings(entity, request.Azure);
+                ClearAwsFields(entity);
+                break;
+            case ProviderAwsKms:
+                ApplyAwsSettings(entity, tenantId, request.Aws);
+                ClearAzureFields(entity);
+                break;
+            case ProviderEvermailManaged:
+                // Automatic provisioning path (future). For now treat as not configured and clear manual fields.
+                ClearAzureFields(entity);
+                ClearAwsFields(entity);
+                entity.EncryptionPhase = "NotConfigured";
+                break;
+            default:
+                throw new NotSupportedException($"Encryption provider '{normalizedProvider}' is not supported.");
+        }
+
+        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedByUserId = userId;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return MapToDto(entity);
+    }
+
+    public async Task<TenantEncryptionTestResultDto> TestAccessAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    {
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+
+        return entity.Provider switch
+        {
+            ProviderAzureKeyVault or ProviderEvermailManaged => await TestAzureKeyVaultAsync(entity, cancellationToken),
+            ProviderAwsKms => await TestAwsKmsAsync(entity, cancellationToken),
+            _ => new TenantEncryptionTestResultDto(
+                Success: false,
+                Message: $"Provider '{entity.Provider}' cannot be validated yet.",
+                Timestamp: DateTime.UtcNow)
+        };
+    }
+
+    private async Task<TenantEncryptionSettings> GetOrCreateEntityAsync(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var entity = await _context.TenantEncryptionSettings
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId, cancellationToken);
+
+        if (entity != null)
+        {
+            return entity;
+        }
+
+        entity = new TenantEncryptionSettings
+        {
+            TenantId = tenantId,
+            EncryptionPhase = "NotConfigured",
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.TenantEncryptionSettings.Add(entity);
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return entity;
+    }
+
+    private void ApplyAzureSettings(TenantEncryptionSettings entity, AzureTenantEncryptionUpsertDto? request)
+    {
+        if (request is null)
+        {
+            throw new InvalidOperationException("Azure settings are required when provider is AzureKeyVault.");
+        }
+
         entity.KeyVaultUri = SanitizeUri(request.KeyVaultUri);
         entity.KeyVaultKeyName = request.KeyVaultKeyName.Trim();
         entity.KeyVaultKeyVersion = string.IsNullOrWhiteSpace(request.KeyVaultKeyVersion)
@@ -46,18 +132,47 @@ public class TenantEncryptionService : ITenantEncryptionService
         entity.EncryptionPhase = string.IsNullOrWhiteSpace(entity.KeyVaultUri)
             ? "NotConfigured"
             : "BYOKConfigured";
-        entity.UpdatedAt = DateTime.UtcNow;
-        entity.UpdatedByUserId = userId;
-
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return MapToDto(entity);
     }
 
-    public async Task<TenantEncryptionTestResultDto> TestAccessAsync(Guid tenantId, CancellationToken cancellationToken = default)
+    private void ApplyAwsSettings(TenantEncryptionSettings entity, Guid tenantId, AwsTenantEncryptionUpsertDto? request)
     {
-        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+        if (request is null)
+        {
+            throw new InvalidOperationException("AWS settings are required when provider is AwsKms.");
+        }
 
+        entity.AwsAccountId = request.AccountId.Trim();
+        entity.AwsRegion = request.Region.Trim();
+        entity.AwsKmsKeyArn = request.KmsKeyArn.Trim();
+        entity.AwsIamRoleArn = request.IamRoleArn.Trim();
+        entity.AwsExternalId ??= GenerateAwsExternalId(tenantId);
+
+        entity.EncryptionPhase = "WrapOnly";
+    }
+
+    private static void ClearAzureFields(TenantEncryptionSettings entity)
+    {
+        entity.KeyVaultUri = null;
+        entity.KeyVaultKeyName = null;
+        entity.KeyVaultKeyVersion = null;
+        entity.KeyVaultTenantId = null;
+        entity.ManagedIdentityObjectId = null;
+    }
+
+    private static void ClearAwsFields(TenantEncryptionSettings entity)
+    {
+        entity.AwsAccountId = null;
+        entity.AwsRegion = null;
+        entity.AwsKmsKeyArn = null;
+        entity.AwsIamRoleArn = null;
+        entity.AwsExternalId = null;
+        entity.ProviderMetadata = null;
+    }
+
+    private async Task<TenantEncryptionTestResultDto> TestAzureKeyVaultAsync(
+        TenantEncryptionSettings entity,
+        CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(entity.KeyVaultUri) ||
             string.IsNullOrWhiteSpace(entity.KeyVaultKeyName) ||
             string.IsNullOrWhiteSpace(entity.KeyVaultTenantId))
@@ -110,27 +225,17 @@ public class TenantEncryptionService : ITenantEncryptionService
         }
     }
 
-    private async Task<TenantEncryptionSettings> GetOrCreateEntityAsync(Guid tenantId, CancellationToken cancellationToken)
+    private async Task<TenantEncryptionTestResultDto> TestAwsKmsAsync(
+        TenantEncryptionSettings entity,
+        CancellationToken cancellationToken)
     {
-        var entity = await _context.TenantEncryptionSettings
-            .FirstOrDefaultAsync(t => t.TenantId == tenantId, cancellationToken);
+        var result = await _awsKmsConnector.TestConnectionAsync(entity, cancellationToken);
 
-        if (entity != null)
-        {
-            return entity;
-        }
-
-        entity = new TenantEncryptionSettings
-        {
-            TenantId = tenantId,
-            EncryptionPhase = "NotConfigured",
-            CreatedAt = DateTime.UtcNow
-        };
-
-        _context.TenantEncryptionSettings.Add(entity);
+        entity.LastVerifiedAt = result.Timestamp;
+        entity.LastVerificationMessage = result.Message;
         await _context.SaveChangesAsync(cancellationToken);
 
-        return entity;
+        return result;
     }
 
     private static string SanitizeUri(string value)
@@ -143,21 +248,74 @@ public class TenantEncryptionService : ITenantEncryptionService
         return value.Trim();
     }
 
-    private static TenantEncryptionSettingsDto MapToDto(TenantEncryptionSettings entity) =>
-        new(
-            IsConfigured: !string.IsNullOrWhiteSpace(entity.KeyVaultUri) &&
-                          !string.IsNullOrWhiteSpace(entity.KeyVaultKeyName),
+    private static TenantEncryptionSettingsDto MapToDto(TenantEncryptionSettings entity)
+    {
+        var secureKeyRelease = new SecureKeyReleaseDto(
+            entity.IsSecureKeyReleaseConfigured,
+            entity.SecureKeyReleaseConfiguredAt,
+            entity.AttestationProvider);
+
+        var azure = string.Equals(entity.Provider, ProviderAzureKeyVault, StringComparison.OrdinalIgnoreCase)
+            ? new AzureTenantEncryptionSettingsDto(
+                entity.KeyVaultUri,
+                entity.KeyVaultKeyName,
+                entity.KeyVaultKeyVersion,
+                entity.KeyVaultTenantId,
+                entity.ManagedIdentityObjectId)
+            : null;
+
+        var aws = string.Equals(entity.Provider, ProviderAwsKms, StringComparison.OrdinalIgnoreCase)
+            ? new AwsTenantEncryptionSettingsDto(
+                entity.AwsAccountId,
+                entity.AwsRegion,
+                entity.AwsKmsKeyArn,
+                entity.AwsIamRoleArn,
+                entity.AwsExternalId)
+            : null;
+
+        return new TenantEncryptionSettingsDto(
+            Provider: entity.Provider,
             EncryptionPhase: entity.EncryptionPhase,
-            KeyVaultUri: entity.KeyVaultUri,
-            KeyVaultKeyName: entity.KeyVaultKeyName,
-            KeyVaultKeyVersion: entity.KeyVaultKeyVersion,
-            KeyVaultTenantId: entity.KeyVaultTenantId,
-            ManagedIdentityObjectId: entity.ManagedIdentityObjectId,
+            IsConfigured: entity.Provider switch
+            {
+                ProviderAzureKeyVault => !string.IsNullOrWhiteSpace(entity.KeyVaultUri) &&
+                                         !string.IsNullOrWhiteSpace(entity.KeyVaultKeyName),
+                ProviderAwsKms => !string.IsNullOrWhiteSpace(entity.AwsKmsKeyArn) &&
+                                  !string.IsNullOrWhiteSpace(entity.AwsIamRoleArn),
+                _ => false
+            },
             UpdatedAt: entity.UpdatedAt ?? entity.CreatedAt,
             LastVerifiedAt: entity.LastVerifiedAt,
             LastVerificationMessage: entity.LastVerificationMessage,
-            IsSecureKeyReleaseConfigured: entity.IsSecureKeyReleaseConfigured,
-            SecureKeyReleaseConfiguredAt: entity.SecureKeyReleaseConfiguredAt);
+            SecureKeyRelease: secureKeyRelease,
+            Azure: azure,
+            Aws: aws);
+    }
+
+    private static string NormalizeProvider(string? provider)
+    {
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            return ProviderAzureKeyVault;
+        }
+
+        var normalized = provider.Trim();
+        return normalized switch
+        {
+            "Azure" or "AzureKeyVault" or "azure" => ProviderAzureKeyVault,
+            "Aws" or "AWS" or "AwsKms" => ProviderAwsKms,
+            "EvermailManaged" or "Evermail" => ProviderEvermailManaged,
+            _ => normalized
+        };
+    }
+
+    private static string GenerateAwsExternalId(Guid tenantId)
+    {
+        Span<byte> buffer = stackalloc byte[8];
+        RandomNumberGenerator.Fill(buffer);
+        var suffix = Convert.ToHexString(buffer).ToLowerInvariant();
+        return $"evermail-{tenantId:N}-{suffix}";
+    }
 }
 
 

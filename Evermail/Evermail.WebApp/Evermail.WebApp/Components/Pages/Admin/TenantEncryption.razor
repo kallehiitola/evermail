@@ -2,16 +2,35 @@
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
 @using System.Net.Http.Json
+@using System.Web
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Tenant
 @using Microsoft.AspNetCore.Components.Authorization
 @inject HttpClient Http
+@inject NavigationManager Navigation
 
 <PageTitle>Tenant Encryption - Evermail</PageTitle>
 
 <AuthorizeView Roles="Admin,SuperAdmin">
     <Authorized Context="authState">
         <div class="container mt-4">
+            @if (_isOnboardingFlow)
+            {
+                <div class="alert alert-primary d-flex flex-column gap-2" role="alert">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-flag-fill"></i>
+                        <div>
+                            <strong>Tenant security onboarding</strong>
+                            <span class="text-muted">Finish these steps to enable Confidential Content Protection.</span>
+                        </div>
+                    </div>
+                    <ol class="mb-0 ps-3">
+                        <li>Pick your provider (Azure Key Vault or AWS KMS) and fill in the connection details.</li>
+                        <li>Run the helper script / IAM template to grant Evermail access to your TMK.</li>
+                        <li>Click <strong>Test connection</strong> until you see a ✅ success message.</li>
+                    </ol>
+                </div>
+            }
             <div class="d-flex align-items-center gap-3 mb-3">
                 <div>
                     <h1 class="mb-0">Confidential Content Protection</h1>
@@ -48,28 +67,76 @@
 
                             <EditForm Model="_form" OnValidSubmit="SaveAsync">
                                 <DataAnnotationsValidator />
+
                                 <div class="mb-3">
-                                    <label class="form-label">Key Vault URI</label>
-                                    <InputText class="form-control" @bind-Value="_form.KeyVaultUri" />
+                                    <label class="form-label">Encryption provider</label>
+                                    <InputSelect class="form-select" @bind-Value="_form.Provider">
+                                        <option value="@AzureProvider">Evermail-managed / Azure Key Vault</option>
+                                        <option value="@AwsProvider">External KMS (AWS)</option>
+                                    </InputSelect>
+                                        <div class="form-text">
+                                            Evermail-managed keeps everything on Azure; AWS lets you keep keys in your own account for zero-access guarantees.
+                                        </div>
                                 </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Key name</label>
-                                    <InputText class="form-control" @bind-Value="_form.KeyVaultKeyName" />
-                                    <div class="form-text">We recommend a dedicated RSA-HSM or EC-HSM key.</div>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Key version (optional)</label>
-                                    <InputText class="form-control" @bind-Value="_form.KeyVaultKeyVersion" />
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Azure AD tenant ID</label>
-                                    <InputText class="form-control" @bind-Value="_form.KeyVaultTenantId" />
-                                    <div class="form-text">Output of <code>az account show --query tenantId -o tsv</code>.</div>
-                                </div>
-                                <div class="mb-3">
-                                    <label class="form-label">Managed identity object ID (optional)</label>
-                                    <InputText class="form-control" @bind-Value="_form.ManagedIdentityObjectId" />
-                                </div>
+
+                                @if (ShowAzureFields)
+                                {
+                                    <div class="mb-3">
+                                        <label class="form-label">Key Vault URI</label>
+                                        <InputText class="form-control" @bind-Value="_form.Azure.KeyVaultUri" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Key name</label>
+                                        <InputText class="form-control" @bind-Value="_form.Azure.KeyVaultKeyName" />
+                                        <div class="form-text">We recommend a dedicated RSA-HSM or EC-HSM key.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Key version (optional)</label>
+                                        <InputText class="form-control" @bind-Value="_form.Azure.KeyVaultKeyVersion" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Azure AD tenant ID</label>
+                                        <InputText class="form-control" @bind-Value="_form.Azure.KeyVaultTenantId" />
+                                        <div class="form-text">Output of <code>az account show --query tenantId -o tsv</code>.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Managed identity object ID (optional)</label>
+                                        <InputText class="form-control" @bind-Value="_form.Azure.ManagedIdentityObjectId" />
+                                    </div>
+                                }
+
+                                @if (IsAwsProvider)
+                                {
+                                    <div class="alert alert-info">
+                                        <strong>External ID:</strong>
+                                        @(
+                                            string.IsNullOrWhiteSpace(_settings?.Aws?.ExternalId)
+                                                ? "Will be generated after saving."
+                                                : _settings.Aws.ExternalId
+                                        )
+                                        <div class="form-text">
+                                            Add this External ID to your AWS IAM AssumeRole policy to prevent confused deputy attacks.
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">AWS Account ID</label>
+                                        <InputText class="form-control" @bind-Value="_form.Aws.AccountId" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">AWS Region</label>
+                                        <InputText class="form-control" @bind-Value="_form.Aws.Region" placeholder="eu-west-1" />
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">KMS Key ARN</label>
+                                        <InputText class="form-control" @bind-Value="_form.Aws.KmsKeyArn" />
+                                        <div class="form-text">Example: <code>arn:aws:kms:eu-west-1:123456789012:key/abcd-1234</code></div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">IAM Role ARN</label>
+                                        <InputText class="form-control" @bind-Value="_form.Aws.IamRoleArn" />
+                                        <div class="form-text">Evermail assumes this role via AWS STS during ingestion.</div>
+                                    </div>
+                                }
 
                                 <div class="d-flex gap-2">
                                     <button type="submit" class="btn btn-primary" disabled="@(_isSaving || _isLoading)">
@@ -96,16 +163,28 @@
                         <div class="card-body">
                             <h5 class="card-title">Status</h5>
                             <ul class="list-unstyled mb-4">
+                                <li><strong>Provider:</strong> @ProviderDisplayName</li>
                                 <li><strong>Phase:</strong> @_settings?.EncryptionPhase ?? "Not configured"</li>
                                 <li><strong>Configured:</strong> @(_settings?.IsConfigured == true ? "Yes" : "No")</li>
                                 <li><strong>Last verified:</strong> @_settings?.LastVerifiedAt?.ToString("u") ?? "Never"</li>
                                 <li><strong>Verification note:</strong> @_settings?.LastVerificationMessage ?? "—"</li>
+                                @if (_settings?.Aws is not null && string.Equals(_settings.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <li><strong>AWS Account:</strong> @_settings.Aws.AccountId ?? "—"</li>
+                                    <li><strong>AWS KMS Key:</strong> @_settings.Aws.KmsKeyArn ?? "—"</li>
+                                    <li><strong>IAM Role:</strong> @_settings.Aws.IamRoleArn ?? "—"</li>
+                                    <li><strong>External ID:</strong> @_settings.Aws.ExternalId ?? "—"</li>
+                                }
+                                else if (_settings?.Azure is not null)
+                                {
+                                    <li><strong>Key Vault:</strong> @_settings.Azure.KeyVaultUri ?? "—"</li>
+                                    <li><strong>Key name:</strong> @_settings.Azure.KeyVaultKeyName ?? "—"</li>
+                                }
                             </ul>
 
                             <h6>Onboarding helper</h6>
                             <p class="text-muted">
-                                Run the PowerShell helper to create the Key Vault, generate a TMK, and grant Evermail's managed identity access.
-                                Share the URI + key details here once configured.
+                                Use the helper below to stand up a Key Vault, generate a TMK, and grant Evermail's managed identity access.
                             </p>
                             <pre class="bg-dark text-light p-3 rounded small"><code>pwsh scripts/tenant-keyvault-onboarding.ps1 `
     -ResourceGroup &lt;rg-name&gt; `
@@ -114,8 +193,40 @@
     -EvermailManagedIdentityObjectId &lt;object-id&gt; `
     -KeyName evermail-tmk</code></pre>
                             <p class="text-muted small mb-0">
-                                Script: <code>scripts/tenant-keyvault-onboarding.ps1</code> (checked into the repo for review and change tracking).
+                                Script: <code>scripts/tenant-keyvault-onboarding.ps1</code> (tracked in this repo for auditing).
                             </p>
+
+                            @if (IsAwsProvider)
+                            {
+                                <div class="mt-4">
+                                    <h6>AWS IAM template</h6>
+                                    <p class="text-muted mb-2">
+                                        Update the placeholders below and attach the policy to the IAM role you reference above.
+                                        Remember to include the External ID generated for your tenant.
+                                    </p>
+                                    <pre class="bg-dark text-light p-3 rounded small"><code>{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "AWS": "&lt;EvermailAccountArn&gt;" },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": { "sts:ExternalId": "&lt;ExternalId&gt;" }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:GenerateDataKey",
+        "kms:Decrypt"
+      ],
+      "Resource": "&lt;KmsKeyArn&gt;"
+    }
+  ]
+}</code></pre>
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -128,6 +239,9 @@
 </AuthorizeView>
 
 @code {
+    private const string AzureProvider = "AzureKeyVault";
+    private const string AwsProvider = "AwsKms";
+
     private TenantEncryptionSettingsDto? _settings;
     private EncryptionFormModel _form = new();
     private bool _isLoading = true;
@@ -135,6 +249,17 @@
     private bool _isTesting;
     private string? _statusMessage;
     private string? _errorMessage;
+    private bool _isOnboardingFlow;
+
+    private bool IsAwsProvider => string.Equals(_form.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase);
+    private bool ShowAzureFields => !IsAwsProvider;
+
+    private string ProviderDisplayName => _settings?.Provider switch
+    {
+        AwsProvider => "AWS KMS (external)",
+        AzureProvider => "Evermail-managed / Azure Key Vault",
+        _ => "Not configured"
+    };
 
     private string _buttonText => _isSaving
         ? "Saving..."
@@ -142,6 +267,10 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        var query = HttpUtility.ParseQueryString(uri.Query);
+        _isOnboardingFlow = string.Equals(query["onboarding"], "1", StringComparison.OrdinalIgnoreCase);
+
         await LoadSettingsAsync();
     }
 
@@ -155,14 +284,7 @@
             if (response?.Success == true && response.Data is not null)
             {
                 _settings = response.Data;
-                _form = new EncryptionFormModel
-                {
-                    KeyVaultUri = _settings.KeyVaultUri ?? string.Empty,
-                    KeyVaultKeyName = _settings.KeyVaultKeyName ?? string.Empty,
-                    KeyVaultKeyVersion = _settings.KeyVaultKeyVersion ?? string.Empty,
-                    KeyVaultTenantId = _settings.KeyVaultTenantId ?? string.Empty,
-                    ManagedIdentityObjectId = _settings.ManagedIdentityObjectId ?? string.Empty
-                };
+                _form = EncryptionFormModel.FromDto(response.Data);
             }
             else
             {
@@ -187,19 +309,35 @@
 
         try
         {
-            var payloadToSend = new UpsertTenantEncryptionSettingsRequest(
-                _form.KeyVaultUri,
-                _form.KeyVaultKeyName,
-                string.IsNullOrWhiteSpace(_form.KeyVaultKeyVersion) ? null : _form.KeyVaultKeyVersion,
-                _form.KeyVaultTenantId,
-                string.IsNullOrWhiteSpace(_form.ManagedIdentityObjectId) ? null : _form.ManagedIdentityObjectId);
+            var azurePayload = ShowAzureFields
+                ? new AzureTenantEncryptionUpsertDto(
+                    _form.Azure.KeyVaultUri,
+                    _form.Azure.KeyVaultKeyName,
+                    string.IsNullOrWhiteSpace(_form.Azure.KeyVaultKeyVersion) ? null : _form.Azure.KeyVaultKeyVersion,
+                    _form.Azure.KeyVaultTenantId,
+                    string.IsNullOrWhiteSpace(_form.Azure.ManagedIdentityObjectId) ? null : _form.Azure.ManagedIdentityObjectId)
+                : null;
 
-            var response = await Http.PutAsJsonAsync("/api/v1/tenants/encryption", payloadToSend);
+            var awsPayload = IsAwsProvider
+                ? new AwsTenantEncryptionUpsertDto(
+                    _form.Aws.KmsKeyArn,
+                    _form.Aws.IamRoleArn,
+                    _form.Aws.Region,
+                    _form.Aws.AccountId)
+                : null;
+
+            var request = new UpsertTenantEncryptionSettingsRequest(
+                _form.Provider,
+                azurePayload,
+                awsPayload);
+
+            var response = await Http.PutAsJsonAsync("/api/v1/tenants/encryption", request);
             var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>();
 
-            if (response.IsSuccessStatusCode && payload?.Success == true)
+            if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
             {
                 _settings = payload.Data;
+                _form = EncryptionFormModel.FromDto(payload.Data);
                 _statusMessage = "Settings saved.";
             }
             else
@@ -230,7 +368,7 @@
 
             if (payload?.Success == true && payload.Data is not null)
             {
-                _statusMessage = $"✅ {_form.KeyVaultKeyName} verified at {payload.Data.Timestamp:u}";
+                _statusMessage = $"✅ {_form.Provider} verified at {payload.Data.Timestamp:u}";
             }
             else
             {
@@ -247,7 +385,36 @@
             await LoadSettingsAsync();
         }
     }
+
     private sealed class EncryptionFormModel
+    {
+        public string Provider { get; set; } = AzureProvider;
+        public AzureSettings Azure { get; set; } = new();
+        public AwsSettings Aws { get; set; } = new();
+
+        public static EncryptionFormModel FromDto(TenantEncryptionSettingsDto dto) =>
+            new()
+            {
+                Provider = dto.Provider ?? AzureProvider,
+                Azure = new AzureSettings
+                {
+                    KeyVaultUri = dto.Azure?.KeyVaultUri ?? string.Empty,
+                    KeyVaultKeyName = dto.Azure?.KeyVaultKeyName ?? string.Empty,
+                    KeyVaultKeyVersion = dto.Azure?.KeyVaultKeyVersion ?? string.Empty,
+                    KeyVaultTenantId = dto.Azure?.KeyVaultTenantId ?? string.Empty,
+                    ManagedIdentityObjectId = dto.Azure?.ManagedIdentityObjectId ?? string.Empty
+                },
+                Aws = new AwsSettings
+                {
+                    AccountId = dto.Aws?.AccountId ?? string.Empty,
+                    Region = dto.Aws?.Region ?? "eu-west-1",
+                    KmsKeyArn = dto.Aws?.KmsKeyArn ?? string.Empty,
+                    IamRoleArn = dto.Aws?.IamRoleArn ?? string.Empty
+                }
+            };
+    }
+
+    private sealed class AzureSettings
     {
         public string KeyVaultUri { get; set; } = string.Empty;
         public string KeyVaultKeyName { get; set; } = string.Empty;
@@ -255,6 +422,13 @@
         public string KeyVaultTenantId { get; set; } = string.Empty;
         public string ManagedIdentityObjectId { get; set; } = string.Empty;
     }
-}
 
+    private sealed class AwsSettings
+    {
+        public string AccountId { get; set; } = string.Empty;
+        public string Region { get; set; } = "eu-west-1";
+        public string KmsKeyArn { get; set; } = string.Empty;
+        public string IamRoleArn { get; set; } = string.Empty;
+    }
+}
 
