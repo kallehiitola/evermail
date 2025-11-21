@@ -39,34 +39,101 @@
     <section class="search-panel">
         <form class="search-form" @onsubmit="HandleSearch" @onsubmit:preventDefault="true">
             <div class="search-primary mb-3">
-                <div class="search-field">
-                    <label class="form-label fw-semibold">Search emails</label>
+                <div class="search-field search-field--with-icons">
                     <input type="text"
                            class="form-control form-control-xl"
-                           placeholder="@SampleQueryPlaceholder"
+                           placeholder="Search emails or use filters like from:alice AND invoice"
                            @bind="_searchQuery"
                            @bind:event="oninput"
                            @ref="_searchInputRef" />
+                    <div class="search-field__icons">
+                        <button type="button"
+                                class="icon-button icon-button--ghost"
+                                title="Date range"
+                                @onclick="ToggleDatePicker">
+                            <i class="bi bi-calendar3"></i>
+                        </button>
+                        <button type="button"
+                                class="icon-button icon-button--ghost"
+                                title="Advanced filters"
+                                @onclick="ToggleAdvancedFilters">
+                            <i class="bi bi-sliders2"></i>
+                        </button>
+                    </div>
                 </div>
-                <div class="search-scope">
-                    <label class="form-label fw-semibold">Scope</label>
-                    <select class="form-select form-select-lg"
-                            value="@(_selectedMailboxId?.ToString() ?? "")"
-                            @onchange="OnMailboxSelectChanged">
-                        <option value="">All mailboxes</option>
-                        @if (_mailboxes != null)
-                        {
-                            @foreach (var mailbox in _mailboxes)
-                            {
-                                <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
-                            }
-                        }
-                    </select>
-                </div>
-                <div class="search-action align-self-end">
-                    <button type="submit" class="btn btn-primary btn-xl w-100">
+                <div class="search-actions">
+                    <div class="sort-toggle">
+                        <button type="button"
+                                class="@GetSortModeClass(SortMode.Relevance)"
+                                @onclick="async () => await SetSortModeAsync(SortMode.Relevance)">
+                            <i class="bi bi-activity me-1"></i>Relevance
+                        </button>
+                        <button type="button"
+                                class="@GetSortModeClass(SortMode.Newest)"
+                                @onclick="async () => await SetSortModeAsync(SortMode.Newest)">
+                            <i class="bi bi-arrow-down me-1"></i>Newest
+                        </button>
+                        <button type="button"
+                                class="@GetSortModeClass(SortMode.Oldest)"
+                                @onclick="async () => await SetSortModeAsync(SortMode.Oldest)">
+                            <i class="bi bi-arrow-up me-1"></i>Oldest
+                        </button>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-xl search-button">
                         <i class="bi bi-search me-2"></i>Search
                     </button>
+                </div>
+                @if (_showDatePicker)
+                {
+                    <div class="date-popover">
+                        <div class="date-popover__header">
+                            <span>Date range</span>
+                            <button type="button" class="icon-button icon-button--ghost" @onclick="ToggleDatePicker">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                        <div class="date-popover__body">
+                            <label class="form-label fw-semibold">From</label>
+                            <InputDate @bind-Value="_dateFrom"
+                                       class="form-control"
+                                       placeholder="dd/mm/yyyy" />
+                            <label class="form-label fw-semibold mt-3">To</label>
+                            <InputDate @bind-Value="_dateTo"
+                                       class="form-control"
+                                       placeholder="dd/mm/yyyy" />
+                            <div class="d-flex gap-2 mt-3">
+                                <button type="button" class="btn btn-outline-secondary flex-fill" @onclick="ClearDateRange">Clear</button>
+                                <button type="button" class="btn btn-primary flex-fill" @onclick="ApplyDateRangeAsync">Apply</button>
+                            </div>
+                        </div>
+                    </div>
+                }
+            </div>
+            <div class="search-meta mb-2">
+                <div class="search-meta__left">
+                    <button type="button"
+                            class="scope-pill"
+                            @onclick="ToggleScopeSelector">
+                        <i class="bi bi-collection me-1"></i>@GetScopeLabel()
+                    </button>
+                    @if (_showScopeSelector)
+                    {
+                        <div class="scope-dropdown">
+                            <label class="form-label fw-semibold">Mailbox scope</label>
+                            <select class="form-select"
+                                    value="@(_selectedMailboxId?.ToString() ?? "")"
+                                    @onchange="OnMailboxSelectChanged">
+                                <option value="">All mailboxes</option>
+                                @if (_mailboxes != null)
+                                {
+                                    @foreach (var mailbox in _mailboxes)
+                                    {
+                                        <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
+                                    }
+                                }
+                            </select>
+                        </div>
+                    }
                 </div>
             </div>
             <div class="search-hints-row">
@@ -75,106 +142,123 @@
                     <span class="hint">from:alice@example.com, subject:"invoice"</span>
                     <span class="hint">Combine filters with AND / OR</span>
                 </div>
-
-                <button type="button" class="advanced-filter-toggle d-inline-flex align-items-center" @onclick="ToggleAdvancedFilters">
-                    <i class="@AdvancedToggleIconClass"></i>
-                    <span>@AdvancedToggleLabel</span>
-                </button>
             </div>
 
             @if (_showAdvancedFilters)
             {
                 <div class="advanced-filters-panel">
-                    <div class="advanced-grid">
-                        <div class="filter-card">
-                            <h4>Skip filler words</h4>
-                            <p class="text-muted">Comma‑separate any noise words (e.g. “the,and,or”) you don’t want to match.</p>
-                            <input type="text"
-                                   class="form-control"
-                                   placeholder="Comma-separated words to skip (e.g. the,and,or)"
-                                   @bind="_stopWords" />
-                            <div class="form-text">Helps trim noise for relevance scoring.</div>
+                    <section class="advanced-section">
+                        <div class="advanced-section__header">
+                            <h4>Keywords & matching</h4>
+                            <p>Fine-tune how we interpret your search terms.</p>
                         </div>
-                        <div class="filter-card">
-                            <h4>Recipient filter</h4>
-                            <p class="text-muted">Find messages sent to, cc’d, bcc’d, or replied to a specific contact.</p>
-                            <input type="text"
-                                   class="form-control"
-                                   placeholder="alice@example.com"
-                                   @bind="_recipientFilter" />
-                            <div class="form-text">Matches email address or display name.</div>
-                        </div>
-                        <div class="filter-card">
-                            <h4>Sender filter</h4>
-                            <p class="text-muted">Limit results to a specific sender name or address.</p>
-                            <input type="text"
-                                   class="form-control"
-                                   placeholder="billing@company.com"
-                                   @bind="_fromFilter" />
-                        </div>
-                        <div class="filter-card">
-                            <h4>Rank by signal</h4>
-                            <p class="text-muted">Choose whether to prioritize semantic relevance or metadata such as date.</p>
-                            <label class="form-label mb-1">Sort by</label>
-                            <select class="form-select mb-3"
-                                    value="@_sortBy"
-                                    @onchange="OnSortByChanged">
-                                <option value="rank">Relevance (recommended)</option>
-                                <option value="date">Date</option>
-                                <option value="subject">Subject</option>
-                                <option value="from">Sender</option>
-                            </select>
-                            <label class="form-label mb-1">Order</label>
-                            <select class="form-select"
-                                    value="@_sortOrder"
-                                    @onchange="OnSortOrderChanged">
-                                <option value="desc">Newest first</option>
-                                <option value="asc">Oldest first</option>
-                            </select>
-                        </div>
-                        <div class="filter-card">
-                            <h4>Match flexibility</h4>
-                            <p class="text-muted">Toggle to include plural and verb variations (plan → planning → planned).</p>
-                            <label class="form-label mb-1">Inflectional forms</label>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       id="inflectionalToggle"
-                                       checked="@_useInflectionalForms"
-                                       @onchange="OnInflectionalToggleChanged" />
-                                <label class="form-check-label" for="inflectionalToggle">
-                                    Match planning / planned / plan
-                                </label>
+                        <div class="advanced-section__grid">
+                            <div class="filter-field filter-field--full">
+                                <label class="filter-field__label" for="stopWordsInput">Skip filler words</label>
+                                <p class="filter-field__hint">Comma-separate any noise words (e.g. “the,and,or”) you don’t want to match.</p>
+                                <input id="stopWordsInput"
+                                       type="text"
+                                       class="form-control"
+                                       placeholder="Comma-separated words to skip"
+                                       @bind="_stopWords" />
+                                <div class="form-text">Helps trim noise for relevance scoring.</div>
                             </div>
-                        </div>
-                        <div class="filter-card">
-                            <h4>Date range</h4>
-                            <p class="text-muted">Keep queries scoped to the timeframe that matters.</p>
-                            <div class="date-range-grid">
-                                <div>
-                                    <label class="form-label fw-semibold">From</label>
-                                    <InputDate @bind-Value="_dateFrom"
-                                               class="form-control"
-                                               placeholder="Start date" />
-                                </div>
-                                <div>
-                                    <label class="form-label fw-semibold">To</label>
-                                    <InputDate @bind-Value="_dateTo"
-                                               class="form-control"
-                                               placeholder="End date" />
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="inflectionalToggle">Match flexibility</label>
+                                <p class="filter-field__hint">Toggle to include plural and verb variations (plan → planning → planned).</p>
+                                <div class="form-check form-switch mt-1">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="inflectionalToggle"
+                                           checked="@_useInflectionalForms"
+                                           @onchange="OnInflectionalToggleChanged" />
+                                    <label class="form-check-label" for="inflectionalToggle">
+                                        Match planning / planned / plan
+                                    </label>
                                 </div>
                             </div>
-                            <div class="form-check form-switch mt-3">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       id="attachmentsOnlyToggle"
-                                       @bind="_hasAttachmentsOnly" />
-                                <label class="form-check-label" for="attachmentsOnlyToggle">
-                                    Only show emails with attachments
-                                </label>
+                        </div>
+                    </section>
+
+                    <section class="advanced-section">
+                        <div class="advanced-section__header">
+                            <h4>Participants</h4>
+                            <p>Focus on messages from specific people or teams.</p>
+                        </div>
+                        <div class="advanced-section__grid">
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="recipientFilterInput">Recipient filter</label>
+                                <p class="filter-field__hint">Find messages sent to, cc’d, bcc’d, or replied to a specific contact.</p>
+                                <input id="recipientFilterInput"
+                                       type="text"
+                                       class="form-control"
+                                       placeholder="alice@example.com"
+                                       @bind="_recipientFilter" />
+                                <div class="form-text">Matches email address or display name.</div>
+                            </div>
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="senderFilterInput">Sender filter</label>
+                                <p class="filter-field__hint">Limit results to a specific sender name or address.</p>
+                                <input id="senderFilterInput"
+                                       type="text"
+                                       class="form-control"
+                                       placeholder="billing@company.com"
+                                       @bind="_fromFilter" />
+                            </div>
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="advancedScopeSelect">Mailbox scope</label>
+                                <p class="filter-field__hint">Restrict searches to a specific archive.</p>
+                                <select id="advancedScopeSelect"
+                                        class="form-select"
+                                        value="@(_selectedMailboxId?.ToString() ?? "")"
+                                        @onchange="OnMailboxSelectChanged">
+                                    <option value="">All mailboxes</option>
+                                    @if (_mailboxes != null)
+                                    {
+                                        @foreach (var mailbox in _mailboxes)
+                                        {
+                                            <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
+                                        }
+                                    }
+                                </select>
                             </div>
                         </div>
-                    </div>
+                    </section>
+
+                    <section class="advanced-section">
+                        <div class="advanced-section__header">
+                            <h4>Date range & attachments</h4>
+                            <p>Keep queries scoped to the timeframe—and file types—that matter.</p>
+                        </div>
+                        <div class="advanced-section__grid">
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="dateFromInput">From</label>
+                                <InputDate @bind-Value="_dateFrom"
+                                           class="form-control"
+                                           id="dateFromInput"
+                                           placeholder="dd/mm/yyyy" />
+                            </div>
+                            <div class="filter-field">
+                                <label class="filter-field__label" for="dateToInput">To</label>
+                                <InputDate @bind-Value="_dateTo"
+                                           class="form-control"
+                                           id="dateToInput"
+                                           placeholder="dd/mm/yyyy" />
+                            </div>
+                            <div class="filter-field filter-field--full">
+                                <label class="filter-field__label" for="attachmentsOnlyToggle">Attachments</label>
+                                <div class="form-check form-switch mt-1">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           id="attachmentsOnlyToggle"
+                                           @bind="_hasAttachmentsOnly" />
+                                    <label class="form-check-label" for="attachmentsOnlyToggle">
+                                        Only show emails with attachments
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
             }
             else
@@ -717,6 +801,16 @@
     private int _activeRowIndex = -1;
     private bool _showPreviewModal;
     private EmailListItemDto? _previewEmail;
+    private bool _showScopeSelector;
+    private bool _showDatePicker;
+    private SortMode _sortMode = SortMode.Relevance;
+
+    private enum SortMode
+    {
+        Relevance,
+        Newest,
+        Oldest
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -796,6 +890,8 @@
         {
             _sortBy = "rank";
         }
+
+        SyncSortModeFromState();
 
         await LoadPreferencesAsync();
         await LoadMailboxes();
@@ -1147,25 +1243,11 @@
             _selectedMailboxId = mailboxId;
         }
         _currentPage = 1;
+        _showScopeSelector = false;
         await UpdateUrl();
         await LoadEmails(1);
     }
 
-    private async Task OnSortByChanged(ChangeEventArgs e)
-    {
-        var selectedValue = e.Value?.ToString();
-        _sortBy = string.IsNullOrWhiteSpace(selectedValue)
-            ? (string.IsNullOrWhiteSpace(_searchQuery) ? "date" : "rank")
-            : selectedValue!;
-        await HandleSearch();
-    }
-
-    private async Task OnSortOrderChanged(ChangeEventArgs e)
-    {
-        var selectedValue = e.Value?.ToString();
-        _sortOrder = string.IsNullOrWhiteSpace(selectedValue) ? "desc" : selectedValue!;
-        await HandleSearch();
-    }
 
     private async Task OnInflectionalToggleChanged(ChangeEventArgs e)
     {
@@ -1184,6 +1266,15 @@
     private async Task HandleSearch()
     {
         _currentPage = 1;
+        _showScopeSelector = false;
+        _showDatePicker = false;
+
+        if (_sortMode == SortMode.Relevance)
+        {
+            _sortBy = string.IsNullOrWhiteSpace(_searchQuery) ? "date" : "rank";
+            _sortOrder = "desc";
+        }
+
         await UpdateUrl();
         await LoadEmails(1);
     }
@@ -1191,6 +1282,11 @@
     private void ToggleAdvancedFilters()
     {
         _showAdvancedFilters = !_showAdvancedFilters;
+        if (_showAdvancedFilters)
+        {
+            _showScopeSelector = false;
+            _showDatePicker = false;
+        }
     }
 
     private async Task UpdateUrl()
@@ -1299,17 +1395,106 @@
         return parameters;
     }
 
-    private string AdvancedToggleIconClass => _showAdvancedFilters ? "bi bi-dash-circle" : "bi bi-sliders";
-    private string AdvancedToggleLabel => _showAdvancedFilters ? "Hide advanced filters" : "Advanced filters";
-
-    private string GetSortLabel() => _sortBy switch
+    private string GetSortLabel() => _sortMode switch
     {
-        "rank" => "Relevance",
-        "date" => "Date",
-        "subject" => "Subject",
-        "from" => "Sender",
-        _ => _sortBy
+        SortMode.Relevance => "Relevance",
+        SortMode.Newest => "Newest first",
+        SortMode.Oldest => "Oldest first",
+        _ => "Relevance"
     };
+
+    private string GetScopeLabel()
+    {
+        if (!_selectedMailboxId.HasValue || _mailboxes is null)
+        {
+            return "All mailboxes";
+        }
+
+        var mailbox = _mailboxes.FirstOrDefault(m => m.Id == _selectedMailboxId);
+        return mailbox is null ? "Selected mailbox" : GetMailboxDisplayName(mailbox);
+    }
+
+    private string GetSortModeClass(SortMode mode) =>
+        mode == _sortMode ? "sort-toggle__btn sort-toggle__btn--active" : "sort-toggle__btn";
+
+    private async Task SetSortModeAsync(SortMode mode)
+    {
+        if (_sortMode == mode)
+        {
+            return;
+        }
+
+        _sortMode = mode;
+
+        switch (mode)
+        {
+            case SortMode.Relevance:
+                _sortBy = string.IsNullOrWhiteSpace(_searchQuery) ? "date" : "rank";
+                _sortOrder = "desc";
+                break;
+            case SortMode.Newest:
+                _sortBy = "date";
+                _sortOrder = "desc";
+                break;
+            case SortMode.Oldest:
+                _sortBy = "date";
+                _sortOrder = "asc";
+                break;
+        }
+
+        await HandleSearch();
+    }
+
+    private void ToggleScopeSelector()
+    {
+        _showScopeSelector = !_showScopeSelector;
+        if (_showScopeSelector)
+        {
+            _showDatePicker = false;
+        }
+    }
+
+    private void ToggleDatePicker()
+    {
+        _showDatePicker = !_showDatePicker;
+        if (_showDatePicker)
+        {
+            _showScopeSelector = false;
+        }
+    }
+
+    private async Task ApplyDateRangeAsync()
+    {
+        _showDatePicker = false;
+        await HandleSearch();
+    }
+
+    private void ClearDateRange()
+    {
+        _dateFrom = null;
+        _dateTo = null;
+    }
+
+    private void SyncSortModeFromState()
+    {
+        if (_sortBy.Equals("rank", StringComparison.OrdinalIgnoreCase))
+        {
+            _sortMode = SortMode.Relevance;
+            _sortOrder = "desc";
+            return;
+        }
+
+        if (_sortBy.Equals("date", StringComparison.OrdinalIgnoreCase))
+        {
+            _sortMode = _sortOrder.Equals("asc", StringComparison.OrdinalIgnoreCase)
+                ? SortMode.Oldest
+                : SortMode.Newest;
+            return;
+        }
+
+        _sortMode = SortMode.Relevance;
+        _sortOrder = "desc";
+    }
 
     private static string GetMatchLabel(string field) => field switch
     {
@@ -1612,18 +1797,4 @@
     }
 
     private record EmailSummaryCard(string Label, string Value, string? Caption);
-
-    private sealed record PinnedThreadSummary(
-        Guid GroupKey,
-        Guid EmailId,
-        Guid? ConversationId,
-        string Subject,
-        string FromLabel,
-        string Snippet,
-        DateTime LastActivity,
-        int MessageCount,
-        DateTime PinnedAt)
-    {
-        public bool HasMultipleMessages => MessageCount > 1;
-    }
 }
