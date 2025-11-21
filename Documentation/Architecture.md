@@ -101,6 +101,15 @@ Apply these rules whenever you touch the Blazor surface so future prompts inheri
 
 Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth, settings) visually cohesive and future AI prompts can extend the system without guesswork.
 
+##### Guided Onboarding Wizard (Dec 2025 rollout)
+- **Entry point**: After account creation/OAuth we redirect to `/onboarding` instead of `/admin/encryption`. The wizard is also linked from the dashboard banner (`/onboarding?step=security`) so admins can jump straight to unfinished work.
+- **Steps & data flow**:
+  1. **Choose plan** – `GET /api/v1/tenants/plans` returns every active `SubscriptionPlan` (pricing, limits, features). Selecting one calls `PUT /api/v1/tenants/subscription`, which updates `Tenant.SubscriptionTier`, max limits, and stamps `Tenant.OnboardingPlanConfirmedAt`. Staying on the Free plan simply re-posts the same tier so we still record confirmation.
+  2. **Secure tenant** – Surfaces the encryption status from `GET /api/v1/tenants/onboarding/status` plus shortcuts to `/admin/encryption?onboarding=1` and the offline BYOK lab. A “Refresh status” button re-queries the endpoint once the admin finishes SKR/AWS wiring.
+  3. **Upload mailbox** – Links to `/upload`, reminds the user of their plan limits, and offers sample data instructions so they can exercise ingestion immediately.
+- **Progress tracking**: `TenantOnboardingStatusDto` now includes `PlanConfirmed` and `SubscriptionTier`. The wizard (and dashboard banner) calculates completion purely from the backend (`PlanConfirmed`, `EncryptionConfigured`, `HasMailbox`) so refreshing the page always reflects reality.
+- **Design language**: Uses the same gradient hero, pill groups, and `.modern-card` stack as Home/Upload. The left rail is a progress list (step number + icon) while the right pane renders rich content for the selected step (plan cards, security alert, upload CTA). Everything is dark-mode aware thanks to existing tokens.
+
 #### Admin Dashboard (Blazor Server)
 - **Purpose**: Internal operations and monitoring
 - **Technology**: Blazor Server for real-time updates

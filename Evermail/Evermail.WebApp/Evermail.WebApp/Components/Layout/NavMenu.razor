@@ -140,6 +140,11 @@
                             <AuthorizeView Roles="Admin,SuperAdmin">
                                 <Authorized Context="adminContext">
                                     <div class="nav-item px-3 nav-item--sub">
+                                        <NavLink class="nav-link nav-link--sub" href="onboarding">
+                                            <i class="bi bi-rocket-takeoff" aria-hidden="true"></i> Admin: Onboarding
+                                        </NavLink>
+                                    </div>
+                                    <div class="nav-item px-3 nav-item--sub">
                                         <NavLink class="nav-link nav-link--sub" href="admin/subscriptions">
                                             <i class="bi bi-shield-lock-fill" aria-hidden="true"></i> Admin:
                                             Subscriptions
@@ -148,6 +153,11 @@
                                     <div class="nav-item px-3 nav-item--sub">
                                         <NavLink class="nav-link nav-link--sub" href="admin/encryption">
                                             <i class="bi bi-key-fill" aria-hidden="true"></i> Admin: Encryption
+                                        </NavLink>
+                                    </div>
+                                    <div class="nav-item px-3 nav-item--sub">
+                                        <NavLink class="nav-link nav-link--sub" href="admin/offline-byok">
+                                            <i class="bi bi-cloud-slash" aria-hidden="true"></i> Admin: Offline BYOK
                                         </NavLink>
                                     </div>
                                 </Authorized>

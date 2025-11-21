@@ -89,6 +89,32 @@ public class TenantEncryptionService : ITenantEncryptionService
         };
     }
 
+    public async Task<IReadOnlyList<TenantEncryptionHistoryItemDto>> GetEncryptionHistoryAsync(
+        Guid tenantId,
+        int limit = 20,
+        CancellationToken cancellationToken = default)
+    {
+        limit = Math.Clamp(limit, 1, 100);
+
+        return await _context.MailboxEncryptionStates
+            .AsNoTracking()
+            .Where(es => es.TenantId == tenantId)
+            .OrderByDescending(es => es.CreatedAt)
+            .Take(limit)
+            .Select(es => new TenantEncryptionHistoryItemDto(
+                es.Id,
+                es.MailboxId,
+                es.MailboxUploadId,
+                es.Provider,
+                es.Algorithm,
+                es.CreatedAt,
+                es.ProviderKeyVersion,
+                es.WrapRequestId,
+                es.LastUnwrapRequestId,
+                es.ProviderMetadata))
+            .ToListAsync(cancellationToken);
+    }
+
     private async Task<TenantEncryptionSettings> GetOrCreateEntityAsync(Guid tenantId, CancellationToken cancellationToken)
     {
         var entity = await _context.TenantEncryptionSettings

@@ -7,9 +7,11 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Tenant
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject IAuthenticationStateService AuthStateService
+@inject IJSRuntime JS
 
 <PageTitle>Tenant Encryption - Evermail</PageTitle>
 
@@ -61,11 +63,23 @@
             }
 
             <div class="row g-4">
-                <div class="col-lg-6">
+                <div class="col-xl-7">
                     <div class="card h-100">
                         <div class="card-body">
-                            <h5 class="card-title">Key Vault connection</h5>
-                            <p class="text-muted">All fields are required unless marked optional.</p>
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h5 class="card-title mb-0">Key management</h5>
+                                    <p class="text-muted mb-0">All fields are required unless marked optional.</p>
+                                </div>
+                                <span class="badge bg-light text-dark text-uppercase">
+                                    @_form.Provider switch
+                                    {
+                                        AzureProvider => "Azure",
+                                        AwsProvider => "AWS",
+                                        _ => "Custom"
+                                    }
+                                </span>
+                            </div>
 
                             <EditForm Model="_form" OnValidSubmit="SaveAsync">
                                 <DataAnnotationsValidator />
@@ -109,16 +123,19 @@
 
                                 @if (IsAwsProvider)
                                 {
-                                    <div class="alert alert-info">
-                                        <strong>External ID:</strong>
-                                        @(
-                                            string.IsNullOrWhiteSpace(_settings?.Aws?.ExternalId)
-                                                ? "Will be generated after saving."
-                                                : _settings.Aws.ExternalId
-                                        )
-                                        <div class="form-text">
-                                            Add this External ID to your AWS IAM AssumeRole policy to prevent confused deputy attacks.
+                                    <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                        <div>
+                                            <strong>External ID:</strong>
+                                            @DisplayExternalId
+                                            <div class="form-text">
+                                                Add this identifier to your AWS IAM trust policy to prevent confused deputy attacks.
+                                            </div>
                                         </div>
+                                        <button type="button"
+                                                class="btn btn-outline-light btn-sm"
+                                                @onclick='@(() => CopyToClipboardAsync("External ID", DisplayExternalId))'>
+                                            <i class="bi bi-clipboard"></i> Copy
+                                        </button>
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">AWS Account ID</label>
@@ -160,7 +177,7 @@
                     </div>
                 </div>
 
-                <div class="col-lg-6">
+                <div class="col-xl-5">
                     <div class="card h-100">
                         <div class="card-body">
                             <h5 class="card-title">Status</h5>
@@ -184,51 +201,192 @@
                                 }
                             </ul>
 
-                            <h6>Onboarding helper</h6>
-                            <p class="text-muted">
-                                Use the helper below to stand up a Key Vault, generate a TMK, and grant Evermail's managed identity access.
-                            </p>
-                            <pre class="bg-dark text-light p-3 rounded small"><code>pwsh scripts/tenant-keyvault-onboarding.ps1 `
-    -ResourceGroup &lt;rg-name&gt; `
-    -Region &lt;azure-region&gt; `
-    -KeyVaultName &lt;kv-name&gt; `
-    -EvermailManagedIdentityObjectId &lt;object-id&gt; `
-    -KeyName evermail-tmk</code></pre>
-                            <p class="text-muted small mb-0">
-                                Script: <code>scripts/tenant-keyvault-onboarding.ps1</code> (tracked in this repo for auditing).
-                            </p>
+                            <div class="mt-4">
+                                <h6 class="d-flex align-items-center gap-2">
+                                    Setup helper
+                                    <span class="badge bg-secondary">@(_activeInstructionTabDisplay)</span>
+                                </h6>
+                                <div class="btn-group mb-3" role="group">
+                                    <button type="button"
+                                            class='@GetInstructionTabClass("azure")'
+                                            @onclick='() => SetInstructionTab("azure")'>
+                                        Azure
+                                    </button>
+                                    <button type="button"
+                                            class='@GetInstructionTabClass("aws")'
+                                            @onclick='() => SetInstructionTab("aws")'
+                                            disabled="@(ShowAzureFields)">
+                                        AWS
+                                    </button>
+                                    <button type="button"
+                                            class='@GetInstructionTabClass("offline")'
+                                            @onclick='() => SetInstructionTab("offline")'>
+                                        Offline BYOK
+                                    </button>
+                                </div>
 
-                            @if (IsAwsProvider)
+                                @switch (_activeInstructionTab)
+                                {
+                                    case "azure":
+                                        <div>
+                                            <p class="text-muted">
+                                                Run this script from your workstation (requires Azure CLI). It creates a Key Vault,
+                                                generates a key, and grants your managed identity access.
+                                            </p>
+                                            <pre class="bg-dark text-light p-3 rounded small"><code>@AzureScriptSnippet</code></pre>
+                                            <button class="btn btn-outline-secondary btn-sm"
+                                                    @onclick='@(() => CopyToClipboardAsync("Azure script", AzureScriptSnippet))'>
+                                                <i class="bi bi-clipboard"></i> Copy script
+                                            </button>
+                                        </div>
+                                        break;
+                                    case "aws":
+                                        <div>
+                                            <p class="text-muted mb-2">
+                                                Paste the trust policy first, then attach the permissions policy to the IAM role you entered above.
+                                            </p>
+                                            <div class="mb-2">
+                                                <label class="form-label fw-semibold">Trust policy</label>
+                                                <pre class="bg-dark text-light p-3 rounded small"><code>@AwsTrustPolicySnippet</code></pre>
+                                                <button class="btn btn-outline-secondary btn-sm"
+                                                        @onclick='@(() => CopyToClipboardAsync("AWS trust policy", AwsTrustPolicySnippet))'>
+                                                    <i class="bi bi-clipboard"></i> Copy trust policy
+                                                </button>
+                                            </div>
+                                            <div class="mb-2">
+                                                <label class="form-label fw-semibold">Permissions policy</label>
+                                                <pre class="bg-dark text-light p-3 rounded small"><code>@AwsPermissionPolicySnippet</code></pre>
+                                                <button class="btn btn-outline-secondary btn-sm"
+                                                        @onclick='@(() => CopyToClipboardAsync("AWS permissions policy", AwsPermissionPolicySnippet))'>
+                                                    <i class="bi bi-clipboard"></i> Copy permissions policy
+                                                </button>
+                                            </div>
+                                            <div class="alert alert-warning mt-3 mb-0">
+                                                <strong>Remember:</strong> replace <code>@EvermailAwsPrincipalPlaceholder</code> with the official Evermail AWS principal
+                                                when you move to production.
+                                            </div>
+                                        </div>
+                                        break;
+                                    default:
+                                        <div>
+                                            <p class="text-muted mb-2">
+                                                Need zero-access encryption without AWS or Azure? Generate and store your own keys locally.
+                                                We'll guide you through a browser-based key wrapping flow (coming soon).
+                                            </p>
+                                            <ul class="text-muted mb-0">
+                                                <li>Generate a tenant master key in your browser (WebCrypto).</li>
+                                                <li>Download an encrypted backup bundle and store it safely.</li>
+                                                <li>Evermail never sees your plaintext key — you'll re-upload the wrapped blob when needed.</li>
+                                            </ul>
+                                        </div>
+                                        break;
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-4 mt-1">
+                <div class="col-xl-7">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex align-items-center justify-content-between mb-3">
+                                <div>
+                                    <h5 class="card-title mb-0">Key activity</h5>
+                                    <p class="text-muted mb-0">Recent wrap/unwrap operations per mailbox upload (latest 20).</p>
+                                </div>
+                                <button class="btn btn-outline-secondary btn-sm"
+                                        @onclick="LoadHistoryAsync"
+                                        disabled="@_isHistoryLoading">
+                                    @if (_isHistoryLoading)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-arrow-repeat"></i>
+                                    }
+                                    Refresh
+                                </button>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_historyError))
                             {
-                                <div class="mt-4">
-                                    <h6>AWS IAM template</h6>
-                                    <p class="text-muted mb-2">
-                                        Update the placeholders below and attach the policy to the IAM role you reference above.
-                                        Remember to include the External ID generated for your tenant.
-                                    </p>
-                                    <pre class="bg-dark text-light p-3 rounded small"><code>{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": { "AWS": "&lt;EvermailAccountArn&gt;" },
-      "Action": "sts:AssumeRole",
-      "Condition": {
-        "StringEquals": { "sts:ExternalId": "&lt;ExternalId&gt;" }
-      }
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "kms:GenerateDataKey",
-        "kms:Decrypt"
-      ],
-      "Resource": "&lt;KmsKeyArn&gt;"
-    }
-  ]
-}</code></pre>
+                                <div class="alert alert-warning">@_historyError</div>
+                            }
+                            else if (_isHistoryLoading)
+                            {
+                                <div class="d-flex align-items-center gap-2 text-muted">
+                                    <span class="spinner-border spinner-border-sm"></span>
+                                    Loading history…
                                 </div>
                             }
+                            else if (_history.Count == 0)
+                            {
+                                <p class="text-muted mb-0">No encryption events yet. Upload a mailbox to generate the first entry.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th scope="col">Timestamp</th>
+                                                <th scope="col">Provider</th>
+                                                <th scope="col">Mailbox</th>
+                                                <th scope="col">Upload</th>
+                                                <th scope="col">Request ID</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var entry in _history)
+                                            {
+                                                <tr>
+                                                    <td>@entry.CreatedAt.ToLocalTime().ToString("u")</td>
+                                                    <td>
+                                                        <span class="badge bg-light text-dark">@entry.Provider</span>
+                                                    </td>
+                                                    <td>
+                                                        <code>@Truncate(entry.MailboxId.ToString(), 8)</code>
+                                                    </td>
+                                                    <td>
+                                                        <code>@Truncate(entry.MailboxUploadId.ToString(), 8)</code>
+                                                    </td>
+                                                    <td>
+                                                        @if (!string.IsNullOrWhiteSpace(entry.WrapRequestId))
+                                                        {
+                                                            <button class="btn btn-link p-0 text-decoration-none"
+                                                                    @onclick='@(() => CopyToClipboardAsync("Wrap request ID", entry.WrapRequestId!))'>
+                                                                <code>@Truncate(entry.WrapRequestId, 12)</code>
+                                                                <i class="bi bi-clipboard ms-1"></i>
+                                                            </button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="text-muted">—</span>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="card h-100 border-dashed">
+                        <div class="card-body">
+                            <h5 class="card-title">Need a custom key path?</h5>
+                            <p class="text-muted">
+                                We're working on a “bring your own key” mode that never touches AWS or Azure.
+                                Sign up for the preview and we'll notify you when the browser-based key wrapping tool ships.
+                            </p>
+                            <a class="btn btn-outline-primary btn-sm" href="mailto:founders@evermail.com?subject=BYOK%20Preview">
+                                Join BYOK preview
+                            </a>
                         </div>
                     </div>
                 </div>
@@ -252,6 +410,10 @@
     private string? _statusMessage;
     private string? _errorMessage;
     private bool _isOnboardingFlow;
+    private readonly List<TenantEncryptionHistoryItemDto> _history = [];
+    private bool _isHistoryLoading;
+    private string? _historyError;
+    private string _activeInstructionTab = "azure";
 
     private bool IsAwsProvider => string.Equals(_form.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase);
     private bool ShowAzureFields => !IsAwsProvider;
@@ -274,6 +436,7 @@
         _isOnboardingFlow = string.Equals(query["onboarding"], "1", StringComparison.OrdinalIgnoreCase);
 
         await LoadSettingsAsync();
+        await LoadHistoryAsync();
     }
 
     private async Task LoadSettingsAsync()
@@ -373,6 +536,8 @@
         {
             _isSaving = false;
         }
+
+        await LoadHistoryAsync();
     }
 
     private async Task TestAsync()
@@ -408,6 +573,43 @@
         {
             _isTesting = false;
             await LoadSettingsAsync();
+            await LoadHistoryAsync();
+        }
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        _isHistoryLoading = true;
+        _historyError = null;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/encryption/history?limit=20"));
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _historyError = "Session expired. Please sign in again.";
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<IReadOnlyList<TenantEncryptionHistoryItemDto>>>();
+            _history.Clear();
+            if (payload?.Success == true && payload.Data is not null)
+            {
+                _history.AddRange(payload.Data);
+            }
+            else
+            {
+                _historyError = payload?.Error ?? "Unable to load history.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _historyError = $"Failed to load history: {ex.Message}";
+        }
+        finally
+        {
+            _isHistoryLoading = false;
         }
     }
 
@@ -425,8 +627,125 @@
 
     private Uri BuildApiUri(string relativePath)
     {
+        EnsureHttpClientBaseAddress();
         relativePath = relativePath.TrimStart('/');
         return new Uri(new Uri(Navigation.BaseUri), relativePath);
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress is null)
+        {
+            Http.BaseAddress = new Uri(Navigation.BaseUri);
+        }
+    }
+
+    private async Task CopyToClipboardAsync(string label, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _statusMessage = $"Nothing to copy for {label}.";
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+            _statusMessage = $"{label} copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to copy {label}: {ex.Message}";
+        }
+    }
+
+    private string GetInstructionTabClass(string tab) =>
+        $"btn btn-sm {(string.Equals(_activeInstructionTab, tab, StringComparison.OrdinalIgnoreCase) ? "btn-primary" : "btn-outline-secondary")}";
+
+    private void SetInstructionTab(string tab) => _activeInstructionTab = tab;
+
+    private string _activeInstructionTabDisplay => _activeInstructionTab switch
+    {
+        "aws" => "AWS",
+        "offline" => "Offline",
+        _ => "Azure"
+    };
+
+    private string DisplayExternalId => string.IsNullOrWhiteSpace(_settings?.Aws?.ExternalId)
+        ? "Not generated yet"
+        : _settings.Aws.ExternalId!;
+
+    private string AzureScriptSnippet =>
+        """
+        pwsh scripts/tenant-keyvault-onboarding.ps1 `
+            -ResourceGroup <rg-name> `
+            -Region <azure-region> `
+            -KeyVaultName <kv-name> `
+            -EvermailManagedIdentityObjectId <object-id> `
+            -KeyName evermail-tmk
+        """.Trim();
+
+    private const string EvermailAwsPrincipalPlaceholder = "<EvermailAWSPrincipal>";
+
+    private string AwsTrustPolicySnippet
+    {
+        get
+        {
+            var externalId = string.IsNullOrWhiteSpace(_settings?.Aws?.ExternalId)
+                ? "<ExternalId>"
+                : _settings.Aws.ExternalId!;
+
+            return @$"{{
+  ""Version"": ""2012-10-17"",
+  ""Statement"": [
+    {{
+      ""Effect"": ""Allow"",
+      ""Principal"": {{ ""AWS"": ""{EvermailAwsPrincipalPlaceholder}"" }},
+      ""Action"": ""sts:AssumeRole"",
+      ""Condition"": {{
+        ""StringEquals"": {{ ""sts:ExternalId"": ""{externalId}"" }}
+      }}
+    }}
+  ]
+}}".Trim();
+        }
+    }
+
+    private string AwsPermissionPolicySnippet
+    {
+        get
+        {
+            var kmsArn = string.IsNullOrWhiteSpace(_form.Aws.KmsKeyArn)
+                ? "<KmsKeyArn>"
+                : _form.Aws.KmsKeyArn;
+
+            return @$"{{
+  ""Version"": ""2012-10-17"",
+  ""Statement"": [
+    {{
+      ""Effect"": ""Allow"",
+      ""Action"": [
+        ""kms:GenerateDataKey"",
+        ""kms:GenerateDataKeyWithoutPlaintext"",
+        ""kms:Encrypt"",
+        ""kms:Decrypt"",
+        ""kms:DescribeKey""
+      ],
+      ""Resource"": ""{kmsArn}""
+    }}
+  ]
+}}".Trim();
+        }
+    }
+
+    private static string Truncate(string? value, int max = 12)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "—";
+        }
+
+        return value.Length <= max ? value : $"{value[..max]}…";
     }
 
     private sealed class EncryptionFormModel

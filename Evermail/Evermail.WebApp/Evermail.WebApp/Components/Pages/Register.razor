@@ -184,7 +184,7 @@
     private void HandleOAuthRegister(string provider)
     {
         // Redirect to OAuth endpoint (same as login - OAuth handles registration automatically)
-        var returnUrl = Uri.EscapeDataString("/");
+        var returnUrl = Uri.EscapeDataString("/onboarding");
         Navigation.NavigateTo($"/api/v1/auth/{provider.ToLower()}/login?returnUrl={returnUrl}", forceLoad: true);
     }
 
@@ -222,9 +222,9 @@
                         customProvider.NotifyAuthenticationStateChanged();
                     }
 
-                    // Show success briefly, then redirect to encryption onboarding
+                    // Show success briefly, then redirect to the onboarding wizard
                     await Task.Delay(1500);
-                    Navigation.NavigateTo("/admin/encryption?onboarding=1", forceLoad: true);
+                    Navigation.NavigateTo("/onboarding", forceLoad: true);
                 }
             }
             else

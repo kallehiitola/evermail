@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Evermail.Common.DTOs.Tenant;
 
 public record TenantEncryptionSettingsDto(
@@ -56,6 +58,36 @@ public record TenantEncryptionTestResultDto(
 public record TenantOnboardingStatusDto(
     bool HasAdmin,
     bool EncryptionConfigured,
-    bool HasMailbox);
+    bool HasMailbox,
+    bool PlanConfirmed,
+    string SubscriptionTier);
+
+public record SubscriptionPlanDto(
+    string Name,
+    string DisplayName,
+    string Description,
+    decimal PriceMonthly,
+    decimal? PriceYearly,
+    string Currency,
+    int MaxStorageGb,
+    int MaxFileSizeGb,
+    int MaxUsers,
+    int MaxMailboxes,
+    bool IsRecommended,
+    IReadOnlyList<string> Features);
+
+public record SelectSubscriptionPlanRequest(string PlanName);
+
+public record TenantEncryptionHistoryItemDto(
+    Guid Id,
+    Guid MailboxId,
+    Guid MailboxUploadId,
+    string Provider,
+    string Algorithm,
+    DateTime CreatedAt,
+    string? ProviderKeyVersion,
+    string? WrapRequestId,
+    string? LastUnwrapRequestId,
+    string? ProviderMetadata);
 
 

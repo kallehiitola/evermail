@@ -18,14 +18,16 @@
 <PageTitle>Evermail · Email Intelligence</PageTitle>
 
 <div class="home-wrapper">
-    @if (_onboardingStatus is not null && !_onboardingStatus.EncryptionConfigured)
+    @if (_needsOnboarding && _onboardingStatus is not null)
     {
-        <div class="alert alert-warning d-flex align-items-center gap-3 mb-4" role="alert">
-            <i class="bi bi-shield-lock-fill fs-4"></i>
-            <div class="flex-grow-1">
-                <strong>Finish security setup:</strong> Connect your key provider so uploads are wrapped with your TMK before processing.
+        <div class="alert alert-warning d-flex align-items-center justify-content-between gap-3 mb-4 onboarding-banner" role="alert">
+            <div>
+                <strong>Finish onboarding.</strong>
+                <p class="mb-0 text-muted">Confirm your plan, connect a key provider, and upload your first mailbox.</p>
             </div>
-            <a href="/admin/encryption" class="btn btn-sm btn-outline-dark">Open wizard</a>
+            <a href="/onboarding" class="btn btn-sm btn-primary">
+                <i class="bi bi-rocket-takeoff me-2"></i>Open wizard
+            </a>
         </div>
     }
     <section class="hero-section">
@@ -226,6 +228,7 @@
     private IReadOnlyList<DashboardStat> _stats = Array.Empty<DashboardStat>();
     private IReadOnlyList<ResourceUsageItem> _resourceUsage = Array.Empty<ResourceUsageItem>();
     private TenantOnboardingStatusDto? _onboardingStatus;
+    private bool _needsOnboarding;
     private IReadOnlyList<OnboardingStep> _onboardingSteps = Array.Empty<OnboardingStep>();
 
     private readonly IReadOnlyList<RoadmapColumn> _roadmap =
@@ -352,6 +355,7 @@
             UseSampleData();
             _onboardingStatus = null;
             _onboardingSteps = Array.Empty<OnboardingStep>();
+            _needsOnboarding = false;
         }
     }
 
@@ -364,17 +368,21 @@
             {
                 _onboardingStatus = response.Data;
                 _onboardingSteps = BuildOnboardingSteps(response.Data);
+                _planLimits = PlanLimits.FromTier(response.Data.SubscriptionTier);
+                _needsOnboarding = NeedsOnboarding(response.Data);
             }
             else
             {
                 _onboardingStatus = null;
                 _onboardingSteps = Array.Empty<OnboardingStep>();
+                _needsOnboarding = false;
             }
         }
         catch
         {
             _onboardingStatus = null;
             _onboardingSteps = Array.Empty<OnboardingStep>();
+            _needsOnboarding = false;
         }
     }
 
@@ -521,22 +529,25 @@
         return new[]
         {
             new OnboardingStep(
-                "Invite a backup admin",
-                "Keep at least one additional admin in case you lose access. Add them from Settings > Users.",
-                status.HasAdmin,
-                "/settings/users"),
+                "Confirm your workspace plan",
+                $"You're currently on the {status.SubscriptionTier} tier. Confirm or upgrade to unlock the right upload limits.",
+                status.PlanConfirmed,
+                "/onboarding?step=Plan"),
             new OnboardingStep(
-                "Connect your key provider",
-                "Pick Evermail-managed (Azure) or bring your own AWS KMS so every upload is wrapped with your TMK.",
+                "Secure your tenant",
+                "Connect Evermail-managed Azure, AWS KMS, or run the offline BYOK lab so every upload is wrapped with your key.",
                 status.EncryptionConfigured,
-                "/admin/encryption"),
+                "/onboarding?step=Security"),
             new OnboardingStep(
                 "Upload your first mailbox",
-                "Drag & drop a .mbox export to start indexing and testing search.",
+                "Drag & drop a Gmail Takeout or Outlook export to start indexing and search-testing.",
                 status.HasMailbox,
-                "/upload")
+                "/onboarding?step=Upload")
         };
     }
+
+    private static bool NeedsOnboarding(TenantOnboardingStatusDto status)
+        => !(status.PlanConfirmed && status.EncryptionConfigured && status.HasMailbox);
 
     private void UseSampleData()
     {
@@ -544,6 +555,7 @@
         _planLimits = PlanLimits.Free;
         _stats = BuildStats(_snapshot);
         _resourceUsage = BuildResourceUsage(_snapshot);
+        _needsOnboarding = false;
         StateHasChanged();
     }
 
@@ -649,6 +661,16 @@
 
     private sealed record PlanLimits(string Name, long StorageBytes, int MailboxLimit)
     {
-        public static PlanLimits Free => new("Free tier", 1L * 1024 * 1024 * 1024, 1);
+        public static PlanLimits Free => new("Free tier", Gigabytes(1), 1);
+
+        public static PlanLimits FromTier(string? tier) => (tier ?? string.Empty).ToLowerInvariant() switch
+        {
+            "pro" => new("Pro", Gigabytes(5), int.MaxValue),
+            "team" => new("Team", Gigabytes(500), int.MaxValue),
+            "enterprise" => new("Enterprise", Gigabytes(2000), int.MaxValue),
+            _ => Free
+        };
+
+        private static long Gigabytes(int value) => value * 1024L * 1024L * 1024L;
     }
 }

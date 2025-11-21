@@ -74,7 +74,10 @@ public class AwsKmsConnector : IAwsKmsConnector
     }
 
     private static string BuildSessionName()
-        => $"evermail-validation-{Guid.NewGuid():N}".Substring(0, 64);
+    {
+        var name = $"evermail-validation-{Guid.NewGuid():N}";
+        return name.Length <= 64 ? name : name[..64];
+    }
 
     private bool Validate(TenantEncryptionSettings settings, out string message)
     {

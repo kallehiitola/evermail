@@ -173,6 +173,56 @@ Validates connectivity to the configured provider:
 
 On failure, `success` is `false` and `error` contains the human-friendly reason (missing permissions, wrong ARN, etc.).
 
+### GET /tenants/plans
+Returns every active subscription plan so the onboarding wizard and admin screens can render pricing cards.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "name": "Free",
+      "displayName": "Free Tier",
+      "description": "Try Evermail with 1 mailbox and 30-day retention",
+      "priceMonthly": 0,
+      "priceYearly": 0,
+      "currency": "EUR",
+      "maxStorageGb": 1,
+      "maxFileSizeGb": 1,
+      "maxUsers": 1,
+      "maxMailboxes": 1,
+      "isRecommended": false,
+      "features": [
+        "1 GB storage",
+        "1 mailbox",
+        "30-day retention"
+      ]
+    }
+  ]
+}
+```
+
+### PUT /tenants/subscription
+Sets the tenant’s subscription tier (and confirms the onboarding plan step). The backend updates `Tenant.SubscriptionTier`, `MaxStorageGB`, `MaxUsers`, and stamps `OnboardingPlanConfirmedAt`.
+
+**Request Body**:
+```json
+{
+  "planName": "Pro"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Subscription updated"
+  }
+}
+```
+
 ### GET /tenants/onboarding/status
 Returns a lightweight status object used by the guided registration / dashboard checklist so new admins can see what’s left to configure.
 
@@ -182,6 +232,8 @@ Returns a lightweight status object used by the guided registration / dashboard 
   "success": true,
   "data": {
     "hasAdmin": true,
+    "planConfirmed": false,
+    "subscriptionTier": "Free",
     "encryptionConfigured": false,
     "hasMailbox": false
   }
@@ -190,10 +242,12 @@ Returns a lightweight status object used by the guided registration / dashboard 
 
 Interpretation:
 - `hasAdmin` – `true` as soon as at least one user in the tenant has the `Admin` role. Because the first registrant is auto-promoted, this typically starts as `true`.
-- `encryptionConfigured` – `true` once the tenant has selected Evermail-managed, Azure Key Vault, or AWS KMS and supplied the required fields.
+- `planConfirmed` – `true` after the tenant explicitly selects (or reconfirms) a plan inside the onboarding wizard; backed by `Tenant.OnboardingPlanConfirmedAt`.
+- `subscriptionTier` – the current plan name (`Free`, `Pro`, `Team`, `Enterprise`), even if not yet confirmed.
+- `encryptionConfigured` – `true` once the tenant has selected Evermail-managed, Azure Key Vault, AWS KMS, or Offline BYOK and supplied the required fields.
 - `hasMailbox` – `true` once at least one mailbox is uploaded; completes the onboarding checklist.
 
-The endpoint requires `Admin` or `SuperAdmin` role membership and is consumed by `/` (dashboard) to render the checklist + banner.
+The endpoint requires `Admin` or `SuperAdmin` role membership and is consumed by `/` (dashboard) and `/onboarding`.
 
 ---
 

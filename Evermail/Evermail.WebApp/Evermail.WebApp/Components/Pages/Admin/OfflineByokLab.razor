@@ -1,0 +1,326 @@
+@page "/admin/offline-byok"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,SuperAdmin")]
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<PageTitle>Offline BYOK Lab - Evermail</PageTitle>
+
+<AuthorizeView Roles="Admin,SuperAdmin">
+    <Authorized Context="authState">
+        <div class="container mt-4">
+            <div class="row g-4">
+                <div class="col-xl-7">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h1 class="h3 mb-1">Offline BYOK Lab (Prototype)</h1>
+                                    <p class="text-muted mb-0">Generate tenant-managed keys entirely in your browser. Nothing is sent to Evermail.</p>
+                                </div>
+                                <span class="badge bg-warning text-dark text-uppercase">Experimental</span>
+                            </div>
+
+                            <div class="alert alert-warning">
+                                <strong>Important:</strong> Lose this bundle or your passphrase and Evermail cannot help recover it. Store the download in an offline vault before you close this tab.
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_errorMessage))
+                            {
+                                <div class="alert alert-danger">
+                                    @_errorMessage
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_statusMessage))
+                            {
+                                <div class="alert alert-success">
+                                    @_statusMessage
+                                </div>
+                            }
+
+                            <EditForm Model="_form" OnValidSubmit="GenerateAsync">
+                                <DataAnnotationsValidator />
+
+                                <div class="mb-3">
+                                    <label class="form-label">Tenant label</label>
+                                    <InputText class="form-control" @bind-Value="_form.TenantLabel" placeholder="Acme Compliance Archive" />
+                                    <div class="form-text">This label is embedded inside the bundle so you can tell keys apart later.</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label">Passphrase</label>
+                                    <InputText type="password" class="form-control" @bind-Value="_form.Passphrase" />
+                                    <div class="form-text">Minimum 12 characters. We never send it to the server.</div>
+                                </div>
+
+                                <div class="mb-4">
+                                    <label class="form-label">Confirm passphrase</label>
+                                    <InputText type="password" class="form-control" @bind-Value="_form.ConfirmPassphrase" />
+                                </div>
+
+                                <button class="btn btn-primary" type="submit" disabled="@_isGenerating">
+                                    @if (_isGenerating)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    }
+                                    Generate secure key
+                                </button>
+                                <button type="button"
+                                        class="btn btn-outline-secondary ms-2"
+                                        disabled="@(_isGenerating || _bundle is null)"
+                                        @onclick="DownloadBundleAsync">
+                                    <i class="bi bi-download"></i> Download bundle
+                                </button>
+                            </EditForm>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-xl-5">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">What this prototype does</h5>
+                            <ol class="text-muted ps-3">
+                                <li>Generates a random 256-bit Data Encryption Key (DEK) in your browser.</li>
+                                <li>Derives a wrapping key from your passphrase via PBKDF2 (310k iterations).</li>
+                                <li>Encrypts the DEK with AES-GCM and packages it as a `.evermail-key.json` bundle.</li>
+                            </ol>
+                            <p class="text-muted mb-4">
+                                The plaintext DEK never leaves your device. Copy it to your password manager or hardware wallet,
+                                then delete it from the screen.
+                            </p>
+
+                            @if (_bundle is null)
+                            {
+                                <div class="alert alert-info">
+                                    Generate a key to see the bundle preview and checksum.
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Plaintext DEK (Base64)</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" value="@_bundle.PlaintextDek" readonly />
+                                        <button class="btn btn-outline-secondary"
+                                                @onclick='@(() => CopyToClipboardAsync("Plaintext DEK", _bundle.PlaintextDek))'>
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text text-danger">Copy once, then secure it elsewhere. Evermail never stores this.</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Bundle preview</label>
+                                    <pre class="bg-dark text-light p-3 rounded small"><code>@_bundlePreview</code></pre>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Checksum (SHA-256)</label>
+                                    <div class="input-group">
+                                        <input type="text" class="form-control" value="@_bundle.Checksum" readonly />
+                                        <button class="btn btn-outline-secondary"
+                                                @onclick='@(() => CopyToClipboardAsync("Checksum", _bundle.Checksum))'>
+                                            <i class="bi bi-clipboard"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text">Use this to verify the bundle later.</div>
+                                </div>
+                            }
+
+                            <hr />
+                            <h6>Next steps</h6>
+                            <ul class="text-muted mb-0">
+                                <li>Store the bundle and passphrase in separate secure locations.</li>
+                                <li>When zero-access uploads ship, you’ll attach this bundle per mailbox.</li>
+                                <li>Want early access? Drop us a line at <a href="mailto:founders@evermail.com">founders@evermail.com</a>.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Authorized>
+    <NotAuthorized Context="notAuthState">
+        <CheckAuthAndRedirect />
+    </NotAuthorized>
+</AuthorizeView>
+
+@code {
+    private readonly OfflineByokForm _form = new();
+    private bool _isGenerating;
+    private string? _errorMessage;
+    private string? _statusMessage;
+    private OfflineByokBundle? _bundle;
+    private string _bundlePreview = string.Empty;
+    private IJSObjectReference? _module;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/offlineByok.js");
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        _errorMessage = null;
+        _statusMessage = null;
+
+        if (!_form.IsValid(out var validationError))
+        {
+            _errorMessage = validationError;
+            return;
+        }
+
+        if (_module is null)
+        {
+            _errorMessage = "Offline crypto module failed to load. Refresh and try again.";
+            return;
+        }
+
+        _isGenerating = true;
+
+        try
+        {
+            var rawBundle = await _module.InvokeAsync<OfflineByokBundleResult>(
+                "generateOfflineKeyBundle",
+                _form.Passphrase,
+                _form.TenantLabel?.Trim());
+
+            _bundle = new OfflineByokBundle(
+                rawBundle.version,
+                rawBundle.tenantLabel,
+                rawBundle.createdAt,
+                rawBundle.plaintextDek,
+                rawBundle.wrappedDek,
+                rawBundle.salt,
+                rawBundle.nonce,
+                rawBundle.checksum);
+
+            _bundlePreview = JsonSerializer.Serialize(_bundle with { PlaintextDek = "[hidden]" }, _jsonOptions);
+            _statusMessage = "Key generated. Download the bundle and secure the plaintext DEK immediately.";
+        }
+        catch (JSException jsEx)
+        {
+            _errorMessage = jsEx.Message;
+        }
+        finally
+        {
+            _isGenerating = false;
+        }
+    }
+
+    private async Task DownloadBundleAsync()
+    {
+        if (_module is null || _bundle is null)
+        {
+            return;
+        }
+
+        var sanitizedTenant = SanitizeForFileName(_bundle.TenantLabel);
+        var fileName = $"{sanitizedTenant}-{DateTime.UtcNow:yyyyMMdd-HHmmss}.evermail-key.json";
+        var json = JsonSerializer.Serialize(_bundle, _jsonOptions);
+
+        await _module.InvokeVoidAsync("downloadTextFile", fileName, json);
+        _statusMessage = $"Bundle downloaded as {fileName}.";
+    }
+
+    private async Task CopyToClipboardAsync(string label, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            _statusMessage = $"Nothing to copy for {label}.";
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", value);
+            _statusMessage = $"{label} copied to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to copy {label}: {ex.Message}";
+        }
+    }
+
+    private static string SanitizeForFileName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "evermail-offline-bundle";
+        }
+
+        var chars = value
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+
+        var slug = new string(chars).Trim('-');
+        return string.IsNullOrWhiteSpace(slug) ? "evermail-offline-bundle" : slug;
+    }
+
+    private sealed class OfflineByokForm
+    {
+        public string? TenantLabel { get; set; } = string.Empty;
+        public string Passphrase { get; set; } = string.Empty;
+        public string ConfirmPassphrase { get; set; } = string.Empty;
+
+        public bool IsValid(out string? error)
+        {
+            if (string.IsNullOrWhiteSpace(Passphrase) || Passphrase.Length < 12)
+            {
+                error = "Passphrase must be at least 12 characters.";
+                return false;
+            }
+
+            if (!string.Equals(Passphrase, ConfirmPassphrase, StringComparison.Ordinal))
+            {
+                error = "Passphrases do not match.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+    }
+
+    private sealed record OfflineByokBundleResult(
+        string version,
+        string tenantLabel,
+        string createdAt,
+        string plaintextDek,
+        string wrappedDek,
+        string salt,
+        string nonce,
+        string checksum);
+
+    private sealed record OfflineByokBundle(
+        string Version,
+        string TenantLabel,
+        string CreatedAt,
+        string PlaintextDek,
+        string WrappedDek,
+        string Salt,
+        string Nonce,
+        string Checksum);
+
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_module is not null)
+        {
+            await _module.DisposeAsync();
+        }
+    }
+}
+
+

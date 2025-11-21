@@ -3,7 +3,9 @@ using Evermail.Common.DTOs.Tenant;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -20,6 +22,13 @@ public static class TenantEndpoints
         encryption.MapGet("/", GetEncryptionSettingsAsync);
         encryption.MapPut("/", UpsertEncryptionSettingsAsync);
         encryption.MapPost("/test", TestEncryptionSettingsAsync);
+        encryption.MapGet("/history", GetEncryptionHistoryAsync);
+
+        group.MapGet("/plans", GetSubscriptionPlansAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
+
+        group.MapPut("/subscription", UpdateSubscriptionAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
         return group;
     }
@@ -89,6 +98,25 @@ public static class TenantEndpoints
             Error: dto.Success ? null : dto.Message));
     }
 
+    private static async Task<IResult> GetEncryptionHistoryAsync(
+        [AsParameters] HistoryQuery query,
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var limit = query.Limit.HasValue ? Math.Clamp(query.Limit.Value, 1, 100) : 20;
+        var items = await service.GetEncryptionHistoryAsync(tenantContext.TenantId, limit, cancellationToken);
+
+        return Results.Ok(new ApiResponse<IReadOnlyList<TenantEncryptionHistoryItemDto>>(
+            Success: true,
+            Data: items));
+    }
+
     private static async Task<IResult> GetOnboardingStatusAsync(
         EvermailDbContext context,
         TenantContext tenantContext,
@@ -97,6 +125,15 @@ public static class TenantEndpoints
         if (tenantContext.TenantId == Guid.Empty)
         {
             return Results.Unauthorized();
+        }
+
+        var tenant = await context.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, "Tenant not found."));
         }
 
         var adminRoleId = await context.Roles
@@ -123,7 +160,9 @@ public static class TenantEndpoints
         var dto = new TenantOnboardingStatusDto(
             HasAdmin: hasAdmin,
             EncryptionConfigured: encryptionConfigured,
-            HasMailbox: hasMailbox);
+            HasMailbox: hasMailbox,
+            PlanConfirmed: tenant.OnboardingPlanConfirmedAt.HasValue,
+            SubscriptionTier: tenant.SubscriptionTier);
 
         return Results.Ok(new ApiResponse<TenantOnboardingStatusDto>(
             Success: true,
@@ -136,6 +175,82 @@ public static class TenantEndpoints
         "AwsKms",
         "EvermailManaged"
     ];
+
+    private static async Task<IResult> GetSubscriptionPlansAsync(
+        EvermailDbContext context,
+        CancellationToken cancellationToken)
+    {
+        var plans = await context.SubscriptionPlans
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.DisplayOrder)
+            .ToListAsync(cancellationToken);
+
+        var dtos = plans
+            .Select(plan => new SubscriptionPlanDto(
+                plan.Name,
+                plan.DisplayName,
+                plan.Description ?? string.Empty,
+                plan.PriceMonthly,
+                plan.PriceYearly,
+                plan.Currency,
+                plan.MaxStorageGB,
+                plan.MaxFileSizeGB,
+                plan.MaxUsers,
+                plan.MaxMailboxes,
+                plan.DisplayOrder == 2,
+                ParseFeatures(plan.Features)))
+            .ToList();
+
+        return Results.Ok(new ApiResponse<IReadOnlyList<SubscriptionPlanDto>>(
+            Success: true,
+            Data: dtos));
+    }
+
+    private static async Task<IResult> UpdateSubscriptionAsync(
+        SelectSubscriptionPlanRequest request,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.PlanName))
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, "planName is required."));
+        }
+
+        var plan = await context.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.IsActive && p.Name == request.PlanName, cancellationToken);
+
+        if (plan is null)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, "Subscription plan not found."));
+        }
+
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, "Tenant not found."));
+        }
+
+        tenant.SubscriptionTier = plan.Name;
+        tenant.MaxStorageGB = plan.MaxStorageGB;
+        tenant.MaxUsers = plan.MaxUsers;
+        tenant.UpdatedAt = DateTime.UtcNow;
+        tenant.OnboardingPlanConfirmedAt = DateTime.UtcNow;
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new ApiResponse<object>(
+            Success: true,
+            Data: new { message = $"Subscription updated to {plan.DisplayName}." }));
+    }
 
     private static string? ValidateRequest(UpsertTenantEncryptionSettingsRequest request)
     {
@@ -236,6 +351,26 @@ public static class TenantEndpoints
             _ => !string.IsNullOrWhiteSpace(settings.KeyVaultUri) &&
                  !string.IsNullOrWhiteSpace(settings.KeyVaultKeyName)
         };
+    }
+
+    private sealed record HistoryQuery([property: FromQuery(Name = "limit")] int? Limit);
+
+    private static IReadOnlyList<string> ParseFeatures(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var features = JsonSerializer.Deserialize<string[]>(raw);
+            return features ?? Array.Empty<string>();
+        }
+        catch
+        {
+            return raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        }
     }
 }
 

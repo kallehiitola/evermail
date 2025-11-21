@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-20  
+> **Last Updated**: 2025-11-21  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -175,6 +175,14 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - Tenant isolation enforced
 - Composite indexes for performance
 
+### Tenant Onboarding Metadata ✅
+
+**Date**: 2025-11-21
+
+- Added `Tenant.OnboardingPlanConfirmedAt` so we know whether the first admin explicitly acknowledged their plan inside the wizard before unlocking ingestion.
+- Regenerated the EF model (`20251121004227_OnboardingPlanConfirmation`) and backfilled existing tenants by copying `CreatedAt` into the new column to keep historical tenants marked as “complete.”
+- Extended `TenantOnboardingStatusDto` with `PlanConfirmed` + `SubscriptionTier` so both the dashboard banner and onboarding wizard can reflect plan state alongside encryption/mailbox readiness.
+
 ---
 
 ## UI & Frontend
@@ -199,6 +207,14 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - Standardized to InteractiveServer
 - Component interactivity enabled
 - State persistence working
+
+### Guided Onboarding Wizard ✅
+
+**Date**: 2025-11-21
+
+- Introduced `/onboarding`, a three-step wizard (plan → security → upload) that reuses the dashboard’s modern-card aesthetic and plugs directly into the new tenant APIs.
+- Added plan cards with pricing/feature chips, Azure/AWS/offline BYOK call-to-actions, and an upload primer so first-time admins can finish setup without hunting through disparate admin pages.
+- Registration/OAuth flows now redirect straight into the wizard, and the sidebar gained a “Admin: Onboarding” link so existing admins can revisit/finish outstanding steps.
 
 ---
 
@@ -240,6 +256,12 @@ Your Evermail SaaS project is now fully configured with world-class development 
 ---
 
 ## Recent Updates
+
+### 2025-11-21 - Guided Onboarding & Offline BYOK
+- 🚀 Launched the `/onboarding` three-step wizard with a persistent progress rail, plan cards, security guidance, and upload CTAs so first-time admins can finish setup without spelunking multiple admin tabs. Registration/OAuth flows now redirect straight into the wizard, and the sidebar exposes a dedicated “Admin: Onboarding” link.
+- 🔗 Added tenant-facing APIs (`GET /api/v1/tenants/plans`, `PUT /api/v1/tenants/subscription`, enhanced `/tenants/onboarding/status`) plus the `Tenant.OnboardingPlanConfirmedAt` column/migration so we can track who has explicitly confirmed their plan before allowing uploads.
+- 🧪 Delivered the Admin → Offline BYOK lab: browser-side WebCrypto generates a 256-bit DEK, wraps it with PBKDF2 + AES-GCM, offers clipboard/download helpers, and documents the workflow inside `Documentation/Security.md` for customers who want zero-cloud key storage.
+- 📚 Updated `Documentation/Architecture.md` + `Documentation/API.md` with the onboarding wizard architecture, plan endpoints, and BYOK flows so future feature work references a single source of truth.
 
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.

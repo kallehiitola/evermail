@@ -47,6 +47,32 @@ Evermail now offers two complementary protection tiers so tenants can choose the
 
 Zero-Access Archive Mode inherits every safeguard from Confidential Compute Mode (tenant TMKs, audit logging, retention policies) while guaranteeing Evermail’s infrastructure never observes plaintext. This tier is aimed at compliance-sensitive customers who accept reduced functionality in exchange for cryptographic separation.
 
+##### Offline key custody prototype (Browser BYOK)
+
+Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment with client-side key handling before enabling full zero-access ingestion:
+
+1. Navigate to **Admin → Offline BYOK (Lab)**.
+2. Enter a tenant label and a strong passphrase (minimum 12 chars, passphrase never leaves the browser).
+3. The Blazor WebAssembly client calls `window.crypto.subtle` to:
+   - Generate a 256-bit DEK (`crypto.getRandomValues`).
+   - Derive a wrapping key from the passphrase via PBKDF2 (SHA-256, 310 k iterations, 128-bit salt).
+   - Wrap the DEK with AES-GCM (unique nonce) and compute a SHA-256 checksum of the plaintext key.
+4. The UI displays:
+   - **Plaintext DEK** (copy once, never stored by Evermail).
+   - **Wrapped bundle JSON** containing `wrappedDek`, `salt`, `nonce`, `checksum`, `tenantLabel`, and `createdAt`.
+5. Admin downloads the bundle as `tenant-name-evermail-key.json` and stores it offline (password manager, HSM, etc.). Evermail never uploads or persists this artifact.
+
+**Warnings surfaced in the UI and reiterated here:**
+- Lose the downloaded bundle or passphrase → Evermail cannot restore access.
+- Prototype scope is client-side only; uploads still follow the standard pipeline until we wire the encrypted-upload endpoint.
+- Do **not** paste the plaintext key anywhere else—treat it like a hardware token.
+- Bundle format is versioned (`"version": "offline-byok/v1"`); future releases will maintain backward compatibility or provide a migration tool.
+
+Upcoming milestones:
+- Attach the browser-wrapped DEK to mailbox uploads via metadata headers.
+- Offer deterministic token derivation so server-side filtering remains possible.
+- Allow tenants to register multiple offline bundles (per admin) with recovery workflows.
+
 #### External KMS Providers (AWS First)
 
 Some tenants already operate their own Hardware Security Modules in clouds other than Azure. Evermail supports this as an advanced option without requiring admins to understand the underlying crypto:

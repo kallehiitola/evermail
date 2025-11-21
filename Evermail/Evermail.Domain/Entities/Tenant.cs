@@ -28,6 +28,7 @@ public class Tenant
     
     // Status
     public bool IsActive { get; set; } = true;
+    public DateTime? OnboardingPlanConfirmedAt { get; set; }
     
     [MaxLength(500)]
     public string? SuspensionReason { get; set; }
