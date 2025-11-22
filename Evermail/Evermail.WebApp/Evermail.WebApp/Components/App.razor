@@ -19,9 +19,10 @@
 </head>
 
 <body>
-    <MudThemeProvider />
-    <MudDialogProvider />
-    <MudSnackbarProvider />
+    <MudThemeProvider @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    <MudPopoverProvider @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    <MudDialogProvider @rendermode="new InteractiveServerRenderMode(prerender: false)" />
+    <MudSnackbarProvider @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     <Routes @rendermode="new InteractiveServerRenderMode(prerender: false)" />
     <script src="_framework/blazor.web.js"></script>
     <!-- Azure Blob Upload using native Fetch API (no SDK needed) -->
@@ -29,6 +30,7 @@
     <script src="js/search-highlights.js"></script>
     <!-- Attachment download helper -->
     <script src="js/attachment-download.js"></script>
+    <script src="js/localized-datetime.js"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
 

@@ -5,6 +5,7 @@ using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
 using Evermail.Infrastructure.Services.Encryption;
+using Evermail.Infrastructure.Services.Archives;
 using Evermail.WebApp.Client.Pages;
 using Evermail.WebApp.Components;
 using Evermail.WebApp.Endpoints;
@@ -197,6 +198,7 @@ builder.Services.AddSingleton(sp =>
     return new Azure.Storage.Blobs.BlobServiceClient(connectionString);
 });
 builder.Services.AddScoped<IBlobStorageService, BlobStorageService>();
+builder.Services.AddScoped<IArchiveFormatDetector, ArchiveFormatDetector>();
 
 // Configure Azure Queue Storage
 builder.Services.AddSingleton(sp =>

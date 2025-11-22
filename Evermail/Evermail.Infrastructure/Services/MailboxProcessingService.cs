@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using Azure.Storage.Blobs;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services.Archives;
 using Evermail.Infrastructure.Services.Encryption;
 using MimeKit;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,7 @@ public class MailboxProcessingService
     private readonly ILogger<MailboxProcessingService> _logger;
     private readonly IMailboxEncryptionStateService _encryptionStateService;
     private readonly IKeyWrappingService _keyWrappingService;
+    private readonly IArchivePreparationService _archivePreparationService;
     private const string ContainerName = "mailbox-archives";
     private const int BatchSize = 500;
 
@@ -31,13 +33,15 @@ public class MailboxProcessingService
         BlobServiceClient blobServiceClient,
         ILogger<MailboxProcessingService> logger,
         IMailboxEncryptionStateService encryptionStateService,
-        IKeyWrappingService keyWrappingService)
+        IKeyWrappingService keyWrappingService,
+        IArchivePreparationService archivePreparationService)
     {
         _context = context;
         _blobServiceClient = blobServiceClient;
         _logger = logger;
         _encryptionStateService = encryptionStateService;
         _keyWrappingService = keyWrappingService;
+        _archivePreparationService = archivePreparationService;
     }
 
     public async Task ProcessMailboxAsync(
@@ -86,6 +90,22 @@ public class MailboxProcessingService
 
         try
         {
+            var maxFileSizeGb = await (
+                from tenant in _context.Tenants.AsNoTracking()
+                where tenant.Id == mailbox.TenantId
+                join plan in _context.SubscriptionPlans.AsNoTracking()
+                    on tenant.SubscriptionTier equals plan.Name into planGroup
+                from plan in planGroup.DefaultIfEmpty()
+                select plan != null ? (int?)plan.MaxFileSizeGB : null
+            ).FirstOrDefaultAsync(cancellationToken) ?? 1;
+
+            if (maxFileSizeGb <= 0)
+            {
+                maxFileSizeGb = 1;
+            }
+
+            var maxUncompressedBytes = maxFileSizeGb * 1024L * 1024L * 1024L;
+
             if (mailboxEncryptionStateId.HasValue)
             {
                 var encryptionState = await _context.MailboxEncryptionStates
@@ -122,18 +142,26 @@ public class MailboxProcessingService
                 mailbox.Id,
                 mailbox.BlobPath);
 
-            // Stream parse with MimeKit
-            await using var stream = await blobClient.OpenReadAsync(cancellationToken: cancellationToken);
+            var sourceFormat = upload.SourceFormat ?? mailbox.SourceFormat;
+            await using var preparedArchive = await _archivePreparationService.PrepareAsync(
+                sourceFormat,
+                blobClient,
+                mailbox,
+                upload,
+                maxUncompressedBytes,
+                cancellationToken);
 
-            // Get actual blob size (may differ from FileSizeBytes if file was compressed)
-            var blobProperties = await blobClient.GetPropertiesAsync(cancellationToken: cancellationToken);
-            var totalFileSize = blobProperties.Value.ContentLength;
+            await using var preparedStream = await preparedArchive.OpenReadAsync(cancellationToken);
+            var totalFileSize = preparedArchive.TotalBytes;
+
+            mailbox.NormalizedSizeBytes = totalFileSize;
+            upload.NormalizedSizeBytes = totalFileSize;
 
             _logger.LogInformation(
-                "Mailbox {MailboxId}: blob size {SizeBytes} bytes (fileName {FileName})",
+                "Mailbox {MailboxId}: normalized archive to {Format} ({SizeBytes} bytes)",
                 mailbox.Id,
-                totalFileSize,
-                mailbox.FileName);
+                preparedArchive.Format,
+                totalFileSize);
 
             var existingHashes = await _context.EmailMessages
                 .Where(e => e.MailboxId == mailboxId && e.ContentHash != null)
@@ -150,7 +178,7 @@ public class MailboxProcessingService
                     hashSet.Count);
             }
 
-            await ParseMboxStreamAsync(stream, mailbox, upload, totalFileSize, hashSet, cancellationToken);
+            await ParseMboxStreamAsync(preparedStream, mailbox, upload, totalFileSize, hashSet, cancellationToken);
 
             // Update status to Completed
             mailbox.Status = "Completed";

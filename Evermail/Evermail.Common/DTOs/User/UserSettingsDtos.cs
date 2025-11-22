@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Evermail.Common.DTOs.User;
 
 public record UserDisplaySettingsDto(
@@ -6,6 +8,24 @@ public record UserDisplaySettingsDto(
     bool AutoScrollToKeyword,
     bool MatchNavigatorEnabled,
     bool KeyboardShortcutsEnabled
+);
+
+public record UserProfileDto(
+    Guid UserId,
+    Guid TenantId,
+    string Email,
+    string FirstName,
+    string LastName,
+    bool TwoFactorEnabled,
+    DateTime CreatedAt,
+    DateTime? LastLoginAt,
+    string TenantName,
+    string SubscriptionTier,
+    int MaxStorageGb,
+    int MaxUsers,
+    long StorageBytesUsed,
+    int MailboxCount,
+    IReadOnlyList<string> Roles
 );
 
 public record UpdateUserDisplaySettingsRequest(

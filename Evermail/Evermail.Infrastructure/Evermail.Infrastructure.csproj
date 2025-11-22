@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
@@ -29,6 +30,10 @@
   <ItemGroup>
     <ProjectReference Include="..\Evermail.Common\Evermail.Common.csproj" />
     <ProjectReference Include="..\Evermail.Domain\Evermail.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\ThirdParty\XstReader\Base\*.cs" />
   </ItemGroup>
 
 </Project>

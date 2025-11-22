@@ -1,0 +1,58 @@
+@inject IJSRuntime JS
+
+<time @ref="_element"
+      class="@CssClass"
+      datetime="@_isoString">
+    @(_initialText ?? _defaultFallback)
+</time>
+
+@code {
+    private ElementReference _element;
+    private string _lastIsoString = string.Empty;
+    private string _isoString = string.Empty;
+    private string? _initialText;
+    private string _defaultFallback = string.Empty;
+
+    [Parameter, EditorRequired]
+    public DateTime Value { get; set; }
+
+    [Parameter]
+    public string? CssClass { get; set; }
+
+    /// <summary>
+    /// Optional custom fallback text while JS formats the timestamp.
+    /// </summary>
+    [Parameter]
+    public string? InitialText { get; set; }
+
+    /// <summary>
+    /// Treat the provided value as UTC (default: true). When false, the value is used as-is.
+    /// </summary>
+    [Parameter]
+    public bool AssumeUtc { get; set; } = true;
+
+    protected override void OnParametersSet()
+    {
+        var utcValue = AssumeUtc
+            ? DateTime.SpecifyKind(Value, DateTimeKind.Utc)
+            : Value;
+
+        var normalized = utcValue.ToUniversalTime();
+        _isoString = normalized.ToString("o");
+        _defaultFallback = $"{normalized:yyyy-MM-dd HH:mm:ss} UTC";
+        _initialText = InitialText;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender && string.Equals(_lastIsoString, _isoString, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _lastIsoString = _isoString;
+        await JS.InvokeVoidAsync("evermailDateTime.format", _element, _isoString, null);
+    }
+}
+
+

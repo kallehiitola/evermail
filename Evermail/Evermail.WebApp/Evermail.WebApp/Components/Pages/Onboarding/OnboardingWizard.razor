@@ -291,7 +291,7 @@
 
         builder.OpenElement(7, "ul");
         builder.AddAttribute(8, "class", "upload-checklist");
-        builder.AddMarkupContent(9, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Drag & drop Gmail Takeout (.mbox) or Outlook exports (.zip) up to your plan limit.</li>");
+        builder.AddMarkupContent(9, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Drag & drop Gmail Takeout (.mbox), Outlook PSTs (.pst/.zip), or Maildir (.eml/.zip) up to your plan limit.</li>");
         builder.AddMarkupContent(10, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Uploads stream straight to Blob Storage; we never see plaintext when BYOK is enabled.</li>");
         builder.AddMarkupContent(11, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Need a sample? Generate one via <code>scripts/generate-test-mbox.py</code> and upload to see the pipeline.</li>");
         builder.CloseElement();

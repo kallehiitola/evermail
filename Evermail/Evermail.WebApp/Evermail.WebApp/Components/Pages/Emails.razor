@@ -38,30 +38,35 @@
 
     <section class="search-panel">
         <form class="search-form" @onsubmit="HandleSearch" @onsubmit:preventDefault="true">
-            <div class="search-primary mb-3">
-                <div class="search-field search-field--with-icons">
-                    <input type="text"
-                           class="form-control form-control-xl"
-                           placeholder="Search emails or use filters like from:alice AND invoice"
-                           @bind="_searchQuery"
-                           @bind:event="oninput"
-                           @ref="_searchInputRef" />
-                    <div class="search-field__icons">
-                        <button type="button"
-                                class="icon-button icon-button--ghost"
-                                title="Date range"
-                                @onclick="ToggleDatePicker">
-                            <i class="bi bi-calendar3"></i>
-                        </button>
-                        <button type="button"
-                                class="icon-button icon-button--ghost"
-                                title="Advanced filters"
-                                @onclick="ToggleAdvancedFilters">
-                            <i class="bi bi-sliders2"></i>
-                        </button>
+            <div class="search-primary">
+                <div class="search-row">
+                    <div class="search-field search-field--with-icons">
+                        <input type="text"
+                               class="form-control form-control-xl"
+                               placeholder="Search emails or use filters like from:alice AND invoice"
+                               @bind="_searchQuery"
+                               @bind:event="oninput"
+                               @ref="_searchInputRef" />
+                        <div class="search-field__icons">
+                            <button type="button"
+                                    class="@GetIconButtonClass(IsDateToggleHighlighted())"
+                                    title="Date range"
+                                    @onclick="ToggleDatePicker">
+                                <i class="bi bi-calendar3"></i>
+                            </button>
+                            <button type="button"
+                                    class="@GetIconButtonClass(IsAdvancedToggleHighlighted())"
+                                    title="Advanced filters"
+                                    @onclick="ToggleAdvancedFilters">
+                                <i class="bi bi-sliders2"></i>
+                            </button>
+                        </div>
                     </div>
+                    <button type="submit" class="btn btn-primary btn-xl search-button">
+                        <i class="bi bi-search me-2"></i>Search
+                    </button>
                 </div>
-                <div class="search-actions">
+                <div class="search-meta compact-gap">
                     <div class="sort-toggle">
                         <button type="button"
                                 class="@GetSortModeClass(SortMode.Relevance)"
@@ -79,9 +84,31 @@
                             <i class="bi bi-arrow-up me-1"></i>Oldest
                         </button>
                     </div>
-                    <button type="submit" class="btn btn-primary btn-xl search-button">
-                        <i class="bi bi-search me-2"></i>Search
-                    </button>
+                    <div class="search-meta__left">
+                        <button type="button"
+                                class="scope-pill"
+                                @onclick="ToggleScopeSelector">
+                            <i class="bi bi-collection me-1"></i>@GetScopeLabel()
+                        </button>
+                        @if (_showScopeSelector)
+                        {
+                            <div class="scope-dropdown">
+                                <label class="form-label fw-semibold">Mailbox scope</label>
+                                <select class="form-select form-select-modern"
+                                        value="@(_selectedMailboxId?.ToString() ?? "")"
+                                        @onchange="OnMailboxSelectChanged">
+                                    <option value="">All mailboxes</option>
+                                    @if (_mailboxes != null)
+                                    {
+                                        @foreach (var mailbox in _mailboxes)
+                                        {
+                                            <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
+                                        }
+                                    }
+                                </select>
+                            </div>
+                        }
+                    </div>
                 </div>
                 @if (_showDatePicker)
                 {
@@ -109,185 +136,101 @@
                     </div>
                 }
             </div>
-            <div class="search-meta mb-2">
-                <div class="search-meta__left">
-                    <button type="button"
-                            class="scope-pill"
-                            @onclick="ToggleScopeSelector">
-                        <i class="bi bi-collection me-1"></i>@GetScopeLabel()
-                    </button>
-                    @if (_showScopeSelector)
-                    {
-                        <div class="scope-dropdown">
-                            <label class="form-label fw-semibold">Mailbox scope</label>
-                            <select class="form-select"
-                                    value="@(_selectedMailboxId?.ToString() ?? "")"
-                                    @onchange="OnMailboxSelectChanged">
-                                <option value="">All mailboxes</option>
-                                @if (_mailboxes != null)
-                                {
-                                    @foreach (var mailbox in _mailboxes)
-                                    {
-                                        <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
-                                    }
-                                }
-                            </select>
-                        </div>
-                    }
+
+@if (_showAdvancedFilters)
+{
+    <div class="advanced-filters-panel">
+        <section class="advanced-section">
+            <div class="advanced-section__header">
+                <h4>Matching & attachments</h4>
+                <p>Fine-tune how we interpret your search terms and files.</p>
+            </div>
+            <div class="advanced-section__grid">
+                <div class="filter-field filter-field--full">
+                    <label class="filter-field__label" for="stopWordsInput">Skip filler words</label>
+                    <p class="filter-field__hint">Comma-separate noise words (e.g. “the,and,or”) you don’t want to match.</p>
+                    <input id="stopWordsInput"
+                           type="text"
+                           class="form-control"
+                           placeholder="Comma-separated words to skip"
+                           @bind="_stopWords" />
+                    <div class="form-text">Helps trim noise for relevance scoring.</div>
+                </div>
+                <div class="filter-field">
+                    <label class="filter-field__label" for="inflectionalToggle">Match flexibility</label>
+                    <p class="filter-field__hint">Include plural and verb variations (plan → planning → planned).</p>
+                    <div class="form-check form-switch mt-1">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               id="inflectionalToggle"
+                               checked="@_useInflectionalForms"
+                               @onchange="OnInflectionalToggleChanged" />
+                        <label class="form-check-label" for="inflectionalToggle">
+                            Match planning / planned / plan
+                        </label>
+                    </div>
+                </div>
+                <div class="filter-field">
+                    <label class="filter-field__label" for="attachmentsOnlyToggle">Attachments</label>
+                    <p class="filter-field__hint">Only surface messages that include files.</p>
+                    <div class="form-check form-switch mt-1">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               id="attachmentsOnlyToggle"
+                               @bind="_hasAttachmentsOnly" />
+                        <label class="form-check-label" for="attachmentsOnlyToggle">
+                            Show only emails with attachments
+                        </label>
+                    </div>
                 </div>
             </div>
-            <div class="search-hints-row">
-                <div class="search-hints">
-                    <span class="hint">Use quotes for exact phrases</span>
-                    <span class="hint">from:alice@example.com, subject:"invoice"</span>
-                    <span class="hint">Combine filters with AND / OR</span>
-                </div>
+        </section>
+
+        <section class="advanced-section">
+            <div class="advanced-section__header">
+                <h4>Participants</h4>
+                <p>Focus on messages from specific people or teams.</p>
             </div>
-
-            @if (_showAdvancedFilters)
-            {
-                <div class="advanced-filters-panel">
-                    <section class="advanced-section">
-                        <div class="advanced-section__header">
-                            <h4>Keywords & matching</h4>
-                            <p>Fine-tune how we interpret your search terms.</p>
-                        </div>
-                        <div class="advanced-section__grid">
-                            <div class="filter-field filter-field--full">
-                                <label class="filter-field__label" for="stopWordsInput">Skip filler words</label>
-                                <p class="filter-field__hint">Comma-separate any noise words (e.g. “the,and,or”) you don’t want to match.</p>
-                                <input id="stopWordsInput"
-                                       type="text"
-                                       class="form-control"
-                                       placeholder="Comma-separated words to skip"
-                                       @bind="_stopWords" />
-                                <div class="form-text">Helps trim noise for relevance scoring.</div>
-                            </div>
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="inflectionalToggle">Match flexibility</label>
-                                <p class="filter-field__hint">Toggle to include plural and verb variations (plan → planning → planned).</p>
-                                <div class="form-check form-switch mt-1">
-                                    <input class="form-check-input"
-                                           type="checkbox"
-                                           id="inflectionalToggle"
-                                           checked="@_useInflectionalForms"
-                                           @onchange="OnInflectionalToggleChanged" />
-                                    <label class="form-check-label" for="inflectionalToggle">
-                                        Match planning / planned / plan
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="advanced-section">
-                        <div class="advanced-section__header">
-                            <h4>Participants</h4>
-                            <p>Focus on messages from specific people or teams.</p>
-                        </div>
-                        <div class="advanced-section__grid">
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="recipientFilterInput">Recipient filter</label>
-                                <p class="filter-field__hint">Find messages sent to, cc’d, bcc’d, or replied to a specific contact.</p>
-                                <input id="recipientFilterInput"
-                                       type="text"
-                                       class="form-control"
-                                       placeholder="alice@example.com"
-                                       @bind="_recipientFilter" />
-                                <div class="form-text">Matches email address or display name.</div>
-                            </div>
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="senderFilterInput">Sender filter</label>
-                                <p class="filter-field__hint">Limit results to a specific sender name or address.</p>
-                                <input id="senderFilterInput"
-                                       type="text"
-                                       class="form-control"
-                                       placeholder="billing@company.com"
-                                       @bind="_fromFilter" />
-                            </div>
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="advancedScopeSelect">Mailbox scope</label>
-                                <p class="filter-field__hint">Restrict searches to a specific archive.</p>
+            <div class="advanced-section__grid">
+                <div class="filter-field">
+                    <label class="filter-field__label" for="recipientFilterInput">Recipient filter</label>
+                    <p class="filter-field__hint">Find messages sent to, cc’d, bcc’d, or replied to a specific contact.</p>
+                    <input id="recipientFilterInput"
+                           type="text"
+                           class="form-control"
+                           placeholder="alice@example.com"
+                           @bind="_recipientFilter" />
+                    <div class="form-text">Matches email address or display name.</div>
+                </div>
+                <div class="filter-field">
+                    <label class="filter-field__label" for="senderFilterInput">Sender filter</label>
+                    <p class="filter-field__hint">Limit results to a specific sender name or address.</p>
+                    <input id="senderFilterInput"
+                           type="text"
+                           class="form-control"
+                           placeholder="billing@company.com"
+                           @bind="_fromFilter" />
+                </div>
+                <div class="filter-field">
+                    <label class="filter-field__label" for="advancedScopeSelect">Mailbox scope</label>
+                    <p class="filter-field__hint">Restrict searches to a specific archive.</p>
                                 <select id="advancedScopeSelect"
-                                        class="form-select"
-                                        value="@(_selectedMailboxId?.ToString() ?? "")"
-                                        @onchange="OnMailboxSelectChanged">
-                                    <option value="">All mailboxes</option>
-                                    @if (_mailboxes != null)
-                                    {
-                                        @foreach (var mailbox in _mailboxes)
-                                        {
-                                            <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
-                                        }
-                                    }
-                                </select>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="advanced-section">
-                        <div class="advanced-section__header">
-                            <h4>Date range & attachments</h4>
-                            <p>Keep queries scoped to the timeframe—and file types—that matter.</p>
-                        </div>
-                        <div class="advanced-section__grid">
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="dateFromInput">From</label>
-                                <InputDate @bind-Value="_dateFrom"
-                                           class="form-control"
-                                           id="dateFromInput"
-                                           placeholder="dd/mm/yyyy" />
-                            </div>
-                            <div class="filter-field">
-                                <label class="filter-field__label" for="dateToInput">To</label>
-                                <InputDate @bind-Value="_dateTo"
-                                           class="form-control"
-                                           id="dateToInput"
-                                           placeholder="dd/mm/yyyy" />
-                            </div>
-                            <div class="filter-field filter-field--full">
-                                <label class="filter-field__label" for="attachmentsOnlyToggle">Attachments</label>
-                                <div class="form-check form-switch mt-1">
-                                    <input class="form-check-input"
-                                           type="checkbox"
-                                           id="attachmentsOnlyToggle"
-                                           @bind="_hasAttachmentsOnly" />
-                                    <label class="form-check-label" for="attachmentsOnlyToggle">
-                                        Only show emails with attachments
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
+                                        class="form-select form-select-modern"
+                            value="@(_selectedMailboxId?.ToString() ?? "")"
+                            @onchange="OnMailboxSelectChanged">
+                        <option value="">All mailboxes</option>
+                        @if (_mailboxes != null)
+                        {
+                            @foreach (var mailbox in _mailboxes)
+                            {
+                                <option value="@mailbox.Id">@GetMailboxDisplayName(mailbox)</option>
+                            }
+                        }
+                    </select>
                 </div>
-            }
-            else
-            {
-                <div class="filter-pills">
-                    <span class="filter-pill">Sort: @GetSortLabel()</span>
-                    <span class="filter-pill">Order: @( _sortOrder == "asc" ? "Oldest first" : "Newest first")</span>
-                    <span class="filter-pill">@(_useInflectionalForms ? "Inflections ON" : "Exact terms")</span>
-                    @if (!string.IsNullOrWhiteSpace(_stopWords))
-                    {
-                        <span class="filter-pill">Stop words: @_stopWords</span>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_recipientFilter))
-                    {
-                        <span class="filter-pill">Recipient: @_recipientFilter</span>
-                    }
-                    @if (!string.IsNullOrWhiteSpace(_fromFilter))
-                    {
-                        <span class="filter-pill">From: @_fromFilter</span>
-                    }
-                    @if (_dateFrom.HasValue || _dateTo.HasValue)
-                    {
-                        <span class="filter-pill">Date: @FormatDateRange()</span>
-                    }
-                    @if (_hasAttachmentsOnly)
-                    {
-                        <span class="filter-pill">Has attachments</span>
-                    }
-                </div>
+            </div>
+        </section>
+    </div>
             }
         </form>
     </section>
@@ -345,11 +288,12 @@
     }
     else if (_emails == null || !_emails.Any())
     {
+        var showUploadCta = ShouldShowUploadCta();
         <div class="card modern-card text-center py-5">
             <i class="bi bi-envelope display-1 text-muted"></i>
             <h3 class="mt-3">No Emails Found</h3>
             <p class="text-muted">
-                @if (string.IsNullOrEmpty(_searchQuery))
+                @if (showUploadCta)
                 {
                     <text>Upload a mailbox to get started!</text>
                 }
@@ -358,7 +302,7 @@
                     <text>No emails match your search criteria.</text>
                 }
             </p>
-            @if (string.IsNullOrEmpty(_searchQuery))
+            @if (showUploadCta)
             {
                 <a href="/upload" class="btn btn-primary">
                     <i class="bi bi-cloud-upload"></i> Upload Mailbox
@@ -373,19 +317,6 @@
                 <div>
                     <p class="hero-eyebrow mb-1">Results</p>
                     <h3 class="mb-0">@(_searchQuery?.Length > 0 ? $"“{_searchQuery}”" : "All emails")</h3>
-                </div>
-                <div class="search-summary__chips">
-                    @if (_selectedMailboxId.HasValue)
-                    {
-                        var mailboxLabel = _mailboxes?
-                            .FirstOrDefault(m => m.Id == _selectedMailboxId);
-                        <span class="filter-pill soft">@(
-                            mailboxLabel is null
-                                ? "Selected mailbox"
-                                : GetMailboxDisplayName(mailboxLabel))</span>
-                    }
-                    <span class="filter-pill soft">@GetSortLabel()</span>
-                    <span class="filter-pill soft">@(_useInflectionalForms ? "Inflections" : "Exact match")</span>
                 </div>
             </div>
 
@@ -1417,6 +1348,9 @@
     private string GetSortModeClass(SortMode mode) =>
         mode == _sortMode ? "sort-toggle__btn sort-toggle__btn--active" : "sort-toggle__btn";
 
+    private string GetIconButtonClass(bool isActive) =>
+        isActive ? "icon-button icon-button--ghost icon-button--active" : "icon-button icon-button--ghost";
+
     private async Task SetSortModeAsync(SortMode mode)
     {
         if (_sortMode == mode)
@@ -1797,4 +1731,33 @@
     }
 
     private record EmailSummaryCard(string Label, string Value, string? Caption);
+    private bool HasDateFiltersApplied() =>
+        _dateFrom.HasValue || _dateTo.HasValue;
+
+    private bool HasAdvancedFiltersApplied()
+    {
+        var trimmedStopWords = _stopWords?.Trim();
+        return _hasAttachmentsOnly
+               || !string.IsNullOrWhiteSpace(trimmedStopWords)
+               || !string.IsNullOrWhiteSpace(_recipientFilter)
+               || !string.IsNullOrWhiteSpace(_fromFilter)
+               || _useInflectionalForms;
+    }
+
+    private bool HasAnySearchOrFilterCriteria() =>
+        !string.IsNullOrWhiteSpace(_searchQuery)
+        || _selectedMailboxId.HasValue
+        || HasDateFiltersApplied()
+        || HasAdvancedFiltersApplied();
+
+    private bool HasAnyMailboxes() => _mailboxes is { Count: > 0 };
+
+    private bool ShouldShowUploadCta() =>
+        !HasAnySearchOrFilterCriteria() && !HasAnyMailboxes();
+
+    private bool IsDateToggleHighlighted() =>
+        _showDatePicker || HasDateFiltersApplied();
+
+    private bool IsAdvancedToggleHighlighted() =>
+        _showAdvancedFilters || HasAdvancedFiltersApplied();
 }

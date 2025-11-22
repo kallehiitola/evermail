@@ -138,6 +138,11 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasIndex(m => new { m.TenantId, m.UserId });
             entity.HasIndex(m => m.Status);
             entity.HasIndex(m => new { m.IsPendingDeletion, m.PurgeAfter });
+            entity.Property(m => m.SourceFormat)
+                .HasMaxLength(64)
+                .HasDefaultValue("mbox");
+            entity.Property(m => m.NormalizedSizeBytes)
+                .HasDefaultValue(0L);
 
             entity.HasOne(m => m.Tenant)
                 .WithMany(t => t.Mailboxes)
@@ -162,6 +167,11 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasIndex(mu => mu.MailboxId);
             entity.HasIndex(mu => mu.Status);
             entity.HasIndex(mu => mu.TenantId);
+            entity.Property(mu => mu.SourceFormat)
+                .HasMaxLength(64)
+                .HasDefaultValue("mbox");
+            entity.Property(mu => mu.NormalizedSizeBytes)
+                .HasDefaultValue(0L);
 
             entity.HasOne(mu => mu.Mailbox)
                 .WithMany(m => m.Uploads)

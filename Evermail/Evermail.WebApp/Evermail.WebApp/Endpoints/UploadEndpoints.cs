@@ -1,8 +1,10 @@
+using Evermail.Common.Constants;
 using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.Upload;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Evermail.Infrastructure.Services.Archives;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +12,19 @@ namespace Evermail.WebApp.Endpoints;
 
 public static class UploadEndpoints
 {
+    private static readonly HashSet<string> AllowedFileTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        EmailArchiveFormats.Mbox,
+        EmailArchiveFormats.GoogleTakeoutZip,
+        EmailArchiveFormats.MicrosoftExportZip,
+        EmailArchiveFormats.OutlookPst,
+        EmailArchiveFormats.OutlookPstZip,
+        EmailArchiveFormats.OutlookOst,
+        EmailArchiveFormats.OutlookOstZip,
+        EmailArchiveFormats.Eml,
+        EmailArchiveFormats.EmlZip
+    };
+
     public static RouteGroupBuilder MapUploadEndpoints(this RouteGroupBuilder group)
     {
         group.MapPost("/initiate", InitiateUploadAsync)
@@ -69,15 +84,17 @@ public static class UploadEndpoints
             ));
         }
         
-        // 3. Validate file type
-        var allowedFileTypes = new[] { "mbox", "google-takeout-zip", "microsoft-export-zip" };
-        if (!allowedFileTypes.Contains(request.FileType.ToLowerInvariant()))
+        var normalizedFormat = NormalizeFileType(request.FileType);
+
+        if (!string.IsNullOrWhiteSpace(normalizedFormat) && !AllowedFileTypes.Contains(normalizedFormat))
         {
             return Results.BadRequest(new ApiResponse<object>(
                 Success: false,
-                Error: $"Invalid file type. Allowed types: {string.Join(", ", allowedFileTypes)}"
+                Error: $"Invalid file type. Allowed types: {string.Join(", ", AllowedFileTypes)}"
             ));
         }
+        
+        var pendingFormat = normalizedFormat ?? EmailArchiveFormats.AutoDetect;
         
         // Ensure user exists
         var userExists = await context.Users.AnyAsync(u => u.Id == tenantContext.UserId);
@@ -113,6 +130,7 @@ public static class UploadEndpoints
                 DisplayName = request.FileName,
                 FileName = request.FileName,
                 FileSizeBytes = request.FileSizeBytes,
+                SourceFormat = pendingFormat,
                 BlobPath = string.Empty,
                 Status = "Pending",
                 CreatedAt = DateTime.UtcNow
@@ -131,6 +149,8 @@ public static class UploadEndpoints
             ));
         }
 
+        mailbox.SourceFormat = pendingFormat;
+
         // 4. Create MailboxUpload record
         var upload = new MailboxUpload
         {
@@ -140,6 +160,7 @@ public static class UploadEndpoints
             UploadedByUserId = tenantContext.UserId,
             FileName = request.FileName,
             FileSizeBytes = request.FileSizeBytes,
+            SourceFormat = pendingFormat,
             BlobPath = string.Empty,
             Status = "Pending",
             CreatedAt = DateTime.UtcNow
@@ -193,7 +214,9 @@ public static class UploadEndpoints
         EvermailDbContext context,
         IQueueService queueService,
         IMailboxEncryptionStateService encryptionStateService,
-        TenantContext tenantContext)
+        IArchiveFormatDetector archiveFormatDetector,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken = default)
     {
         // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
@@ -213,12 +236,6 @@ public static class UploadEndpoints
             ));
         }
         
-        // Update status to Queued
-        mailbox.Status = "Queued";
-        mailbox.UpdatedAt = DateTime.UtcNow;
-        await context.SaveChangesAsync();
-        
-        // Send message to queue for background processing
         if (request.UploadId == Guid.Empty)
         {
             return Results.BadRequest(new ApiResponse<object>(
@@ -238,11 +255,38 @@ public static class UploadEndpoints
             ));
         }
 
+        string detectedFormat;
+        try
+        {
+            detectedFormat = await archiveFormatDetector.DetectFormatAsync(
+                upload.BlobPath,
+                upload.FileName,
+                cancellationToken);
+        }
+        catch (ArchiveFormatDetectionException ex)
+        {
+            upload.Status = "Failed";
+            upload.ErrorMessage = ex.Message;
+            mailbox.Status = "Failed";
+            mailbox.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
+
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: ex.Message
+            ));
+        }
+
+        mailbox.SourceFormat = detectedFormat;
+        upload.SourceFormat = detectedFormat;
+        upload.ErrorMessage = null;
         upload.Status = "Queued";
         upload.ProcessingStartedAt = null;
         mailbox.LatestUploadId = upload.Id;
+        mailbox.Status = "Queued";
+        mailbox.UpdatedAt = DateTime.UtcNow;
 
-        await context.SaveChangesAsync();
+        await context.SaveChangesAsync(cancellationToken);
 
         var encryptionState = await encryptionStateService.CreateAsync(
             tenantContext.TenantId,
@@ -261,6 +305,32 @@ public static class UploadEndpoints
                 "Queued"
             )
         ));
+    }
+
+    private static string? NormalizeFileType(string? fileType)
+    {
+        if (string.IsNullOrWhiteSpace(fileType) ||
+            fileType.Equals(EmailArchiveFormats.AutoDetect, StringComparison.OrdinalIgnoreCase) ||
+            fileType.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var normalized = fileType.Trim().ToLowerInvariant();
+
+        return normalized switch
+        {
+            "mbx" => EmailArchiveFormats.Mbox,
+            "google" or "google-zip" => EmailArchiveFormats.GoogleTakeoutZip,
+            "microsoft" or "microsoft-zip" => EmailArchiveFormats.MicrosoftExportZip,
+            "pst" => EmailArchiveFormats.OutlookPst,
+            "pst-zip" or "outlook-zip" => EmailArchiveFormats.OutlookPstZip,
+            "ost" => EmailArchiveFormats.OutlookOst,
+            "ost-zip" or "outlook-ost-zip" => EmailArchiveFormats.OutlookOstZip,
+            "eml" => EmailArchiveFormats.Eml,
+            "eml-zip" or "maildir" => EmailArchiveFormats.EmlZip,
+            _ => normalized
+        };
     }
 }
 

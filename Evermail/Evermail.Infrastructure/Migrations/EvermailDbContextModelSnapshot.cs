@@ -521,6 +521,11 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<Guid?>("LatestUploadId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<long>("NormalizedSizeBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<long>("ProcessedBytes")
                         .HasColumnType("bigint");
 
@@ -541,6 +546,13 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<Guid?>("SoftDeletedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SourceFormat")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasDefaultValue("mbox");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -764,6 +776,11 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<Guid>("MailboxId")
                         .HasColumnType("uniqueidentifier");
 
+                    b.Property<long>("NormalizedSizeBytes")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<long>("ProcessedBytes")
                         .HasColumnType("bigint");
 
@@ -778,6 +795,13 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<DateTime?>("PurgeAfter")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("SourceFormat")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasDefaultValue("mbox");
 
                     b.Property<string>("Status")
                         .IsRequired()

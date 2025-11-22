@@ -51,6 +51,22 @@ Authenticate and receive JWT token.
 }
 ```
 
+**Optional `fileType` hints** (case-insensitive):
+
+| Value | Description |
+| --- | --- |
+| `mbox` | Single mailbox export files (`.mbox`, `.mbx`) from Gmail, Apple Mail, Thunderbird, etc. |
+| `google-takeout-zip` | Google Takeout ZIP bundles that contain one or more `.mbox` files. |
+| `microsoft-export-zip` | Microsoft Outlook/Office 365 exports delivered as ZIPs with a `.pst` inside. |
+| `outlook-pst` | Raw `.pst` uploads (classic Outlook export). |
+| `outlook-pst-zip` | Generic ZIPs that only contain a `.pst` (fallback when the UI cannot tell whether it came from Outlook’s export wizard). |
+| `outlook-ost` | Raw `.ost` uploads (cached Outlook/Exchange mailbox files). |
+| `outlook-ost-zip` | ZIP bundles that contain a single `.ost` file. |
+| `eml` | Single `.eml` message. |
+| `eml-zip` | ZIP bundle full of loose `.eml` files (Maildir-style exports). |
+
+You can omit `fileType` (or send `auto-detect`) and Evermail will inspect the uploaded blob directly. The `ArchiveFormatDetector` service opens the blob from Azure Storage, checks ZIP entries, and validates PST/OST headers before persisting the resolved `SourceFormat` on `Mailbox` and `MailboxUpload`. Manual hints simply help the UI show smarter copy but are no longer required for accuracy.
+
 **Response (200 OK)**:
 ```json
 {
@@ -261,6 +277,7 @@ List all mailboxes for the current user.
 - `page` (default: 1): Page number
 - `pageSize` (default: 20): Items per page
 
+> Each mailbox object now includes `normalizedSizeBytes`. When zero, only the original upload size is known; once the ingestion worker finishes normalization, this field reflects the uncompressed `.mbox` size used for progress bars and storage calculations.
 **Response (200 OK)**:
 ```json
 {
@@ -306,6 +323,21 @@ Upload a new .mbox file.
 
 **Request**: `multipart/form-data`
 - `file`: The .mbox file (max 5GB for Pro tier)
+ - `fileType`: One of the supported archive identifiers (see below)
+
+**Supported `fileType` values**
+
+| Value | Description | Typical extension |
+| --- | --- | --- |
+| `mbox` | Single mailbox export (Gmail, Thunderbird, Apple Mail) | `.mbox` |
+| `google-takeout-zip` | Google Takeout archive containing one or more `.mbox` files | `.zip` |
+| `microsoft-export-zip` | Microsoft export bundle containing a `.pst` | `.zip` |
+| `outlook-pst` | Direct Outlook PST export | `.pst` |
+| `outlook-pst-zip` | Zipped PST handed off by enterprise admins | `.zip` |
+| `eml` | Standalone `.eml` message (imported as a one-message mailbox) | `.eml` |
+| `eml-zip` | Maildir/EML bundle zipped up by Apple Mail, Thunderbird, etc. | `.zip` |
+
+> ℹ️ The backend still inspects the uploaded blob to verify it matches the claimed format. A `.zip` without `.mbox`, `.pst`, or `.eml` entries is rejected even if the `fileType` is set correctly.
 
 **Response (202 Accepted)**:
 ```json
@@ -377,6 +409,7 @@ List upload/re-import history for a mailbox.
       "id": "guid",
       "fileName": "gmail-export.mbox",
       "fileSizeBytes": 52428800,
+        "normalizedSizeBytes": 73400320,
       "status": "Completed",
       "uploadedAt": "2025-11-10T15:30:00Z",
       "keepEmails": false,
@@ -498,6 +531,8 @@ Search emails with full-text query, recipient/conversation filters, and advanced
 - `sortOrder` (default: `desc`): `asc`, `desc`
 - `stopWords` (optional): Comma-separated list of terms to ignore when executing full-text search (e.g., `stopWords=the,and,or`)
 - `useInflectionalForms` (optional, default: `false`): When `true`, wraps each token in `FORMSOF(INFLECTIONAL, ...)` so `plan` also matches `planned`, `planning`, etc.
+
+> **Date filters**: When `dateFrom`/`dateTo` are provided as date-only values (no time component) the API automatically interprets `dateFrom` as the start of that day (00:00:00 UTC) and `dateTo` as the inclusive end of that day. In practice, `dateTo=2025-01-31` expands to “before 2025‑02‑01 00:00:00” so you never lose emails that arrived later that same day.
 
 **Example Request**:
 ```
@@ -733,52 +768,34 @@ Download an attachment.
 
 ## User Management
 
-### GET /users/me
-Get current user profile.
+### GET /users/me/profile
+Retrieve the authenticated user's profile plus workspace limits. Requires any authenticated user; responses are automatically scoped to the caller's tenant.
 
 **Response (200 OK)**:
 ```json
 {
   "success": true,
   "data": {
-    "id": "guid",
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "twoFactorEnabled": false,
-    "tenant": {
-      "id": "guid",
-      "name": "John's Archive",
-      "subscriptionTier": "Pro",
-      "storageUsedGB": 2.5,
-      "maxStorageGB": 5
-    }
+    "userId": "15f1e1a7-6ce5-46fe-b38b-9dcb9fb3099f",
+    "tenantId": "7f4d74a8-5e6a-4de0-9a9f-0545e0a2f823",
+    "email": "me@evermail.com",
+    "firstName": "Mia",
+    "lastName": "Lopez",
+    "twoFactorEnabled": true,
+    "createdAt": "2025-10-28T13:04:05Z",
+    "lastLoginAt": "2025-11-21T09:32:14Z",
+    "tenantName": "Acme Labs",
+    "subscriptionTier": "Pro",
+    "maxStorageGb": 5,
+    "maxUsers": 1,
+    "storageBytesUsed": 2147483648,
+    "mailboxCount": 3,
+    "roles": ["User", "Admin"]
   }
 }
 ```
 
-### PATCH /users/me
-Update user profile.
-
-**Request Body**:
-```json
-{
-  "firstName": "John",
-  "lastName": "Smith"
-}
-```
-
-**Response (200 OK)**:
-```json
-{
-  "success": true,
-  "data": {
-    "id": "guid",
-    "firstName": "John",
-    "lastName": "Smith"
-  }
-}
-```
+Use this payload on the `/settings` page for account identity, workspace plan limits, and 2FA badges. Admin-only information (like onboarding state) is still surfaced via `/tenants/onboarding/status`.
 
 ### POST /users/me/enable-2fa
 Enable two-factor authentication.

@@ -143,12 +143,25 @@ public static class EmailEndpoints
 
         if (dateFrom.HasValue)
         {
-            query = query.Where(e => e.Date >= dateFrom.Value);
+            var inclusiveStart = dateFrom.Value.TimeOfDay == TimeSpan.Zero
+                ? dateFrom.Value.Date
+                : dateFrom.Value;
+
+            query = query.Where(e => e.Date >= inclusiveStart);
         }
 
         if (dateTo.HasValue)
         {
-            query = query.Where(e => e.Date <= dateTo.Value);
+            var endValue = dateTo.Value;
+            if (endValue.TimeOfDay == TimeSpan.Zero)
+            {
+                var exclusiveEnd = endValue.Date.AddDays(1);
+                query = query.Where(e => e.Date < exclusiveEnd);
+            }
+            else
+            {
+                query = query.Where(e => e.Date <= endValue);
+            }
         }
 
         if (hasAttachments.HasValue)

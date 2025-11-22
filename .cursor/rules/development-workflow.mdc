@@ -21,6 +21,8 @@ open http://localhost:15000
 # - API: https://localhost:7136/api/v1
 ```
 
+> ⚠️ **Heads-up:** `dotnet run` for the Aspire AppHost stays alive indefinitely (like `dotnet watch`). Launch it in its own terminal or background process and stop it explicitly when you are done; never block waiting for it to exit.
+
 ### AI Assistant: Restart and Test Aspire
 
 **The AI assistant is authorized to:**
@@ -37,6 +39,12 @@ open http://localhost:15000
 - Use `-k` flag for HTTPS to ignore self-signed certificates
 - Pretty print JSON responses with `jq '.'`
 - Verify Key Vault secrets are loaded by checking startup logs
+
+### Stopping stuck Aspire processes
+
+- On **Windows**, run `scripts/kill-evermail-processes.ps1` (optionally with `-Force`) from the repository root whenever builds fail because `Evermail.WebApp.exe` or other Aspire hosts are still running.
+- On **macOS/Linux**, it’s safe to terminate the lingering `dotnet`/Node hosts directly (e.g., `pkill -f Evermail.AppHost`).
+- Use these helpers before restarting Aspire to ensure `dotnet build` can overwrite the old binaries.
 
 ### Environment Variables
 

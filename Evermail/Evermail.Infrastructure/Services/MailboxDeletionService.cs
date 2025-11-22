@@ -252,6 +252,7 @@ public class MailboxDeletionService
             mailbox.BlobPath = string.Empty;
             mailbox.FileName = string.Empty;
             mailbox.FileSizeBytes = 0;
+            mailbox.NormalizedSizeBytes = 0;
 
             _logger.LogInformation(
                 "Mailbox {MailboxId}: all uploads removed; cleared blob metadata",
@@ -338,6 +339,7 @@ public class MailboxDeletionService
         mailbox.BlobPath = string.Empty;
         mailbox.FileName = string.Empty;
         mailbox.FileSizeBytes = 0;
+        mailbox.NormalizedSizeBytes = 0;
 
         mailbox.TotalEmails = 0;
         mailbox.ProcessedEmails = 0;

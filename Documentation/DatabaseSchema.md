@@ -157,6 +157,8 @@ CREATE TABLE Mailboxes (
     -- Latest upload snapshot (for backwards compatibility)
     FileName NVARCHAR(500) NOT NULL,
     FileSizeBytes BIGINT NOT NULL,
+    NormalizedSizeBytes BIGINT NOT NULL DEFAULT 0,
+    SourceFormat NVARCHAR(64) NOT NULL DEFAULT 'mbox',
     BlobPath NVARCHAR(1000) NOT NULL, -- mbox-archives/{tenantId}/{mailboxId}/original.mbox
     
     -- Processing Status
@@ -192,6 +194,8 @@ CREATE TABLE Mailboxes (
 ```
 
 > `LatestUploadId` is populated only when the mailbox has at least one entry in `MailboxUploads`.
+>
+> `NormalizedSizeBytes` stays `0` until the ingestion worker finishes archive preparation. Once populated it reflects the uncompressed `.mbox` size and drives progress bars plus storage reporting.
 
 ### MailboxUploads
 
@@ -206,6 +210,8 @@ CREATE TABLE MailboxUploads (
     
     FileName NVARCHAR(500) NOT NULL,
     FileSizeBytes BIGINT NOT NULL,
+    NormalizedSizeBytes BIGINT NOT NULL DEFAULT 0,
+    SourceFormat NVARCHAR(64) NOT NULL DEFAULT 'mbox',
     BlobPath NVARCHAR(1000) NOT NULL,
     
     Status NVARCHAR(50) NOT NULL DEFAULT 'Pending', -- Pending, Processing, Completed, Failed, Deleted
@@ -234,6 +240,8 @@ ALTER TABLE Mailboxes
     ADD CONSTRAINT FK_Mailboxes_LatestUpload
         FOREIGN KEY (LatestUploadId) REFERENCES MailboxUploads(Id);
 ```
+
+> `MailboxUploads.NormalizedSizeBytes` mirrors the mailbox value so historical uploads retain their expanded footprint even after re-imports.
 
 ### TenantEncryptionSettings
 
@@ -948,9 +956,11 @@ SELECT
     t.Id,
     t.Name,
     t.SubscriptionTier,
-    SUM(m.FileSizeBytes) / 1024.0 / 1024.0 / 1024.0 AS StorageUsedGB,
+    SUM(CASE WHEN m.NormalizedSizeBytes > 0 THEN m.NormalizedSizeBytes ELSE m.FileSizeBytes END) / 1024.0 / 1024.0 / 1024.0 AS StorageUsedGB,
     t.MaxStorageGB,
-    (SUM(m.FileSizeBytes) / 1024.0 / 1024.0 / 1024.0) / t.MaxStorageGB * 100 AS PercentageUsed
+    (
+        SUM(CASE WHEN m.NormalizedSizeBytes > 0 THEN m.NormalizedSizeBytes ELSE m.FileSizeBytes END) / 1024.0 / 1024.0 / 1024.0
+    ) / t.MaxStorageGB * 100 AS PercentageUsed
 FROM Tenants t
 LEFT JOIN Mailboxes m ON m.TenantId = t.Id
 WHERE t.Id = @TenantId

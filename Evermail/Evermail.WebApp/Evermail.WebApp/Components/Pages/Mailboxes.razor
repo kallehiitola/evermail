@@ -122,7 +122,7 @@
                                                 <div class="text-muted small">@mailbox.FileName</div>
                                             }
                                         </td>
-                                        <td>@FormatFileSize(mailbox.FileSizeBytes)</td>
+                                        <td>@FormatFileSize(GetDisplaySize(mailbox))</td>
                                         <td>@GetStatusBadge(mailbox.Status)</td>
                                         <td>@GetLifecycleBadge(mailbox)</td>
                                         <td>
@@ -161,8 +161,8 @@
                                                 <span class="text-muted">–</span>
                                             }
                                         </td>
-                                        <td>
-                                            <small>@mailbox.CreatedAt.ToString("yyyy-MM-dd HH:mm")</small>
+                                        <td class="text-nowrap">
+                                            <LocalizedTimestamp Value="mailbox.CreatedAt" />
                                         </td>
                                         <td>
                                             <div class="action-pill-group">
@@ -408,7 +408,7 @@
         var pending = items.Count(m =>
             string.Equals(m.Status, "Pending", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(m.Status, "Queued", StringComparison.OrdinalIgnoreCase));
-        var storageBytes = items.Sum(m => m.FileSizeBytes);
+        var storageBytes = items.Sum(GetDisplaySize);
         var pendingDeletion = items.Count(m => m.IsPendingDeletion);
         var newest = items.OrderByDescending(m => m.CreatedAt).FirstOrDefault();
 
@@ -422,11 +422,12 @@
 
     private (int Progress, string Label) CalculateMailboxProgress(MailboxDto mailbox)
     {
-        if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
+        var totalBytes = GetDisplaySize(mailbox);
+        if (totalBytes > 0 && mailbox.ProcessedBytes > 0)
         {
-            var progress = (int)Math.Clamp((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100, 0, 100);
+            var progress = (int)Math.Clamp((double)mailbox.ProcessedBytes / totalBytes * 100, 0, 100);
             var processed = FormatFileSize(mailbox.ProcessedBytes);
-            var total = FormatFileSize(mailbox.FileSizeBytes);
+            var total = FormatFileSize(totalBytes);
             return (progress, $"{processed} / {total}");
         }
 
@@ -451,6 +452,9 @@
         }
         return $"{len:0.##} {sizes[order]}";
     }
+
+    private static long GetDisplaySize(MailboxDto mailbox) =>
+        mailbox.NormalizedSizeBytes > 0 ? mailbox.NormalizedSizeBytes : mailbox.FileSizeBytes;
 
     private static string FormatNumber(long value)
     {

@@ -2,6 +2,7 @@ using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.User;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.WebApp.Endpoints;
@@ -22,6 +23,9 @@ public static class UserEndpoints
 
     public static RouteGroupBuilder MapUserEndpoints(this RouteGroupBuilder group)
     {
+        group.MapGet("/me/profile", GetProfileAsync)
+            .RequireAuthorization();
+
         group.MapGet("/me/settings/display", GetDisplaySettingsAsync)
             .RequireAuthorization();
 
@@ -29,6 +33,63 @@ public static class UserEndpoints
             .RequireAuthorization();
 
         return group;
+    }
+
+    private static async Task<IResult> GetProfileAsync(
+        UserManager<ApplicationUser> userManager,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var user = await userManager.FindByIdAsync(tenantContext.UserId.ToString());
+        if (user is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "User not found."));
+        }
+
+        var tenant = await context.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Tenant not found."));
+        }
+
+        var roles = await userManager.GetRolesAsync(user);
+
+        var storageBytes = await context.Mailboxes
+            .AsNoTracking()
+            .Where(m => m.TenantId == tenantContext.TenantId)
+            .SumAsync(m => (long?)(m.NormalizedSizeBytes > 0 ? m.NormalizedSizeBytes : m.FileSizeBytes) ?? 0, cancellationToken);
+
+        var mailboxCount = await context.Mailboxes
+            .AsNoTracking()
+            .CountAsync(m => m.TenantId == tenantContext.TenantId, cancellationToken);
+
+        var dto = new UserProfileDto(
+            user.Id,
+            tenant.Id,
+            user.Email ?? string.Empty,
+            user.FirstName,
+            user.LastName,
+            user.TwoFactorEnabled,
+            user.CreatedAt,
+            user.LastLoginAt,
+            tenant.Name,
+            tenant.SubscriptionTier,
+            tenant.MaxStorageGB,
+            tenant.MaxUsers,
+            storageBytes,
+            mailboxCount,
+            roles.ToArray());
+
+        return Results.Ok(new ApiResponse<UserProfileDto>(true, dto));
     }
 
     private static async Task<IResult> GetDisplaySettingsAsync(

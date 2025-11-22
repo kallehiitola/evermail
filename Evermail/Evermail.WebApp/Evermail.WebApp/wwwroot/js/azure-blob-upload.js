@@ -90,6 +90,18 @@ window.azureBlobUpload = {
 
         } catch (error) {
             console.error('Upload error:', error);
+            if (dotNetRef && typeof dotNetRef.invokeMethodAsync === 'function') {
+                try {
+                    const friendly = window.azureBlobUpload.describeError(error);
+                    await dotNetRef.invokeMethodAsync(
+                        'HandleUploadError',
+                        friendly.title,
+                        friendly.message,
+                        error?.message || '');
+                } catch (callbackError) {
+                    console.warn('Failed to notify Blazor about the upload error', callbackError);
+                }
+            }
             throw error;
         }
     },
@@ -97,6 +109,21 @@ window.azureBlobUpload = {
     cancel: function () {
         // TODO: Implement cancellation
         console.log('Upload cancellation requested');
+    },
+
+    describeError: function (error) {
+        const baseMessage = 'The browser could not upload the file.';
+        if (error instanceof TypeError && error.message && error.message.toLowerCase().includes('failed to fetch')) {
+            return {
+                title: 'We could not read the file',
+                message: 'Your operating system reports that the file is still open in another application (for example Outlook, OneDrive sync, or antivirus scanning). Please close any apps using the file and try again.'
+            };
+        }
+
+        return {
+            title: 'Upload failed',
+            message: baseMessage + ' Please check your internet connection and try again.'
+        };
     }
 };
 

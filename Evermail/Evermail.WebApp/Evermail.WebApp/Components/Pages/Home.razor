@@ -468,7 +468,7 @@
     private DashboardSnapshot BuildSnapshotFromResponse(PagedMailboxesResponse response)
     {
         var items = response.Items ?? new List<MailboxDto>();
-        var totalSize = items.Sum(m => m.FileSizeBytes);
+        var totalSize = items.Sum(GetDisplaySize);
         var totalEmails = items.Sum(m => m.ProcessedEmails);
         var failedEmails = items.Sum(m => m.FailedEmails);
         var completed = items.Count(m => string.Equals(m.Status, "Completed", StringComparison.OrdinalIgnoreCase));
@@ -511,6 +511,9 @@
 
         return stats;
     }
+
+    private static long GetDisplaySize(MailboxDto mailbox) =>
+        mailbox.NormalizedSizeBytes > 0 ? mailbox.NormalizedSizeBytes : mailbox.FileSizeBytes;
 
     private IReadOnlyList<ResourceUsageItem> BuildResourceUsage(DashboardSnapshot snapshot)
     {

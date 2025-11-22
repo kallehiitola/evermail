@@ -679,6 +679,17 @@ az security pricing create \
   --resource-group evermail-prod-rg
 ```
 
+#### Multi-format archive hardening (Nov 2025 refresh)
+- **Temp-file hygiene**: PST/ZIP/EML uploads are streamed into tenant-scoped random file names under `%TMP%/evermail-*`. Every extractor wraps its output in `IAsyncDisposable`, scrubbing files (secure delete) even when ingestion fails midway.
+- **Format validation**: 
+  - `.zip` payloads must contain at least one `.mbox`, `.pst`, `.ost`, or `.eml` entry. Anything else is rejected with a `400`.
+  - `.pst` / `.ost` files run through `PstToMboxWriter` (powered by the embedded `XstReader` engine) so we validate the MS-PST structure, hydrate recipients/attachments, and emit canonical MIME that reuses the existing dedupe + attachment pipeline.
+  - `.eml`/Maildir archives run through MimeKit parsing up-front, so malformed MIME can’t reach the database.
+- **Automatic format detection**: `ArchiveFormatDetector` inspects the uploaded blob (headers + ZIP entries) before we ever queue ingestion. If the payload doesn’t match a supported archive type we mark the upload as failed with a friendly message and never touch the worker.
+- **Plan-aware inflation guardrails**: We track the *inflated* byte count (unzipped `.mbox`, converted `.pst`) against the tenant’s plan to block “40 GB PST zipped to 2 GB” uploads instantly.
+- **Client-side zero-access compatibility**: When a tenant enables the WASM encryption path, the browser runs the same detection logic, decrypts/normalizes PST or ZIP payloads locally, and only uploads ciphertext chunks—no server-side PST parsing needed. The backend still enforces size/format checks on the encrypted blobs.
+- **Future offloading**: Because `ArchivePreparationService` already abstracts the normalization step, we can flip a single feature flag to bypass server conversion whenever Zero-Access mode insists that archives never leave the client in plaintext.
+
 ## Audit Logging
 
 ### What to Log

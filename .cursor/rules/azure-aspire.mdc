@@ -42,6 +42,8 @@ builder.AddProject<Projects.Evermail_AdminApp>("admin")
 builder.Build().Run();
 ```
 
+> ⚠️ **Operational note:** `dotnet run` for the Aspire AppHost never terminates on its own—treat it like `dotnet watch run`. Start it in a dedicated terminal or background job and stop it manually when you need to tear down the environment.
+
 ## Service Discovery
 
 Use named references instead of hardcoded URLs:

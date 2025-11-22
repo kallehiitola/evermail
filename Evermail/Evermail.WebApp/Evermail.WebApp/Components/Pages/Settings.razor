@@ -1,10 +1,13 @@
 @page "/settings"
 @rendermode InteractiveServer
 @using Microsoft.AspNetCore.Components.Authorization
-@using Evermail.WebApp.Models
-@using Evermail.WebApp.Services
-
+@using System.Globalization
 @inject UserPreferencesService PreferencesService
+@inject HttpClient Http
+@inject IAuthenticationStateService AuthStateService
+@inject NavigationManager Navigation
+
+@implements IDisposable
 
 <PageTitle>Settings - Evermail</PageTitle>
 
@@ -15,53 +18,206 @@
                 <div>
                     <p class="hero-eyebrow mb-2">Your workspace</p>
                     <h1>Account & Preferences</h1>
-                    <p class="text-muted mb-0">Manage your identity, subscriptions, and upcoming security controls from one calm dashboard.</p>
+                    <p class="text-muted mb-0">Review identity, plan limits, security posture, and search preferences in one calm surface.</p>
                 </div>
                 <div class="settings-pill-stack">
-                    <span class="status-pill status-pill--success">Private beta</span>
-                    <span class="status-pill">Fast iterations ahead</span>
+                    <span class="status-pill">@FormatPlanName(_profile?.SubscriptionTier)</span>
+                    <span class="status-pill @(_profile?.TwoFactorEnabled == true ? "status-pill--success" : "status-pill--pending")">
+                        @_profileStatus
+                    </span>
                 </div>
             </section>
 
             <section class="settings-grid">
                 <article class="settings-card">
                     <header>
-                        <h2>Account information</h2>
-                        <p class="text-muted">Identity pulled directly from your secure tenant context.</p>
+                        <h2>Account overview</h2>
+                        <p class="text-muted">Identity pulled directly from the tenant-secured JWT.</p>
                     </header>
-                    <dl class="detail-dl compact">
-                        <dt>Email</dt>
-                        <dd>@context.User.Identity?.Name</dd>
-                        <dt>User ID</dt>
-                        <dd class="mono">@context.User.FindFirst("sub")?.Value</dd>
-                        <dt>Tenant ID</dt>
-                        <dd class="mono">@context.User.FindFirst("tenant_id")?.Value</dd>
-                    </dl>
+                    @if (_isProfileLoading)
+                    {
+                        <MudSkeleton Height="160px" Width="100%" Animation="Animation.Wave" />
+                    }
+                    else if (!string.IsNullOrEmpty(_profileError))
+                    {
+                        <div class="alert alert-warning mb-0">@_profileError</div>
+                    }
+                    else if (_profile is not null)
+                    {
+                        <dl class="detail-dl compact">
+                            <dt>Name</dt>
+                            <dd>@($"{_profile.FirstName} {_profile.LastName}".Trim())</dd>
+                            <dt>Email</dt>
+                            <dd>@_profile.Email</dd>
+                            <dt>User ID</dt>
+                            <dd class="mono">@_profile.UserId</dd>
+                            <dt>Tenant</dt>
+                            <dd>@_profile.TenantName</dd>
+                            <dt>Tenant ID</dt>
+                            <dd class="mono">@_profile.TenantId</dd>
+                            <dt>Joined</dt>
+                            <dd>@FormatDate(_profile.CreatedAt)</dd>
+                            <dt>Last activity</dt>
+                            <dd>@FormatDate(_profile.LastLoginAt)</dd>
+                        </dl>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            @foreach (var role in _profile.Roles)
+                            {
+                                <span class="status-pill">@role</span>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-warning mb-0">We couldn't load your profile. Refresh to try again.</div>
+                    }
                 </article>
 
                 <article class="settings-card">
-                    <header>
-                        <h2>Security roadmap</h2>
-                        <p class="text-muted">Phase 1 focuses on giving administrators confidence before GA.</p>
+                    <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
+                        <div>
+                            <h2>Workspace plan</h2>
+                            <p class="text-muted mb-0">Storage + user limits pulled from the active subscription.</p>
+                        </div>
+                        <span class="status-pill">@FormatPlanName(_profile?.SubscriptionTier)</span>
                     </header>
-                    <ul class="settings-roadmap">
-                        <li>
-                            <span>Enable / disable 2FA</span>
-                            <small>Authenticator + SMS fallbacks</small>
-                        </li>
-                        <li>
-                            <span>Change password</span>
-                            <small>Zero-downtime credential rotations</small>
-                        </li>
-                        <li>
-                            <span>Manage sessions</span>
-                            <small>Revoke suspicious device tokens in one click</small>
-                        </li>
-                        <li>
-                            <span>Connected OAuth accounts</span>
-                            <small>View and disconnect Google / Microsoft bindings</small>
-                        </li>
-                    </ul>
+                    @if (_isProfileLoading)
+                    {
+                        <MudSkeleton Height="160px" Width="100%" Animation="Animation.Wave" />
+                    }
+                    else if (_profile is null)
+                    {
+                        <div class="alert alert-info mb-0">Sign in to view workspace usage.</div>
+                    }
+                    else
+                    {
+                        <div class="usage-progress jumbo mt-3">
+                            <div class="usage-progress__bar" style="@($"width: {StoragePercent}%")"></div>
+                        </div>
+                        <div class="d-flex justify-content-between flex-wrap gap-3 mt-3">
+                            <div>
+                                <small class="text-muted text-uppercase">Storage used</small>
+                                <p class="mb-0 fw-semibold">@FormatBytes(_profile.StorageBytesUsed) / @FormatBytes(StorageLimitBytes)</p>
+                            </div>
+                            <div>
+                                <small class="text-muted text-uppercase">Users</small>
+                                <p class="mb-0 fw-semibold">1 / @_profile.MaxUsers</p>
+                            </div>
+                            <div>
+                                <small class="text-muted text-uppercase">Mailboxes</small>
+                                <p class="mb-0 fw-semibold">@_profile.MailboxCount</p>
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2 mt-4">
+                            @if (_isAdmin || _isSuperAdmin)
+                            {
+                                <a class="btn btn-primary" href="/onboarding?step=plan">
+                                    <i class="bi bi-rocket-takeoff me-2"></i>Adjust plan
+                                </a>
+                                <a class="btn btn-outline-secondary" href="/admin/encryption">
+                                    <i class="bi bi-shield-lock me-2"></i>Encryption settings
+                                </a>
+                            }
+                            else
+                            {
+                                <span class="text-muted small">Only admins can modify plan & encryption settings.</span>
+                            }
+                        </div>
+                    }
+                </article>
+            </section>
+
+            <section class="settings-grid">
+                <article class="settings-card span-2">
+                    <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
+                        <div>
+                            <p class="hero-eyebrow mb-1">Security</p>
+                            <h2>Protect sign-ins with 2FA</h2>
+                        </div>
+                        <span class="status-pill @(_profile?.TwoFactorEnabled == true ? "status-pill--success" : "status-pill--pending")">
+                            @_profileStatus
+                        </span>
+                    </header>
+
+                    @if (_profile is null)
+                    {
+                        <div class="alert alert-info mb-0">Sign in to configure security settings.</div>
+                    }
+                    else
+                    {
+                        @if (_profile.TwoFactorEnabled)
+                        {
+                            <div class="alert alert-success">
+                                Two-factor authentication is enabled. Use your authenticator app or the backup codes below if you lose access.
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Scan a QR code with any TOTP app (Microsoft / Google Authenticator, 1Password, etc.) and enter a 6-digit code to lock down access.</p>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-primary"
+                                        @onclick="EnableTwoFactorAsync"
+                                        disabled="_isTwoFactorBusy || _twoFactorSetup is not null">
+                                    <i class="bi bi-shield-plus me-2"></i>
+                                    Start setup
+                                </button>
+                                <button class="btn btn-outline-secondary" disabled>
+                                    Coming soon: Session management
+                                </button>
+                            </div>
+                        }
+
+                        @if (_twoFactorSetup is not null)
+                        {
+                            <div class="twofactor-setup mt-4">
+                                <div class="twofactor-setup__grid">
+                                    <div>
+                                        <h4>1. Scan the QR code</h4>
+                                        <img src="@_twoFactorSetup.QrCodeUrl" alt="Authenticator QR code" class="twofactor-setup__qr" />
+                                    </div>
+                                    <div>
+                                        <h4>2. Enter a 6-digit code</h4>
+                                        <p class="text-muted small">Secret (manual entry): <span class="mono">@_twoFactorSetup.Secret</span></p>
+                                        <input type="text"
+                                               class="modern-input mb-2"
+                                               maxlength="6"
+                                               inputmode="numeric"
+                                               autocomplete="one-time-code"
+                                               placeholder="123456"
+                                               @bind="_twoFactorCode"
+                                               @bind:event="oninput" />
+                                        <button class="btn btn-success"
+                                                @onclick="VerifyTwoFactorAsync"
+                                                disabled="_isTwoFactorBusy || string.IsNullOrWhiteSpace(_twoFactorCode)">
+                                            Verify & enable
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+
+                        @if (!string.IsNullOrEmpty(_twoFactorMessage))
+                        {
+                            <div class="alert alert-success mt-3 mb-0">@_twoFactorMessage</div>
+                        }
+                        @if (!string.IsNullOrEmpty(_twoFactorError))
+                        {
+                            <div class="alert alert-danger mt-3 mb-0">@_twoFactorError</div>
+                        }
+
+                        @if (_backupCodes.Count > 0)
+                        {
+                            <div class="alert alert-info mt-4">
+                                <p class="mb-2">Backup codes — store them in a safe, offline place:</p>
+                                <div class="d-flex flex-wrap gap-2">
+                                    @foreach (var backupCode in _backupCodes)
+                                    {
+                                        <span class="badge bg-dark text-light px-3 py-2">@backupCode</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    }
                 </article>
             </section>
 
@@ -113,58 +269,26 @@
                                 <h3>Highlights & shortcuts</h3>
                                 <p class="text-muted">Toggle behaviors that make scanning and navigation faster.</p>
                                 <MudSwitch T="bool"
-                                           Checked="_preferences.AutoScrollToKeyword"
-                                           CheckedChanged="OnAutoScrollChanged"
+                                           Checked="@_preferences.AutoScrollToKeyword"
+                                           CheckedChanged="@OnAutoScrollChanged"
                                            Color="Color.Primary"
                                            Class="mb-2"
                                            Label="Auto-scroll to first keyword" />
                                 <MudSwitch T="bool"
-                                           Checked="_preferences.MatchNavigatorEnabled"
-                                           CheckedChanged="OnMatchNavigatorChanged"
+                                           Checked="@_preferences.MatchNavigatorEnabled"
+                                           CheckedChanged="@OnMatchNavigatorChanged"
                                            Color="Color.Primary"
                                            Class="mb-2"
                                            Label="Show match navigator button" />
                                 <MudSwitch T="bool"
-                                           Checked="_preferences.KeyboardShortcutsEnabled"
-                                           CheckedChanged="OnKeyboardShortcutsChanged"
+                                           Checked="@_preferences.KeyboardShortcutsEnabled"
+                                           CheckedChanged="@OnKeyboardShortcutsChanged"
                                            Color="Color.Primary"
                                            Label="Keyboard shortcuts (/, j/k, Enter, p)" />
                                 <small class="text-muted d-block mt-2">Shortcuts focus the search box, move between rows, open messages, and pin favorites.</small>
                             </div>
                         </div>
                     }
-                </article>
-            </section>
-
-            <section class="settings-grid">
-                <article class="settings-card span-2">
-                    <header class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
-                        <div>
-                            <p class="hero-eyebrow mb-1">Subscription</p>
-                            <h2>Coming in Phase 1</h2>
-                        </div>
-                        <span class="status-pill status-pill--pending">Design in progress</span>
-                    </header>
-                    <div class="settings-columns">
-                        <div>
-                            <h3>What you’ll be able to control</h3>
-                            <ul class="settings-list">
-                                <li>View current plan & limits</li>
-                                <li>Upgrade to Pro / Team / Enterprise</li>
-                                <li>Export usage + billing receipts</li>
-                                <li>Configure invoice recipients</li>
-                            </ul>
-                        </div>
-                        <div>
-                            <h3>Preview data points</h3>
-                            <dl class="detail-dl compact">
-                                <dt>Current plan</dt>
-                                <dd>Free (1 GB, 1 mailbox)</dd>
-                                <dt>Upcoming modules</dt>
-                                <dd>Usage analytics, billing history, payment methods</dd>
-                            </dl>
-                        </div>
-                    </div>
                 </article>
             </section>
         </div>
@@ -175,15 +299,117 @@
 </AuthorizeView>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthenticationStateTask { get; set; }
+
     private UserPreferences _preferences = UserPreferences.CreateDefault();
     private bool _isLoadingPreferences = true;
+    private bool _isProfileLoading = true;
+    private string? _profileError;
+    private UserProfileDto? _profile;
+    private bool _isAdmin;
+    private bool _isSuperAdmin;
+    private bool _isDisposed;
+    private TwoFactorSetupPayload? _twoFactorSetup;
+    private IReadOnlyList<string> _backupCodes = Array.Empty<string>();
+    private string _twoFactorCode = string.Empty;
+    private string? _twoFactorMessage;
+    private string? _twoFactorError;
+    private bool _isTwoFactorBusy;
+
+    private string _profileStatus => _profile?.TwoFactorEnabled == true ? "2FA enabled" : "2FA pending";
+
+    private long StorageLimitBytes => _profile is null ? 0 : Math.Max(0, GigabytesToBytes(_profile.MaxStorageGb));
+    private int StoragePercent => StorageLimitBytes <= 0
+        ? 0
+        : (int)Math.Min(100, Math.Round(((double)_profile!.StorageBytesUsed / StorageLimitBytes) * 100));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await InitializeIdentityAsync();
+        await LoadProfileAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
             await LoadPreferencesAsync();
-            StateHasChanged();
+            await InvokeAsync(() =>
+            {
+                if (!_isDisposed)
+                {
+                    StateHasChanged();
+                }
+            });
+        }
+    }
+
+    private async Task InitializeIdentityAsync()
+    {
+        if (AuthenticationStateTask is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var authState = await AuthenticationStateTask;
+            var principal = authState.User;
+            _isAdmin = principal.IsInRole("Admin");
+            _isSuperAdmin = principal.IsInRole("SuperAdmin");
+        }
+        catch
+        {
+            _isAdmin = false;
+            _isSuperAdmin = false;
+        }
+    }
+
+    private async Task LoadProfileAsync()
+    {
+        _isProfileLoading = true;
+        _profileError = null;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/users/me/profile"));
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _profileError = "Session expired. Please sign in again.";
+                _profile = null;
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<UserProfileDto>>();
+            if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
+            {
+                _profile = payload.Data;
+            }
+            else
+            {
+                _profile = null;
+                _profileError = payload?.Error ?? "Unable to load your profile.";
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            _profileError = "You must be signed in to view settings.";
+            _profile = null;
+        }
+        catch (Exception ex)
+        {
+            _profileError = $"Unable to load profile: {ex.Message}";
+            _profile = null;
+        }
+        finally
+        {
+            _isProfileLoading = false;
+            if (!_isDisposed)
+            {
+                StateHasChanged();
+            }
         }
     }
 
@@ -211,13 +437,19 @@
         }
 
         _preferences = await PreferencesService.SetDateFormatAsync(preference);
-        StateHasChanged();
+        if (!_isDisposed)
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task OnAutoScrollChanged(bool enabled)
     {
         _preferences = await PreferencesService.SetAutoScrollAsync(enabled);
-        StateHasChanged();
+        if (!_isDisposed)
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task OnDensityChanged(ResultDensityPreference preference)
@@ -228,7 +460,10 @@
         }
 
         _preferences = await PreferencesService.SetResultDensityAsync(preference);
-        StateHasChanged();
+        if (!_isDisposed)
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task OnKeyboardShortcutsChanged(bool enabled)
@@ -239,7 +474,10 @@
         }
 
         _preferences = await PreferencesService.SetKeyboardShortcutsAsync(enabled);
-        StateHasChanged();
+        if (!_isDisposed)
+        {
+            StateHasChanged();
+        }
     }
 
     private async Task OnMatchNavigatorChanged(bool enabled)
@@ -250,6 +488,177 @@
         }
 
         _preferences = await PreferencesService.SetMatchNavigatorAsync(enabled);
-        StateHasChanged();
+        if (!_isDisposed)
+        {
+            StateHasChanged();
+        }
     }
+
+    private async Task EnableTwoFactorAsync()
+    {
+        if (_isTwoFactorBusy || _profile?.TwoFactorEnabled == true)
+        {
+            return;
+        }
+
+        _isTwoFactorBusy = true;
+        _twoFactorError = null;
+        _twoFactorMessage = null;
+        _twoFactorSetup = null;
+        _backupCodes = Array.Empty<string>();
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, BuildApiUri("api/v1/auth/enable-2fa"));
+            var response = await SendAuthorizedAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TwoFactorBootstrapDto>>();
+
+            if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
+            {
+                _twoFactorSetup = new TwoFactorSetupPayload(payload.Data.QrCodeUrl, payload.Data.Secret);
+                _twoFactorMessage = "Scan the code with your authenticator app, then enter a 6-digit code to finish.";
+            }
+            else
+            {
+                _twoFactorError = payload?.Error ?? "Unable to start two-factor setup.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _twoFactorError = $"Unable to start two-factor setup: {ex.Message}";
+        }
+        finally
+        {
+            _isTwoFactorBusy = false;
+            if (!_isDisposed)
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task VerifyTwoFactorAsync()
+    {
+        if (_isTwoFactorBusy || string.IsNullOrWhiteSpace(_twoFactorCode))
+        {
+            return;
+        }
+
+        _isTwoFactorBusy = true;
+        _twoFactorError = null;
+        _twoFactorMessage = null;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, BuildApiUri("api/v1/auth/verify-2fa"))
+            {
+                Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    ["code"] = _twoFactorCode.Trim()
+                })
+            };
+
+            var response = await SendAuthorizedAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<TwoFactorVerifyDto>>();
+
+            if (response.IsSuccessStatusCode && payload?.Success == true && payload.Data is not null)
+            {
+                _twoFactorSetup = null;
+                _twoFactorCode = string.Empty;
+                _backupCodes = payload.Data.BackupCodes ?? Array.Empty<string>();
+                _twoFactorMessage = "Two-factor authentication is now enabled.";
+
+                if (_profile is not null)
+                {
+                    _profile = _profile with { TwoFactorEnabled = true };
+                }
+            }
+            else
+            {
+                _twoFactorError = payload?.Error ?? "Invalid verification code.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _twoFactorError = $"Unable to verify code: {ex.Message}";
+        }
+        finally
+        {
+            _isTwoFactorBusy = false;
+            if (!_isDisposed)
+            {
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAuthorizedAsync(HttpRequestMessage request)
+    {
+        var token = await AuthStateService.GetTokenAsync();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("Authentication required.");
+        }
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        EnsureHttpClientBaseAddress();
+        return await Http.SendAsync(request);
+    }
+
+    private Uri BuildApiUri(string relativePath)
+    {
+        relativePath = relativePath.TrimStart('/');
+        return new Uri(new Uri(Navigation.BaseUri), relativePath);
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress is null)
+        {
+            Http.BaseAddress = new Uri(Navigation.BaseUri);
+        }
+    }
+
+    private static long GigabytesToBytes(int gigabytes) => gigabytes <= 0 ? 0 : gigabytes * 1024L * 1024L * 1024L;
+
+    private static string FormatBytes(long bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB", "PB"];
+        double value = bytes;
+        var unitIndex = 0;
+
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        return $"{value:0.#} {units[unitIndex]}";
+    }
+
+    private static string FormatDate(DateTime? value) =>
+        value?.ToLocalTime().ToString("MMM dd, yyyy • HH:mm", CultureInfo.InvariantCulture) ?? "Never";
+
+    private static string FormatPlanName(string? tier)
+    {
+        if (string.IsNullOrWhiteSpace(tier))
+        {
+            return "Free tier";
+        }
+
+        var title = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(tier.ToLowerInvariant());
+        return $"{title} tier";
+    }
+
+    public void Dispose()
+    {
+        _isDisposed = true;
+    }
+
+    private sealed record TwoFactorSetupPayload(string QrCodeUrl, string Secret);
+
+    private sealed record TwoFactorBootstrapDto(string QrCodeUrl, string Secret);
+
+    private sealed record TwoFactorVerifyDto(bool TwoFactorEnabled, IReadOnlyList<string>? BackupCodes);
 }
+

@@ -6,6 +6,7 @@ using Azure.Storage.Queues;
 using Evermail.IngestionWorker;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using Evermail.Infrastructure.Services.Archives;
 using Evermail.Infrastructure.Services.Encryption;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
@@ -61,6 +62,8 @@ builder.Services.AddSingleton<IKeyWrappingProvider, EvermailManagedWrappingProvi
 builder.Services.AddSingleton<IKeyWrappingProvider, AzureKeyVaultWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingProvider, AwsKmsWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingService, KeyWrappingService>();
+builder.Services.AddSingleton<PstToMboxWriter>();
+builder.Services.AddScoped<IArchivePreparationService, ArchivePreparationService>();
 builder.Services.AddScoped<MailboxProcessingService>();
 builder.Services.AddScoped<MailboxDeletionService>();
 builder.Services.AddScoped<IMailboxEncryptionStateService, MailboxEncryptionStateService>();

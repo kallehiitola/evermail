@@ -19,6 +19,10 @@ public class MailboxUpload
     public string FileName { get; set; } = string.Empty;
     
     public long FileSizeBytes { get; set; }
+    public long NormalizedSizeBytes { get; set; }
+
+    [Required, MaxLength(64)]
+    public string SourceFormat { get; set; } = "mbox";
     
     [Required, MaxLength(1000)]
     public string BlobPath { get; set; } = string.Empty;

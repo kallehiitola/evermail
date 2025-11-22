@@ -3,7 +3,7 @@ namespace Evermail.Common.DTOs.Upload;
 public record InitiateUploadRequest(
     string FileName,
     long FileSizeBytes,
-    string FileType,  // "mbox", "google-takeout-zip", "microsoft-export-zip"
+    string? FileType,  // optional hint (mbox | google-takeout-zip | microsoft-export-zip | outlook-pst | outlook-pst-zip | outlook-ost | outlook-ost-zip | eml | eml-zip)
     Guid? MailboxId = null
 );
 

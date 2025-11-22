@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-21  
+> **Last Updated**: 2025-11-22 (morning)  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -257,11 +257,37 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-11-22 - Archive Auto-Detection & Friendly Upload UX
+- 🧠 Removed the manual “select your archive type” step from `/upload` and replaced it with auto-detection + contextual hints so non-technical users can just drop any ZIP/PST/OST/EML and let Evermail figure it out.
+- 🛰️ Added `ArchiveFormatDetector`, a scoped service that downloads only the necessary metadata from Azure Blob Storage, inspects ZIP entries/PST headers, and persists the resolved `SourceFormat` before an upload ever hits the ingestion queue.
+- 🛡️ Hardened `/api/v1/upload/complete` to run the detector, block unrecognized archives with a user-friendly error, and only enqueue jobs after `Mailbox` + `MailboxUpload` have a verified format (falling back to “auto-detect” for hints).
+- 🖥️ Updated the Blazor upload page to highlight plan limits + detection status, surface polite client-side errors (e.g., “close Outlook/OneDrive”), and send optional hints instead of hard requirements.
+- ⚖️ Added `NormalizedSizeBytes` columns so progress meters and storage dashboards report the uncompressed archive size rather than the original ZIP footprint—zip uploads now show consistent “processed vs total” numbers.
+- 📚 Synced `Documentation/Architecture.md`, `API.md`, and `Security.md` with the new detection flow, plus logged the change here so future engineers know the UI no longer prompts for format selection.
+
+### 2025-11-21 - Settings Hardening & Profile API
+- 🧾 Shipped `GET /api/v1/users/me/profile`, returning tenant-scoped identity, plan limits, storage usage, and role metadata so client surfaces no longer scrape JWT claims for critical settings data.
+- 🛡️ Rebuilt `/settings` around reusable `.settings-card` stacks: account overview pulls from the new profile API, workspace cards surface plan + usage, and the security block now drives the `enable-2fa`/`verify-2fa` endpoints with inline QR enrollment and backup-code reveal.
+- 🧠 Fixed the intermittent `ObjectDisposedException` on Settings by guarding async preference loads, plus added UX polish (skeleton states, contextual badges, admin-only plan actions) so the page matches the refreshed search/emails look.
+- 📚 Updated `Documentation/API.md` and `Architecture.md` to capture the profile endpoint, 2FA wiring, and holistic settings design so future slices extend the documented contract instead of cargo-culting components.
+
 ### 2025-11-21 - Guided Onboarding & Offline BYOK
 - 🚀 Launched the `/onboarding` three-step wizard with a persistent progress rail, plan cards, security guidance, and upload CTAs so first-time admins can finish setup without spelunking multiple admin tabs. Registration/OAuth flows now redirect straight into the wizard, and the sidebar exposes a dedicated “Admin: Onboarding” link.
 - 🔗 Added tenant-facing APIs (`GET /api/v1/tenants/plans`, `PUT /api/v1/tenants/subscription`, enhanced `/tenants/onboarding/status`) plus the `Tenant.OnboardingPlanConfirmedAt` column/migration so we can track who has explicitly confirmed their plan before allowing uploads.
 - 🧪 Delivered the Admin → Offline BYOK lab: browser-side WebCrypto generates a 256-bit DEK, wraps it with PBKDF2 + AES-GCM, offers clipboard/download helpers, and documents the workflow inside `Documentation/Security.md` for customers who want zero-cloud key storage.
 - 📚 Updated `Documentation/Architecture.md` + `Documentation/API.md` with the onboarding wizard architecture, plan endpoints, and BYOK flows so future feature work references a single source of truth.
+
+### 2025-11-21 - Outlook PST Imports & Archive Normalization
+- 📥 Added a dedicated `IArchivePreparationService` + `PstToMboxWriter` pipeline that downloads blobs to temp storage, inspects the stored `SourceFormat`, and normalizes Google Takeout ZIPs, Outlook `.pst` / `.pst.zip`, and loose `.eml` archives into temporary `.mbox` streams before `MailboxProcessingService` starts hashing or indexing messages.
+- 🔄 Embedded the XstReader engine (Ms-PL) and a lightweight `MboxWriter` so PST folders/attachments convert into canonical `MimeMessage` objects without dragging the original UI viewer along; the worker now logs the normalized format + byte count and keeps temp files tenant-scoped until ingestion completes.
+- 🧰 Expanded the upload API/UI: `InitiateUploadRequest.FileType` now accepts `mbox`, `google-takeout-zip`, `microsoft-export-zip`, `outlook-pst`, `outlook-pst-zip`, `eml`, and `eml-zip`; the portal radio group + dropzone copy were refreshed, extension auto-detection nudges the right option, and onboarding copy now calls out PST/Maildir support.
+- 📚 Documented the end-to-end flow (`Architecture.md`, `Security.md`, `API.md`) including client-side parity for the upcoming Zero-Access ingestion mode so future features understand how SourceFormat detection, inflation guardrails, and BYOK encryption line up across server and WASM paths.
+
+### 2025-11-21 - OST Support & Plan-Aware Inflation Guardrails
+- 🧩 Added `outlook-ost` + `outlook-ost-zip` to the upload contract and Blazor UI, wiring the same extractor stack so cached Exchange mailboxes can ride through the normalization pipeline without manual conversion.
+- 📏 Enforced per-plan inflation limits: `ArchivePreparationService` now measures the normalized `.mbox` size (post ZIP/PST/OST expansion) and fails fast when it exceeds `SubscriptionPlan.MaxFileSizeGB`, blocking compressed payload attacks and matching the `Security.md` guidance.
+- 🧭 Updated docs (`Architecture.md`, `API.md`, `Security.md`) to cite Microsoft’s MS-PST open spec + export doc, spell out the new formats, and explain how the zero-access WASM path will reuse the same SourceFormat metadata for client-side extraction.
+- 🪪 Logged the enhancements here so future engineers know the ingestion worker is multi-format aware, enforces guardrails server-side, and already has the hooks required for client-only decryption flows.
 
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.

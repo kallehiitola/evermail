@@ -53,7 +53,9 @@
                         </a>
                         <p class="hero-eyebrow mb-1">Message</p>
                         <h1>@(_email.Subject ?? "(No Subject)")</h1>
-                        <p class="text-muted mb-4">@FormatTimestamp(_email.Date)</p>
+                        <p class="text-muted mb-4">
+                            <LocalizedTimestamp Value="_email.Date" CssClass="d-inline" />
+                        </p>
 
                         <div class="email-address-rows">
                             <div class="email-address-row">
@@ -232,7 +234,7 @@
                             }
                             <div>
                                 <dt>Date</dt>
-                                <dd>@FormatTimestamp(_email.Date)</dd>
+                                <dd><LocalizedTimestamp Value="_email.Date" /></dd>
                             </div>
                             <div>
                                 <dt>Importance</dt>
@@ -257,34 +259,34 @@
                         <dl class="email-meta-list">
                             <div>
                                 <dt>Message-ID</dt>
-                                <dd>@(_email.MessageId ?? "—")</dd>
+                                <dd class="metadata-value-truncate" title="@(_email.MessageId ?? null)">@(_email.MessageId ?? "—")</dd>
                             </div>
                             @if (!string.IsNullOrWhiteSpace(_email.InReplyTo))
                             {
                                 <div>
                                     <dt>In-Reply-To</dt>
-                                    <dd>@_email.InReplyTo</dd>
+                                    <dd class="metadata-value-truncate" title="@_email.InReplyTo">@_email.InReplyTo</dd>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(_email.References))
                             {
                                 <div>
                                     <dt>References</dt>
-                                    <dd>@_email.References</dd>
+                                    <dd class="metadata-value-truncate" title="@_email.References">@_email.References</dd>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(_email.ReturnPath))
                             {
                                 <div>
                                     <dt>Return-Path</dt>
-                                    <dd>@_email.ReturnPath</dd>
+                                    <dd class="metadata-value-truncate" title="@_email.ReturnPath">@_email.ReturnPath</dd>
                                 </div>
                             }
                             @if (!string.IsNullOrWhiteSpace(_email.ListId))
                             {
                                 <div>
                                     <dt>List-Id</dt>
-                                    <dd>@_email.ListId</dd>
+                                    <dd class="metadata-value-truncate" title="@_email.ListId">@_email.ListId</dd>
                                 </div>
                             }
                             <div>
@@ -528,9 +530,6 @@
 
     private bool ShouldShowHtmlBody() =>
     !_showPlainTextBody && !string.IsNullOrEmpty(_email?.HtmlBody);
-
-    private string FormatTimestamp(DateTime value) =>
-    value.ToString("MMM d, yyyy • HH:mm 'UTC'");
 
     private string GetThreadSummary() =>
     _email?.ConversationId is null

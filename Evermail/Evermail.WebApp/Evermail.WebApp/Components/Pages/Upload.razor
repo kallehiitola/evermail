@@ -1,5 +1,6 @@
 @page "/upload"
 @rendermode InteractiveServer
+@using Evermail.Common.Constants
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Upload
 @using Microsoft.AspNetCore.Components.Authorization
@@ -8,6 +9,9 @@
 @using Microsoft.AspNetCore.WebUtilities
 @using Evermail.WebApp.Services
 @using System.Net.Http.Json
+@using System.IO
+@using System.Collections.Generic
+@using Microsoft.JSInterop
 @inject HttpClient Http
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
@@ -34,8 +38,8 @@
                 <small>Large files, pick up where you left off</small>
             </div>
             <div>
-                <span>ZIP · MBOX</span>
-                <small>Supported formats</small>
+                <span>ZIP · PST · OST · EML</span>
+                <small>Auto-normalized formats</small>
             </div>
         </div>
     </section>
@@ -87,7 +91,7 @@
                          @ondragleave="() => _isDragOver = false">
                         <InputFile OnChange="HandleFileSelected"
                                    class="upload-dropzone__input"
-                                   accept=".mbox,.zip"
+                                   accept=".mbox,.mbx,.zip,.pst,.ost,.eml"
                                    id="fileInput"
                                    @ondragenter="() => _isDragOver = true"
                                    @ondragleave="() => _isDragOver = false"
@@ -97,7 +101,7 @@
                             @if (_selectedFile is null)
                             {
                                 <i class="bi bi-cloud-arrow-up display-5 text-muted"></i>
-                                <p class="lead mb-1">Drag & drop .mbox or .zip</p>
+                                <p class="lead mb-1">Drag & drop .mbox, .pst, .ost, .eml, or .zip</p>
                                 <p class="text-muted small mb-0">or click to browse files</p>
                                 <span class="text-muted extra-small">Files encrypt directly to Azure Blob Storage</span>
                             }
@@ -116,32 +120,13 @@
                             }
                         </div>
                     </div>
-                    <p class="text-muted small mt-2">Supports .mbox, Google Takeout, and Microsoft export bundles.</p>
+                    <p class="text-muted small mt-2">Supports .mbox/.mbx, Outlook PST/OST (raw or zipped), Google Takeout, and Maildir-style `.eml` bundles — we detect the format automatically.</p>
                 </div>
                 <div class="upload-meta">
-                    <label class="form-label fw-semibold">File type</label>
-                    <div class="upload-radio-group">
-                        <label class="upload-radio">
-                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "mbox")" @onchange="@(() => _fileType = "mbox")" />
-                            <div>
-                                <strong>.mbox</strong>
-                                <span>Single mailbox export</span>
-                            </div>
-                        </label>
-                        <label class="upload-radio">
-                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "google-takeout-zip")" @onchange="@(() => _fileType = "google-takeout-zip")" />
-                            <div>
-                                <strong>Google Takeout ZIP</strong>
-                                <span>Full Google account archive</span>
-                            </div>
-                        </label>
-                        <label class="upload-radio">
-                            <input class="form-check-input" type="radio" name="fileType" checked="@(_fileType == "microsoft-export-zip")" @onchange="@(() => _fileType = "microsoft-export-zip")" />
-                            <div>
-                                <strong>Microsoft Export ZIP</strong>
-                                <span>Outlook / Office 365 export</span>
-                            </div>
-                        </label>
+                    <label class="form-label fw-semibold">Format detection</label>
+                    <div class="modern-card subtle-card mb-3">
+                        <p class="mb-1 fw-semibold">@FormatDetectionSummary</p>
+                        <p class="text-muted small mb-0">@FormatDetectionDetails</p>
                     </div>
                     <div class="upload-plan-card">
                         <p class="text-muted mb-1">Plan limit</p>
@@ -175,7 +160,7 @@
 @code {
     private IBrowserFile? _selectedFile;
     private string _fileName = string.Empty;
-    private string _fileType = "mbox";
+    private string? _formatHint;
     private long _totalBytes;
     private double _totalMB;
     private double _totalGB;
@@ -193,15 +178,24 @@
     private Guid _completedMailboxId;
     private Guid? _targetMailboxId;
     private bool _isDragOver;
+    private bool _hasClientSideError;
 
     private string DropzoneCssClass => _selectedFile is null
         ? _isDragOver ? "upload-dropzone upload-dropzone--drag" : "upload-dropzone"
         : "upload-dropzone upload-dropzone--selected";
 
+    private string FormatDetectionSummary => string.IsNullOrWhiteSpace(_formatHint)
+        ? "We'll auto-detect your archive"
+        : $"Detected {FormatDisplayName(_formatHint)}";
+
+    private string FormatDetectionDetails => string.IsNullOrWhiteSpace(_formatHint)
+        ? "Upload ZIP, PST, OST, MBOX, or EML files — we'll inspect the contents and pick the right pipeline."
+        : "Based on the current file name. We'll still verify the contents before processing.";
+
     private string UploadTitle => _targetMailboxId.HasValue ? "Refresh mailbox data" : "Upload email archive";
     private string UploadSubtitle => _targetMailboxId.HasValue
         ? "Merge a newer export without creating duplicates."
-        : "Drag & drop .mbox or Takeout exports to start ingestion.";
+        : "Drag & drop .mbox, .pst, .eml, or Takeout exports to start ingestion.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -235,6 +229,7 @@
         _errorMessage = string.Empty;
         _uploadComplete = false;
         _uploadProgress = 0;
+        _formatHint = GuessFormatFromExtension(Path.GetExtension(_fileName)?.ToLowerInvariant());
     }
 
     private void ClearSelection()
@@ -245,6 +240,7 @@
         _totalMB = 0;
         _totalGB = 0;
         _isDragOver = false;
+        _formatHint = null;
     }
 
     private void HandleDrop(DragEventArgs _)
@@ -281,7 +277,7 @@
             request.Content = JsonContent.Create(new InitiateUploadRequest(
                 _fileName,
                 _totalBytes,
-                _fileType,
+                _formatHint,
                 _targetMailboxId
             ));
             
@@ -305,7 +301,12 @@
             _isProcessing = false;
             _isUploading = true;
             
-            await UploadToAzureBlobAsync(result.Data.UploadUrl, result.Data.MailboxId);
+            var uploadSucceeded = await UploadToAzureBlobAsync(result.Data.UploadUrl);
+
+            if (!uploadSucceeded)
+            {
+                return;
+            }
             
             var completeUrl = $"{Navigation.BaseUri}api/v1/upload/complete";
             var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
@@ -329,7 +330,10 @@
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Error: {ex.Message}";
+            if (string.IsNullOrWhiteSpace(_errorMessage))
+            {
+                _errorMessage = $"Error: {ex.Message}";
+            }
             _isUploading = false;
         }
         finally
@@ -338,17 +342,28 @@
         }
     }
 
-    private async Task UploadToAzureBlobAsync(string sasUrl, Guid mailboxId)
+    private async Task<bool> UploadToAzureBlobAsync(string sasUrl)
     {
+        DotNetObjectReference<Upload>? dotNetRef = null;
         try
         {
-            await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, DotNetObjectReference.Create(this));
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, dotNetRef);
+            return true;
         }
         catch (Exception ex)
         {
-            _errorMessage = $"Upload failed: {ex.Message}";
+            if (!_hasClientSideError)
+            {
+                _errorMessage = $"Upload failed: {ex.Message}";
+            }
             _isUploading = false;
-            throw;
+            return false;
+        }
+        finally
+        {
+            dotNetRef?.Dispose();
+            _hasClientSideError = false;
         }
     }
 
@@ -374,5 +389,58 @@
     {
         _isUploading = false;
         _errorMessage = "Upload cancelled";
+    }
+
+    private string? GuessFormatFromExtension(string? extension) => extension switch
+    {
+        ".pst" => EmailArchiveFormats.OutlookPst,
+        ".ost" => EmailArchiveFormats.OutlookOst,
+        ".mbox" => EmailArchiveFormats.Mbox,
+        ".mbx" => EmailArchiveFormats.Mbox,
+        ".eml" => EmailArchiveFormats.Eml,
+        _ => null
+    };
+
+    private static string FormatDisplayName(string format) => format switch
+    {
+        EmailArchiveFormats.OutlookPst => "Outlook PST",
+        EmailArchiveFormats.OutlookOst => "Outlook OST",
+        EmailArchiveFormats.OutlookPstZip => "Outlook PST ZIP",
+        EmailArchiveFormats.OutlookOstZip => "Outlook OST ZIP",
+        EmailArchiveFormats.MicrosoftExportZip => "Outlook export ZIP",
+        EmailArchiveFormats.GoogleTakeoutZip => "Google Takeout ZIP",
+        EmailArchiveFormats.Eml => "single EML",
+        EmailArchiveFormats.EmlZip => "EML ZIP bundle",
+        EmailArchiveFormats.Mbox => ".mbox archive",
+        _ => format
+    };
+
+    [JSInvokable]
+    public async Task HandleUploadError(string title, string message, string? technicalDetails)
+    {
+        _hasClientSideError = true;
+
+        var segments = new List<string>();
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            segments.Add(title.Trim());
+        }
+        if (!string.IsNullOrWhiteSpace(message))
+        {
+            segments.Add(message.Trim());
+        }
+
+        var combined = segments.Count > 0 ? string.Join(": ", segments) : "Upload failed";
+
+        if (!string.IsNullOrWhiteSpace(technicalDetails))
+        {
+            combined = $"{combined} ({technicalDetails})";
+        }
+
+        _errorMessage = combined;
+        _isUploading = false;
+        _isProcessing = false;
+
+        await InvokeAsync(StateHasChanged);
     }
 }

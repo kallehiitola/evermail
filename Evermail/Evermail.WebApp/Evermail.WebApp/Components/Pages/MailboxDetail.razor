@@ -46,7 +46,10 @@
                             <i class="bi bi-arrow-left me-2"></i>Back to Mailboxes
                         </button>
                         <h1>@_mailbox.FileName</h1>
-                        <p class="text-muted mb-0">Imported via .mbox · Last updated @FormatTimestamp(_mailbox.CreatedAt)</p>
+                        <p class="text-muted mb-0">
+                            Imported via .mbox · Last updated
+                            <LocalizedTimestamp Value="_mailbox.CreatedAt" CssClass="d-inline" />
+                        </p>
                     </div>
                     <div class="detail-hero__right">
                         <span class="status-pill @GetStatusClass(_mailbox.Status)">
@@ -57,8 +60,8 @@
                             }
                         </span>
                         <div class="detail-meta">
-                            <span>File size <strong>@FormatFileSize(_mailbox.FileSizeBytes)</strong></span>
-                            <span>Uploaded <strong>@FormatTimestamp(_mailbox.CreatedAt)</strong></span>
+                            <span>File size <strong>@FormatFileSize(GetDisplaySize(_mailbox))</strong></span>
+                            <span>Uploaded <strong><LocalizedTimestamp Value="_mailbox.CreatedAt" CssClass="d-inline" /></strong></span>
                         </div>
                         @if (_mailbox.Status == "Completed")
                         {
@@ -155,22 +158,22 @@
                     <div class="detail-card">
                         <h3>Timeline</h3>
                         <dl class="detail-dl">
-                            <div>
-                                <dt>Uploaded</dt>
-                                <dd>@FormatTimestamp(_mailbox.CreatedAt)</dd>
-                            </div>
+                                <div>
+                                    <dt>Uploaded</dt>
+                                    <dd><LocalizedTimestamp Value="_mailbox.CreatedAt" /></dd>
+                                </div>
                             @if (_mailbox.ProcessingStartedAt.HasValue)
                             {
                                 <div>
                                     <dt>Processing started</dt>
-                                    <dd>@FormatTimestamp(_mailbox.ProcessingStartedAt.Value)</dd>
+                                        <dd><LocalizedTimestamp Value="_mailbox.ProcessingStartedAt.Value" /></dd>
                                 </div>
                             }
                             @if (_mailbox.ProcessingCompletedAt.HasValue)
                             {
                                 <div>
                                     <dt>Completed</dt>
-                                    <dd>@FormatTimestamp(_mailbox.ProcessingCompletedAt.Value)</dd>
+                                        <dd><LocalizedTimestamp Value="_mailbox.ProcessingCompletedAt.Value" /></dd>
                                 </div>
                                 @if (_mailbox.ProcessingStartedAt.HasValue)
                                 {
@@ -432,20 +435,18 @@
             return (progress, text);
         }
 
-        if (mailbox.FileSizeBytes > 0 && mailbox.ProcessedBytes > 0)
+        var totalBytes = GetDisplaySize(mailbox);
+        if (totalBytes > 0 && mailbox.ProcessedBytes > 0)
         {
-            var progress = (int)((double)mailbox.ProcessedBytes / mailbox.FileSizeBytes * 100);
+            var progress = (int)Math.Clamp((double)mailbox.ProcessedBytes / totalBytes * 100, 0, 100);
             var processedMB = mailbox.ProcessedBytes / (1024.0 * 1024.0);
-            var totalMB = mailbox.FileSizeBytes / (1024.0 * 1024.0);
+            var totalMB = totalBytes / (1024.0 * 1024.0);
             var text = $"Processed {processedMB:F2} MB of {totalMB:F2} MB ({mailbox.ProcessedEmails:N0} emails)";
             return (progress, text);
         }
 
         return (0, "Starting…");
     }
-
-    private string FormatTimestamp(DateTime value) =>
-        value.ToString("yyyy-MM-dd HH:mm:ss 'UTC'");
 
     private string LifecycleText() =>
         _mailbox switch
@@ -597,6 +598,9 @@
     {
         _refreshTimer?.Dispose();
     }
+
+    private static long GetDisplaySize(MailboxDto mailbox) =>
+        mailbox.NormalizedSizeBytes > 0 ? mailbox.NormalizedSizeBytes : mailbox.FileSizeBytes;
 
     private sealed class DeleteMailboxModel
     {
