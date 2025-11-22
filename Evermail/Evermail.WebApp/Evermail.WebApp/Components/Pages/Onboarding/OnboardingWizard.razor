@@ -1,6 +1,6 @@
 @page "/onboarding"
 @rendermode InteractiveServer
-@attribute [Authorize(Roles = "Admin,SuperAdmin")]
+@using System.Collections.Generic
 @using System.Net.Http.Headers
 @using System.Net.Http.Json
 @using System.Web
@@ -11,123 +11,343 @@
 @inject HttpClient Http
 @inject NavigationManager Navigation
 @inject IAuthenticationStateService AuthStateService
+@inject AuthenticationStateProvider AuthStateProvider
 
 <PageTitle>Tenant Onboarding - Evermail</PageTitle>
 
-<AuthorizeView Roles="Admin,SuperAdmin">
-    <Authorized>
-        <div class="home-wrapper onboarding-wrapper">
-            <section class="modern-card onboarding-hero mb-4">
-                <div>
-                    <p class="hero-eyebrow text-uppercase mb-2">Getting started</p>
-                    <h1>Finish setting up Evermail</h1>
-                    <p class="text-muted mb-0">
-                        Confirm the right plan, lock down encryption, and ingest your first archive. It takes less than five minutes.
-                    </p>
-                </div>
-                <div class="onboarding-progress">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-semibold">@_completedSteps of @_steps.Count steps completed</span>
-                        <span class="text-muted small">@CompletionPercent.ToString("0")% done</span>
-                    </div>
-                    <div class="progress">
-                        <div class="progress-bar" style="width:@CompletionPercent%" role="progressbar"
-                             aria-valuenow="@CompletionPercent" aria-valuemin="0" aria-valuemax="100"></div>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2 mt-3">
-                        <button type="button"
-                                class="btn btn-light btn-sm"
-                                @onclick="LoadAllAsync"
-                                disabled="@_isLoading">
-                            @if (_isLoading)
-                            {
-                                <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                            }
-                            Refresh status
-                        </button>
-                        <a class="btn btn-outline-light btn-sm" href="/upload">
-                            Skip to upload
-                        </a>
-                    </div>
-                </div>
-            </section>
-
-            @if (!string.IsNullOrEmpty(_errorMessage))
+<div class="home-wrapper onboarding-wrapper">
+    <section class="modern-card onboarding-hero mb-4">
+        <div>
+            <p class="hero-eyebrow text-uppercase mb-2">Secure archive setup</p>
+            <h1>Bring every mailbox back within reach.</h1>
+            <p class="hero-subtext mb-0">
+                Upload Gmail/Outlook exports, unlock lightning-fast search and AI summaries, and keep compliance calm—the entire pipeline stays zero-access.
+            </p>
+        </div>
+        <div class="onboarding-progress">
+            @if (_canManageOnboarding)
             {
-                <div class="alert alert-danger mb-4" role="alert">
-                    @_errorMessage
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="fw-semibold">@_completedSteps of @_steps.Count steps completed</span>
+                    <span class="text-muted small">@CompletionPercent.ToString("0")% done</span>
                 </div>
-            }
-
-            @if (!string.IsNullOrEmpty(_statusMessage))
-            {
-                <div class="alert alert-success mb-4" role="alert">
-                    @_statusMessage
+                <div class="progress">
+                    <div class="progress-bar" style="width:@CompletionPercent%" role="progressbar"
+                         aria-valuenow="@CompletionPercent" aria-valuemin="0" aria-valuemax="100"></div>
                 </div>
-            }
-
-            <section class="modern-card onboarding-layout">
-                <div class="row g-4">
-                    <div class="col-lg-4">
-                        <ul class="wizard-step-list list-group">
-                            @for (var i = 0; i < _steps.Count; i++)
-                            {
-                                var step = _steps[i];
-                                var isActive = i == _currentStepIndex;
-                                var isComplete = IsStepComplete(step);
-                                <li class="list-group-item wizard-step @(isActive ? "active" : null)"
-                                    @onclick="@(() => SetCurrentStep(i))">
-                                    <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <div class="d-flex align-items-center gap-2">
-                                            <span class="wizard-step__index">@((i + 1).ToString("00"))</span>
-                                            <span class="wizard-step__title">@step.Title</span>
-                                        </div>
-                                        <i class="bi @(isComplete ? "bi-check-circle-fill text-success" : "bi-circle text-muted")"></i>
-                                    </div>
-                                    <p class="text-muted small mb-0">@step.Description</p>
-                                </li>
-                            }
-                        </ul>
-                    </div>
-                    <div class="col-lg-8">
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="button"
+                            class="btn btn-light btn-sm"
+                            @onclick="LoadAllAsync"
+                            disabled="@_isLoading">
                         @if (_isLoading)
                         {
-                            <div class="text-center py-5">
-                                <div class="spinner-border text-primary" role="status"></div>
-                                <p class="text-muted mt-3 mb-0">Loading onboarding data…</p>
-                            </div>
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
                         }
-                        else
-                        {
-                            @switch (_steps[_currentStepIndex].Type)
-                            {
-                                case WizardStepType.Plan:
-                                    @RenderPlanStep()
-                                    break;
-                                case WizardStepType.Security:
-                                    @RenderSecurityStep()
-                                    break;
-                                default:
-                                    @RenderUploadStep()
-                                    break;
-                            }
-                        }
+                        Refresh status
+                    </button>
+                    <a class="btn btn-outline-light btn-sm" href="/upload">
+                        Skip to upload
+                    </a>
+                    <button type="button"
+                            class="btn btn-outline-light btn-sm"
+                            @onclick='() => OpenWizard(_status?.SubscriptionTier ?? "Pro")'>
+                        Guided wizard
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="onboarding-progress__readonly">
+                    <p class="mb-2">
+                        Spin up your workspace to run the guided wizard, or explore tiers and security modes below.
+                    </p>
+                    <div class="d-flex flex-wrap gap-2">
+                        <a class="btn btn-light btn-sm" href="/register">Create workspace</a>
+                        <a class="btn btn-outline-light btn-sm" href="/login">Sign in</a>
                     </div>
                 </div>
-            </section>
+            }
         </div>
-    </Authorized>
-    <NotAuthorized>
-        <CheckAuthAndRedirect />
-    </NotAuthorized>
-</AuthorizeView>
+    </section>
+
+    <section class="modern-card onboarding-values mb-4">
+        <div class="onboarding-value-grid">
+            <article class="onboarding-value-card">
+                <p class="hero-eyebrow text-uppercase mb-1">Search & AI</p>
+                <h3>Find any decision in seconds</h3>
+                <p class="text-muted mb-0">
+                    Index multi-gig archives, run semantic + classic filters, and let AI summarize threads so founders, finance, and investors never lose context.
+                </p>
+            </article>
+            <article class="onboarding-value-card">
+                <p class="hero-eyebrow text-uppercase mb-1">Offboarding & compliance</p>
+                <h3>Keep ex-employee mailboxes available</h3>
+                <p class="text-muted mb-0">
+                    Share read-only vaults with Finance or Legal, honor retention policies, and answer DSAR/FOIA requests without reactivating email licenses.
+                </p>
+            </article>
+            <article class="onboarding-value-card">
+                <p class="hero-eyebrow text-uppercase mb-1">Zero-access security</p>
+                <h3>Encryption is on from day one</h3>
+                <p class="text-muted mb-0">
+                    We encrypt before storage and run ingestion inside confidential compute. Need BYOK with Azure or AWS? Flip it on when security asks.
+                </p>
+            </article>
+        </div>
+    </section>
+
+    @if (!string.IsNullOrEmpty(_errorMessage))
+    {
+        <div class="alert alert-danger mb-4" role="alert">
+            @_errorMessage
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert alert-success mb-4" role="alert">
+            @_statusMessage
+        </div>
+    }
+
+    @if (!_canManageOnboarding)
+    {
+        <section class="modern-card onboarding-readonly">
+            <div class="onboarding-plans__intro text-center text-lg-start">
+                <p class="hero-eyebrow text-uppercase mb-1">Explore the plans</p>
+                <h2 class="mb-2">Choose your archive & insight combo</h2>
+                <p class="text-muted mb-4">
+                    All tiers include encrypted uploads, instant search, and read-only sharing. Upgrade whenever your storage, AI, or retention needs expand.
+                </p>
+                <div class="billing-toggle billing-toggle--inline mt-3">
+                    <button type="button"
+                            class="billing-toggle__option @(!_showAnnualBilling ? "is-active" : null)"
+                            @onclick="() => SetBillingMode(false)">
+                        Monthly
+                    </button>
+                    <button type="button"
+                            class="billing-toggle__option @(_showAnnualBilling ? "is-active" : null)"
+                            @onclick="() => SetBillingMode(true)">
+                        Annual <span class="text-success fw-semibold ms-1">Save more</span>
+                    </button>
+                </div>
+            </div>
+            <div class="onboarding-plans__grid mt-4">
+                @RenderPlanGrid(readOnly: true, enableWizardCta: true)
+            </div>
+        </section>
+    }
+    else
+    {
+        <section class="modern-card onboarding-layout">
+            <div class="row g-4">
+                <div class="col-lg-4">
+                    <ul class="wizard-step-list list-group">
+                        @for (var i = 0; i < _steps.Count; i++)
+                        {
+                            var step = _steps[i];
+                            var isActive = i == _currentStepIndex;
+                            var isComplete = IsStepComplete(step);
+                            <li class="list-group-item wizard-step @(isActive ? "active" : null)"
+                                @onclick="@(() => SetCurrentStep(i))">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <span class="wizard-step__index">@((i + 1).ToString("00"))</span>
+                                        <span class="wizard-step__title">@step.Title</span>
+                                    </div>
+                                    <i class="bi @(isComplete ? "bi-check-circle-fill text-success" : "bi-circle text-muted")"></i>
+                                </div>
+                                <p class="text-muted small mb-0">@step.Description</p>
+                            </li>
+                        }
+                    </ul>
+                </div>
+                <div class="col-lg-8">
+                    @if (_isLoading)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <p class="text-muted mt-3 mb-0">Loading onboarding data…</p>
+                        </div>
+                    }
+                    else
+                    {
+                        @switch (_steps[_currentStepIndex].Type)
+                        {
+                            case WizardStepType.Plan:
+                                @RenderPlanGrid(readOnly: false)
+                                break;
+                            case WizardStepType.Security:
+                                @RenderSecurityStep()
+                                break;
+                            default:
+                                @RenderUploadStep()
+                                break;
+                        }
+                    }
+                </div>
+            </div>
+        </section>
+    }
+</div>
+
+@if (_showWizard)
+{
+    <div class="onboarding-modal">
+        <div class="onboarding-modal__backdrop" @onclick="CloseWizard"></div>
+        <div class="onboarding-modal__panel">
+            <div class="onboarding-modal__header d-flex justify-content-between align-items-start">
+                <div>
+                    <p class="hero-eyebrow text-uppercase mb-2">Guided onboarding</p>
+                    <h3 class="mb-1">Let’s configure your archive</h3>
+                    <p class="text-muted mb-0">Answer two quick questions—we’ll recommend the right storage tier and security mode. You can change either any time.</p>
+                </div>
+                <button class="btn btn-link text-muted" type="button" @onclick="CloseWizard">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="billing-toggle billing-toggle--compact mb-3">
+                <button type="button"
+                        class="billing-toggle__option @(!_showAnnualBilling ? "is-active" : null)"
+                        @onclick="() => SetBillingMode(false)">
+                    Monthly
+                </button>
+                <button type="button"
+                        class="billing-toggle__option @(_showAnnualBilling ? "is-active" : null)"
+                        @onclick="() => SetBillingMode(true)">
+                    Annual <span class="text-success fw-semibold ms-1">Save more</span>
+                </button>
+            </div>
+
+            @if (_planPreselected)
+            {
+                var selectedPlan = FindPlan(_selectedPlan);
+                <div class="wizard-plan-summary-card">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <p class="hero-eyebrow text-uppercase mb-1">Selected plan</p>
+                            <h4 class="mb-1">@SelectedPlanDisplayName</h4>
+                            @if (selectedPlan is not null)
+                            {
+                                <div class="plan-price plan-price--inline">
+                                    @if (_showAnnualBilling && selectedPlan.PriceYearly > 0)
+                                    {
+                                        <span class="plan-price__strike">@GetMonthlyPriceLabel(selectedPlan)</span>
+                                        <strong>€@selectedPlan.PriceYearly:0/year</strong>
+                                        @if (!string.IsNullOrWhiteSpace(GetAnnualSavingsText(selectedPlan)))
+                                        {
+                                            <span class="plan-price__save">@GetAnnualSavingsText(selectedPlan)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <strong>@GetMonthlyPriceLabel(selectedPlan)</strong>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(GetPlanPriceCaption(selectedPlan)))
+                                    {
+                                        <span class="text-muted">@GetPlanPriceCaption(selectedPlan)</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="JumpToPlanStep">
+                            Change plan
+                        </button>
+                    </div>
+                    @if (selectedPlan is not null)
+                    {
+                        <ul class="wizard-plan__features mt-3">
+                            @foreach (var feature in selectedPlan.Features.Take(4))
+                            {
+                                <li>@feature</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="wizard-plan-grid">
+                    @foreach (var plan in GetActivePlans())
+                    {
+                        var isSelected = string.Equals(plan.Name, _selectedPlan, StringComparison.OrdinalIgnoreCase);
+                        <button class="wizard-plan @(isSelected ? "is-selected" : null)"
+                                type="button"
+                                @onclick="@(() => SelectWizardPlan(plan.Name))">
+                            <div class="wizard-plan__header">
+                                <div>
+                                    <p class="hero-eyebrow mb-1 text-uppercase">@plan.Name</p>
+                                    <h5 class="mb-0">@plan.DisplayName</h5>
+                                </div>
+                                @if (plan.IsRecommended)
+                                {
+                                    <span class="badge bg-primary-subtle text-primary-emphasis">Recommended</span>
+                                }
+                            </div>
+                            <p class="text-muted small mb-2 wizard-plan__description">@plan.Description</p>
+                            <div class="wizard-plan__price">
+                                @if (_showAnnualBilling && plan.PriceYearly > 0)
+                                {
+                                    <span class="plan-price__strike">@GetMonthlyPriceLabel(plan)</span>
+                                    <strong>€@plan.PriceYearly:0/year</strong>
+                                    @if (!string.IsNullOrWhiteSpace(GetAnnualSavingsText(plan)))
+                                    {
+                                        <span class="plan-price__save">@GetAnnualSavingsText(plan)</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <strong>@GetMonthlyPriceLabel(plan)</strong>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(GetPlanPriceCaption(plan)))
+                                {
+                                    <span class="text-muted">@GetPlanPriceCaption(plan)</span>
+                                }
+                            </div>
+                            <ul class="wizard-plan__features">
+                                @foreach (var feature in plan.Features.Take(4))
+                                {
+                                    <li>@feature</li>
+                                }
+                            </ul>
+                        </button>
+                    }
+                </div>
+            }
+
+            @{
+                var planStepClass = _planPreselected ? "is-complete" : "is-active";
+                var securityStepClass = _planPreselected ? "is-active" : string.Empty;
+            }
+            <ol class="wizard-flow list-unstyled">
+                <li class="@planStepClass"><span>1</span> Choose plan & seats</li>
+                <li class="@securityStepClass"><span>2</span> Decide security mode</li>
+                <li><span>3</span> Upload first archive</li>
+            </ol>
+
+            <button class="btn btn-primary btn-lg w-100" type="button" @onclick="ContinueWizardAsync" disabled="@_isWizardProcessing">
+                @if (_isWizardProcessing)
+                {
+                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                }
+                Continue with @SelectedPlanDisplayName
+            </button>
+            <p class="text-muted text-center small mt-3 mb-0">
+                Next up: lock in encryption (if needed), drag in Gmail/Outlook exports, and start searching within minutes.
+            </p>
+        </div>
+    </div>
+}
 
 @code {
     private readonly List<WizardStep> _steps =
     [
-        new(WizardStepType.Plan, "Choose your workspace plan", "Confirm the Free tier or upgrade to unlock larger uploads."),
-        new(WizardStepType.Security, "Secure your tenant", "Connect Evermail-managed Azure, AWS KMS, or Offline BYOK."),
-        new(WizardStepType.Upload, "Upload your first mailbox", "Bring in a Gmail Takeout or Outlook export to index emails.")
+        new(WizardStepType.Plan, "Pick your archive plan", "Choose the storage, AI, and retention bundle that matches your workload."),
+        new(WizardStepType.Security, "Confirm security mode", "Encryption is already on—stay with Evermail-managed or flip on Azure/AWS BYOK when needed."),
+        new(WizardStepType.Upload, "Upload a mailbox", "Drag Gmail/Outlook exports (or our sample file) and start searching within minutes.")
     ];
 
     private IReadOnlyList<SubscriptionPlanDto> _plans = Array.Empty<SubscriptionPlanDto>();
@@ -140,9 +360,21 @@
     private string? _errorMessage;
     private string? _statusMessage;
     private WizardStepType? _requestedStep;
+    private bool _isAuthenticated;
+    private bool _canManageOnboarding;
+    private bool _showWizard;
+    private string _selectedPlan = "Pro";
+    private bool _isWizardProcessing;
+    private bool _showAnnualBilling;
+    private bool _planPreselected;
 
     protected override async Task OnInitializedAsync()
     {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+        _isAuthenticated = user.Identity?.IsAuthenticated == true;
+        _canManageOnboarding = _isAuthenticated && (user.IsInRole("Admin") || user.IsInRole("SuperAdmin"));
+
         var uri = new Uri(Navigation.Uri);
         var query = HttpUtility.ParseQueryString(uri.Query);
         if (Enum.TryParse(query["step"], true, out WizardStepType requested))
@@ -150,88 +382,138 @@
             _requestedStep = requested;
         }
 
-        await LoadAllAsync();
+        if (_canManageOnboarding)
+        {
+            await LoadAllAsync();
+        }
+        else
+        {
+            _plans = DefaultPlans;
+            _isLoading = false;
+        }
     }
 
-    private RenderFragment RenderPlanStep() => builder =>
+    private RenderFragment RenderPlanGrid(bool readOnly, bool enableWizardCta = false) => builder =>
     {
-        if (_plans.Count == 0)
+        var plans = GetActivePlans();
+
+        if (plans.Count == 0)
         {
             builder.AddMarkupContent(0, "<p class=\"text-muted\">No plans available right now. Please try again later.</p>");
             return;
         }
 
         builder.OpenElement(1, "div");
-        builder.AddAttribute(2, "class", "plan-grid row row-cols-1 row-cols-md-2 g-3");
+        builder.AddAttribute(2, "class", "plan-grid row row-cols-1 row-cols-md-3 g-4");
 
-        for (var i = 0; i < _plans.Count; i++)
+        for (var i = 0; i < plans.Count; i++)
         {
-            var plan = _plans[i];
+            var plan = plans[i];
             var isCurrent = string.Equals(plan.Name, _status?.SubscriptionTier, StringComparison.OrdinalIgnoreCase);
             var planClasses = $"col plan-card {(isCurrent ? "plan-card--current" : string.Empty)}";
-            builder.OpenElement(3 + i * 20, "div");
-            builder.AddAttribute(4 + i * 20, "class", planClasses);
-            builder.OpenElement(5 + i * 20, "div");
-            builder.AddAttribute(6 + i * 20, "class", "card h-100");
-            builder.OpenElement(7 + i * 20, "div");
-            builder.AddAttribute(8 + i * 20, "class", "card-body d-flex flex-column gap-3");
+            builder.OpenElement(3 + i * 30, "div");
+            builder.AddAttribute(4 + i * 30, "class", planClasses);
+            builder.OpenElement(5 + i * 30, "div");
+            builder.AddAttribute(6 + i * 30, "class", "card h-100");
+            builder.OpenElement(7 + i * 30, "div");
+            builder.AddAttribute(8 + i * 30, "class", "card-body d-flex flex-column gap-3");
 
-            builder.OpenElement(9 + i * 20, "div");
-            builder.AddAttribute(10 + i * 20, "class", "d-flex justify-content-between align-items-start gap-3");
-            builder.OpenElement(11 + i * 20, "div");
-            builder.AddAttribute(12 + i * 20, "class", "plan-header");
-            builder.OpenElement(13 + i * 20, "h5");
-            builder.AddContent(14 + i * 20, plan.DisplayName);
+            builder.OpenElement(9 + i * 30, "div");
+            builder.AddAttribute(10 + i * 30, "class", "d-flex justify-content-between align-items-start gap-3");
+            builder.OpenElement(11 + i * 30, "div");
+            builder.AddAttribute(12 + i * 30, "class", "plan-header");
+            builder.OpenElement(13 + i * 30, "h5");
+            builder.AddContent(14 + i * 30, plan.DisplayName);
             builder.CloseElement();
-            builder.OpenElement(15 + i * 20, "p");
-            builder.AddAttribute(16 + i * 20, "class", "text-muted small mb-0");
-            builder.AddContent(17 + i * 20, plan.Description);
+            builder.OpenElement(15 + i * 30, "p");
+            builder.AddAttribute(16 + i * 30, "class", "text-muted small mb-0");
+            builder.AddContent(17 + i * 30, plan.Description);
             builder.CloseElement();
             builder.CloseElement();
             if (plan.IsRecommended)
             {
-                builder.OpenElement(18 + i * 20, "span");
-                builder.AddAttribute(19 + i * 20, "class", "badge bg-primary-subtle text-primary-emphasis");
-                builder.AddContent(20 + i * 20, "Most popular");
+                builder.OpenElement(18 + i * 30, "span");
+                builder.AddAttribute(19 + i * 30, "class", "badge bg-primary-subtle text-primary-emphasis");
+                builder.AddContent(20 + i * 30, "Most popular");
                 builder.CloseElement();
             }
             builder.CloseElement();
 
-            builder.OpenElement(21 + i * 20, "div");
-            builder.AddAttribute(22 + i * 20, "class", "plan-price");
-            builder.AddContent(23 + i * 20, plan.PriceMonthly == 0 ? "Free" : $"€{plan.PriceMonthly:0}");
-            if (plan.PriceMonthly > 0)
+            builder.OpenElement(21 + i * 30, "div");
+            builder.AddAttribute(22 + i * 30, "class", "plan-price");
+            if (_showAnnualBilling && plan.PriceYearly > 0)
             {
-                builder.OpenElement(24 + i * 20, "small");
-                builder.AddAttribute(25 + i * 20, "class", "text-muted");
-                builder.AddContent(26 + i * 20, "/month");
+                builder.OpenElement(23 + i * 30, "span");
+                builder.AddAttribute(24 + i * 30, "class", "plan-price__strike");
+                builder.AddContent(25 + i * 30, GetMonthlyPriceLabel(plan));
+                builder.CloseElement();
+
+                builder.OpenElement(26 + i * 30, "strong");
+                builder.AddContent(27 + i * 30, $"€{plan.PriceYearly:0}/year");
+                builder.CloseElement();
+
+                var savings = GetAnnualSavingsText(plan);
+                if (!string.IsNullOrWhiteSpace(savings))
+                {
+                    builder.OpenElement(28 + i * 30, "span");
+                    builder.AddAttribute(29 + i * 30, "class", "plan-price__save");
+                    builder.AddContent(30 + i * 30, savings);
+                    builder.CloseElement();
+                }
+            }
+            else
+            {
+                builder.OpenElement(23 + i * 30, "strong");
+                builder.AddContent(24 + i * 30, GetMonthlyPriceLabel(plan));
                 builder.CloseElement();
             }
+
+            var caption = GetPlanPriceCaption(plan);
+            if (!string.IsNullOrWhiteSpace(caption))
+            {
+                builder.OpenElement(31 + i * 30, "small");
+                builder.AddAttribute(32 + i * 30, "class", "text-muted d-block");
+                builder.AddContent(33 + i * 30, caption);
+                builder.CloseElement();
+            }
+
             builder.CloseElement();
 
-            builder.OpenElement(27 + i * 20, "ul");
-            builder.AddAttribute(28 + i * 20, "class", "plan-feature-list");
+            builder.OpenElement(27 + i * 30, "ul");
+            builder.AddAttribute(28 + i * 30, "class", "plan-feature-list");
             foreach (var feature in plan.Features.Take(6))
             {
-                builder.OpenElement(29 + i * 20, "li");
-                builder.AddMarkupContent(30 + i * 20, "<i class=\"bi bi-check2 text-success me-2\"></i>");
-                builder.AddContent(31 + i * 20, feature);
+                builder.OpenElement(29 + i * 30, "li");
+                builder.AddMarkupContent(30 + i * 30, "<i class=\"bi bi-check2 text-success me-2\"></i>");
+                builder.AddContent(31 + i * 30, feature);
                 builder.CloseElement();
             }
             builder.CloseElement();
 
-            builder.OpenElement(32 + i * 20, "div");
-            builder.AddAttribute(33 + i * 20, "class", "mt-auto");
-            builder.OpenElement(34 + i * 20, "button");
-            builder.AddAttribute(35 + i * 20, "class", $"btn {(isCurrent ? "btn-outline-primary" : "btn-primary")} w-100");
-            builder.AddAttribute(36 + i * 20, "disabled", _isSavingPlan && _pendingPlanName == plan.Name);
-            builder.AddAttribute(37 + i * 20, "type", "button");
-            builder.AddAttribute(38 + i * 20, "onclick", EventCallback.Factory.Create(this, () => SelectPlanAsync(plan)));
-            if (_isSavingPlan && _pendingPlanName == plan.Name)
+            builder.OpenElement(32 + i * 30, "div");
+            builder.AddAttribute(33 + i * 30, "class", "mt-auto");
+            builder.OpenElement(34 + i * 30, "button");
+            var buttonClass = readOnly ? "btn btn-primary w-100" : $"btn {(isCurrent ? "btn-outline-primary" : "btn-primary")} w-100";
+            builder.AddAttribute(35 + i * 30, "class", buttonClass);
+            var isSaving = !readOnly && _isSavingPlan && _pendingPlanName == plan.Name;
+            builder.AddAttribute(36 + i * 30, "disabled", isSaving);
+            builder.AddAttribute(37 + i * 30, "type", "button");
+            if (readOnly && enableWizardCta)
             {
-                builder.AddMarkupContent(39 + i * 20, "<span class=\"spinner-border spinner-border-sm me-2\" role=\"status\"></span>");
+                builder.AddAttribute(38 + i * 30, "onclick", EventCallback.Factory.Create(this, () => OpenWizard(plan.Name)));
             }
-            builder.AddContent(40 + i * 20, isCurrent ? "Stay on this plan" : "Select plan");
+            else if (!readOnly)
+            {
+                builder.AddAttribute(38 + i * 30, "onclick", EventCallback.Factory.Create(this, () => SelectPlanAsync(plan)));
+            }
+            if (isSaving)
+            {
+                builder.AddMarkupContent(39 + i * 30, "<span class=\"spinner-border spinner-border-sm me-2\" role=\"status\"></span>");
+            }
+            var buttonLabel = readOnly
+                ? $"Start {plan.DisplayName}"
+                : (isCurrent ? "Stay on this plan" : "Select plan");
+            builder.AddContent(40 + i * 30, buttonLabel);
             builder.CloseElement();
             builder.CloseElement();
 
@@ -242,6 +524,113 @@
 
         builder.CloseElement();
     };
+
+    private string SelectedPlanDisplayName => FindPlan(_selectedPlan)?.DisplayName ?? "Free Tier";
+
+    private IReadOnlyList<SubscriptionPlanDto> GetActivePlans() => _plans.Count > 0 ? _plans : DefaultPlans;
+
+    private SubscriptionPlanDto? FindPlan(string? planName) =>
+        GetActivePlans().FirstOrDefault(p => string.Equals(p.Name, planName, StringComparison.OrdinalIgnoreCase));
+
+    private void OpenWizard(string? planName)
+    {
+        var plans = GetActivePlans();
+        var targetPlan = planName
+                         ?? plans.FirstOrDefault(p => p.IsRecommended)?.Name
+                         ?? plans.First().Name;
+        _selectedPlan = targetPlan;
+        _planPreselected = !string.IsNullOrWhiteSpace(planName);
+        _currentStepIndex = _planPreselected ? Math.Min(1, _steps.Count - 1) : 0;
+        _showWizard = true;
+    }
+
+    private void CloseWizard() => _showWizard = false;
+
+    private void SelectWizardPlan(string planName) => _selectedPlan = planName;
+
+    private void JumpToPlanStep()
+    {
+        _planPreselected = false;
+        _currentStepIndex = 0;
+    }
+
+    private void SetBillingMode(bool annual)
+    {
+        if (_showAnnualBilling == annual)
+        {
+            return;
+        }
+
+        _showAnnualBilling = annual;
+        StateHasChanged();
+    }
+
+    private string GetMonthlyPriceLabel(SubscriptionPlanDto plan) =>
+        plan.PriceMonthly == 0 ? "Free" : $"€{plan.PriceMonthly:0}/month";
+
+    private string? GetPlanPriceCaption(SubscriptionPlanDto plan)
+    {
+        if (_showAnnualBilling)
+        {
+            return plan.PriceYearly > 0 ? "Billed annually" : "Annual billing not available";
+        }
+
+        return plan.PriceMonthly > 0 ? "Billed monthly" : null;
+    }
+
+    private string? GetAnnualSavingsText(SubscriptionPlanDto plan)
+    {
+        if (plan.PriceMonthly <= 0 || plan.PriceYearly is null || plan.PriceYearly <= 0)
+        {
+            return null;
+        }
+
+        var yearly = plan.PriceYearly.Value;
+        var monthlyAnnualized = plan.PriceMonthly * 12m;
+        if (monthlyAnnualized <= 0 || yearly >= monthlyAnnualized)
+        {
+            return null;
+        }
+
+        var discount = 1m - (yearly / monthlyAnnualized);
+        var percent = Math.Round(discount * 100m);
+
+        return percent > 0 ? $"Save {percent:0}%" : null;
+    }
+
+    private async Task ContinueWizardAsync()
+    {
+        if (_isWizardProcessing)
+        {
+            return;
+        }
+
+        _isWizardProcessing = true;
+        try
+        {
+            if (_canManageOnboarding)
+            {
+                var plan = FindPlan(_selectedPlan);
+                if (plan is not null)
+                {
+                    await SelectPlanAsync(plan);
+                }
+                _showWizard = false;
+            }
+            else
+            {
+                var query = string.IsNullOrWhiteSpace(_selectedPlan)
+                    ? string.Empty
+                    : $"?plan={Uri.EscapeDataString(_selectedPlan)}";
+                _showWizard = false;
+                Navigation.NavigateTo($"/register{query}", forceLoad: true);
+            }
+        }
+        finally
+        {
+            _isWizardProcessing = false;
+        }
+    }
 
     private RenderFragment RenderSecurityStep() => builder =>
     {
@@ -254,26 +643,71 @@
         builder.AddAttribute(5, "class", "d-flex align-items-center gap-2 mb-2");
         builder.AddMarkupContent(6, "<i class=\"bi bi-shield-lock fs-4\"></i>");
         builder.OpenElement(7, "div");
-        builder.AddContent(8, "Key management");
+        builder.AddContent(8, "Security overview");
         builder.CloseElement();
         builder.CloseElement();
         builder.OpenElement(9, "p");
-        builder.AddAttribute(10, "class", "mb-2");
+        builder.AddAttribute(10, "class", "mb-3");
         builder.AddContent(11, _status?.EncryptionConfigured == true
-            ? "Nice! Your tenant already has a key provider wired up. You can still switch providers at any time."
-            : "Connect Evermail-managed Azure, AWS KMS, or the offline BYOK lab so every upload is wrapped with your key before ingestion.");
+            ? "Encryption is already locked down. Stay on Evermail-managed encryption or connect your own key whenever security asks."
+            : "Encryption is enabled by default. When you're ready, connect Azure Key Vault, AWS KMS, or generate an offline bundle without leaving the wizard.");
         builder.CloseElement();
-        builder.OpenElement(12, "div");
-        builder.AddAttribute(13, "class", "d-flex flex-wrap gap-2");
-        builder.AddMarkupContent(14, "<a class=\"btn btn-primary\" href=\"/admin/encryption?onboarding=1\"><i class=\"bi bi-key-fill me-2\"></i>Open encryption settings</a>");
-        builder.AddMarkupContent(15, "<a class=\"btn btn-outline-secondary\" href=\"/admin/offline-byok\"><i class=\"bi bi-cloud-slash me-2\"></i>Offline BYOK lab</a>");
-        builder.OpenElement(16, "button");
-        builder.AddAttribute(17, "class", "btn btn-link p-0 text-decoration-none");
-        builder.AddAttribute(18, "type", "button");
-        builder.AddAttribute(19, "onclick", EventCallback.Factory.Create(this, RefreshStatusAsync));
-        builder.AddContent(20, "I've updated my keys, refresh status");
+
+        builder.AddMarkupContent(12, """
+<div class="security-options">
+    <article class="security-option">
+        <p class="hero-eyebrow text-uppercase mb-1">Fastest path</p>
+        <h4>Evermail-managed encryption</h4>
+        <p class="text-muted">
+            We host your workspace master key in our hardened Azure subscription, wrap every upload before storage, and run ingestion inside confidential compute.
+        </p>
+        <ul>
+            <li>Zero plaintext even before you switch on BYOK.</li>
+            <li>Automatic key rotation and monitoring.</li>
+            <li>Ideal for founders kicking the tires or teams in private beta.</li>
+        </ul>
+    </article>
+    <article class="security-option">
+        <p class="hero-eyebrow text-uppercase mb-1">Advanced control</p>
+        <h4>Bring your own key</h4>
+        <p class="text-muted">
+            Point Evermail at your Azure Key Vault, AWS KMS role, or generate an offline browser bundle for the most restrictive workloads.
+        </p>
+        <ul>
+            <li>Use existing security reviews and logging.</li>
+            <li>Share IAM roles with your infrastructure team.</li>
+            <li>Offline BYOK keeps the master key solely on your disk.</li>
+        </ul>
+    </article>
+</div>
+""");
+
+        if (_planPreselected)
+        {
+            builder.OpenElement(13, "div");
+            builder.AddAttribute(14, "class", "wizard-selection-summary");
+            builder.AddContent(15, $"Plan selected: {SelectedPlanDisplayName}");
+            builder.OpenElement(16, "button");
+            builder.AddAttribute(17, "type", "button");
+            builder.AddAttribute(18, "class", "btn btn-link p-0 ms-2");
+            builder.AddAttribute(19, "onclick", EventCallback.Factory.Create(this, JumpToPlanStep));
+            builder.AddContent(20, "Change plan");
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.OpenElement(21, "div");
+        builder.AddAttribute(22, "class", "d-flex flex-wrap gap-2 mt-3");
+        builder.AddMarkupContent(23, "<a class=\"btn btn-primary\" href=\"/admin/encryption?onboarding=1\"><i class=\"bi bi-key-fill me-2\"></i>Open encryption settings</a>");
+        builder.AddMarkupContent(24, "<a class=\"btn btn-outline-secondary\" href=\"/admin/offline-byok\"><i class=\"bi bi-cloud-slash me-2\"></i>Offline BYOK lab</a>");
+        builder.OpenElement(25, "button");
+        builder.AddAttribute(26, "class", "btn btn-link p-0 text-decoration-none");
+        builder.AddAttribute(27, "type", "button");
+        builder.AddAttribute(28, "onclick", EventCallback.Factory.Create(this, RefreshStatusAsync));
+        builder.AddContent(29, "I've updated my keys, refresh status");
         builder.CloseElement();
         builder.CloseElement();
+
         builder.CloseElement();
     };
 
@@ -291,9 +725,9 @@
 
         builder.OpenElement(7, "ul");
         builder.AddAttribute(8, "class", "upload-checklist");
-        builder.AddMarkupContent(9, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Drag & drop Gmail Takeout (.mbox), Outlook PSTs (.pst/.zip), or Maildir (.eml/.zip) up to your plan limit.</li>");
-        builder.AddMarkupContent(10, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Uploads stream straight to Blob Storage; we never see plaintext when BYOK is enabled.</li>");
-        builder.AddMarkupContent(11, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Need a sample? Generate one via <code>scripts/generate-test-mbox.py</code> and upload to see the pipeline.</li>");
+        builder.AddMarkupContent(9, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Drag & drop Gmail Takeout (.mbox), Outlook PSTs (.pst/.zip), or Maildir exports (.eml/.zip) up to your plan limit.</li>");
+        builder.AddMarkupContent(10, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Uploads stream straight to Azure Blob Storage, and with BYOK enabled we never see plaintext.</li>");
+        builder.AddMarkupContent(11, "<li><i class=\"bi bi-check2-circle text-success me-2\"></i>Need a dry run? Use our sample archive or <code>scripts/generate-test-mbox.py</code> to simulate a full ingestion.</li>");
         builder.CloseElement();
 
         builder.OpenElement(12, "div");
@@ -309,6 +743,13 @@
 
     private async Task LoadAllAsync()
     {
+        if (!_canManageOnboarding)
+        {
+            _plans = DefaultPlans;
+            _isLoading = false;
+            return;
+        }
+
         _isLoading = true;
         _errorMessage = null;
         try
@@ -330,6 +771,12 @@
 
     private async Task LoadPlansAsync()
     {
+        if (!_canManageOnboarding)
+        {
+            _plans = DefaultPlans;
+            return;
+        }
+
         var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/plans"));
         var response = await SendAuthorizedAsync(request);
 
@@ -354,6 +801,12 @@
 
     private async Task LoadStatusAsync()
     {
+        if (!_canManageOnboarding)
+        {
+            _status = null;
+            return;
+        }
+
         var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/onboarding/status"));
         var response = await SendAuthorizedAsync(request);
 
@@ -404,6 +857,11 @@
 
     private async Task SelectPlanAsync(SubscriptionPlanDto plan)
     {
+        if (!_canManageOnboarding)
+        {
+            return;
+        }
+
         _isSavingPlan = true;
         _pendingPlanName = plan.Name;
         _statusMessage = null;
@@ -447,6 +905,11 @@
 
     private async Task RefreshStatusAsync()
     {
+        if (!_canManageOnboarding)
+        {
+            return;
+        }
+
         await LoadStatusAsync();
         _completedSteps = _steps.Count(step => IsStepComplete(step));
     }
@@ -498,5 +961,48 @@
         Security,
         Upload
     }
+
+    private static readonly IReadOnlyList<SubscriptionPlanDto> DefaultPlans =
+    [
+        new SubscriptionPlanDto(
+            "Free",
+            "Free Tier",
+            "Try Evermail with a single mailbox and 30-day retention.",
+            0,
+            0,
+            "EUR",
+            1,
+            1,
+            1,
+            1,
+            false,
+            new[] { "1 mailbox indexed", "1 GB encrypted storage", "1 GB upload cap", "30-day retention" }),
+        new SubscriptionPlanDto(
+            "Pro",
+            "Professional",
+            "For founders and consultants juggling multiple archives plus AI summaries.",
+            9,
+            90,
+            "EUR",
+            5,
+            5,
+            1,
+            int.MaxValue,
+            true,
+            new[] { "Unlimited mailboxes", "AI thread summaries", "5 GB encrypted storage", "1-year retention" }),
+        new SubscriptionPlanDto(
+            "Team",
+            "Team",
+            "Finance, Legal, and Ops teams that need shared access and longer retention.",
+            29,
+            290,
+            "EUR",
+            500,
+            10,
+            5,
+            int.MaxValue,
+            false,
+            new[] { "5 seats included", "Shared read-only vaults", "500 GB storage", "2-year retention" })
+    ];
 }
 
