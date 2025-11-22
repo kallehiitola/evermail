@@ -129,7 +129,7 @@
                     <button type="button"
                             class="billing-toggle__option @(_showAnnualBilling ? "is-active" : null)"
                             @onclick="() => SetBillingMode(true)">
-                        Annual <span class="text-success fw-semibold">Save 2 months</span>
+                        Annual <span class="text-success fw-semibold ms-1">Save more</span>
                     </button>
                 </div>
             </div>
@@ -217,48 +217,114 @@
                 <button type="button"
                         class="billing-toggle__option @(_showAnnualBilling ? "is-active" : null)"
                         @onclick="() => SetBillingMode(true)">
-                    Annual <span class="text-success fw-semibold">Save 2 months</span>
+                    Annual <span class="text-success fw-semibold ms-1">Save more</span>
                 </button>
             </div>
 
-            <div class="wizard-plan-grid">
-                @foreach (var plan in GetActivePlans())
-                {
-                    var isSelected = string.Equals(plan.Name, _selectedPlan, StringComparison.OrdinalIgnoreCase);
-                    <button class="wizard-plan @(isSelected ? "is-selected" : null)"
-                            type="button"
-                            @onclick="@(() => SelectWizardPlan(plan.Name))">
-                        <div class="wizard-plan__header">
-                            <div>
-                                <p class="hero-eyebrow mb-1 text-uppercase">@plan.Name</p>
-                                <h5 class="mb-0">@plan.DisplayName</h5>
-                            </div>
-                            @if (plan.IsRecommended)
+            @if (_planPreselected)
+            {
+                var selectedPlan = FindPlan(_selectedPlan);
+                <div class="wizard-plan-summary-card">
+                    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                        <div>
+                            <p class="hero-eyebrow text-uppercase mb-1">Selected plan</p>
+                            <h4 class="mb-1">@SelectedPlanDisplayName</h4>
+                            @if (selectedPlan is not null)
                             {
-                                <span class="badge bg-primary-subtle text-primary-emphasis">Recommended</span>
+                                <div class="plan-price plan-price--inline">
+                                    @if (_showAnnualBilling && selectedPlan.PriceYearly > 0)
+                                    {
+                                        <span class="plan-price__strike">@GetMonthlyPriceLabel(selectedPlan)</span>
+                                        <strong>€@selectedPlan.PriceYearly:0/year</strong>
+                                        @if (!string.IsNullOrWhiteSpace(GetAnnualSavingsText(selectedPlan)))
+                                        {
+                                            <span class="plan-price__save">@GetAnnualSavingsText(selectedPlan)</span>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <strong>@GetMonthlyPriceLabel(selectedPlan)</strong>
+                                    }
+
+                                    @if (!string.IsNullOrWhiteSpace(GetPlanPriceCaption(selectedPlan)))
+                                    {
+                                        <span class="text-muted">@GetPlanPriceCaption(selectedPlan)</span>
+                                    }
+                                </div>
                             }
                         </div>
-                        <p class="text-muted small mb-2 wizard-plan__description">@plan.Description</p>
-                        <div class="wizard-plan__price">
-                            <strong>@GetPlanPriceLabel(plan)</strong>
-                            @if (!string.IsNullOrWhiteSpace(GetPlanPriceCaption(plan)))
-                            {
-                                <span class="text-muted">@GetPlanPriceCaption(plan)</span>
-                            }
-                        </div>
-                        <ul class="wizard-plan__features">
-                            @foreach (var feature in plan.Features.Take(4))
+                        <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="JumpToPlanStep">
+                            Change plan
+                        </button>
+                    </div>
+                    @if (selectedPlan is not null)
+                    {
+                        <ul class="wizard-plan__features mt-3">
+                            @foreach (var feature in selectedPlan.Features.Take(4))
                             {
                                 <li>@feature</li>
                             }
                         </ul>
-                    </button>
-                }
-            </div>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="wizard-plan-grid">
+                    @foreach (var plan in GetActivePlans())
+                    {
+                        var isSelected = string.Equals(plan.Name, _selectedPlan, StringComparison.OrdinalIgnoreCase);
+                        <button class="wizard-plan @(isSelected ? "is-selected" : null)"
+                                type="button"
+                                @onclick="@(() => SelectWizardPlan(plan.Name))">
+                            <div class="wizard-plan__header">
+                                <div>
+                                    <p class="hero-eyebrow mb-1 text-uppercase">@plan.Name</p>
+                                    <h5 class="mb-0">@plan.DisplayName</h5>
+                                </div>
+                                @if (plan.IsRecommended)
+                                {
+                                    <span class="badge bg-primary-subtle text-primary-emphasis">Recommended</span>
+                                }
+                            </div>
+                            <p class="text-muted small mb-2 wizard-plan__description">@plan.Description</p>
+                            <div class="wizard-plan__price">
+                                @if (_showAnnualBilling && plan.PriceYearly > 0)
+                                {
+                                    <span class="plan-price__strike">@GetMonthlyPriceLabel(plan)</span>
+                                    <strong>€@plan.PriceYearly:0/year</strong>
+                                    @if (!string.IsNullOrWhiteSpace(GetAnnualSavingsText(plan)))
+                                    {
+                                        <span class="plan-price__save">@GetAnnualSavingsText(plan)</span>
+                                    }
+                                }
+                                else
+                                {
+                                    <strong>@GetMonthlyPriceLabel(plan)</strong>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(GetPlanPriceCaption(plan)))
+                                {
+                                    <span class="text-muted">@GetPlanPriceCaption(plan)</span>
+                                }
+                            </div>
+                            <ul class="wizard-plan__features">
+                                @foreach (var feature in plan.Features.Take(4))
+                                {
+                                    <li>@feature</li>
+                                }
+                            </ul>
+                        </button>
+                    }
+                </div>
+            }
 
+            @{
+                var planStepClass = _planPreselected ? "is-complete" : "is-active";
+                var securityStepClass = _planPreselected ? "is-active" : string.Empty;
+            }
             <ol class="wizard-flow list-unstyled">
-                <li class="is-active"><span>1</span> Choose plan & seats</li>
-                <li><span>2</span> Decide security mode</li>
+                <li class="@planStepClass"><span>1</span> Choose plan & seats</li>
+                <li class="@securityStepClass"><span>2</span> Decide security mode</li>
                 <li><span>3</span> Upload first archive</li>
             </ol>
 
@@ -300,6 +366,7 @@
     private string _selectedPlan = "Pro";
     private bool _isWizardProcessing;
     private bool _showAnnualBilling;
+    private bool _planPreselected;
 
     protected override async Task OnInitializedAsync()
     {
@@ -374,15 +441,42 @@
 
             builder.OpenElement(21 + i * 30, "div");
             builder.AddAttribute(22 + i * 30, "class", "plan-price");
-            builder.AddContent(23 + i * 30, GetPlanPriceLabel(plan));
+            if (_showAnnualBilling && plan.PriceYearly > 0)
+            {
+                builder.OpenElement(23 + i * 30, "span");
+                builder.AddAttribute(24 + i * 30, "class", "plan-price__strike");
+                builder.AddContent(25 + i * 30, GetMonthlyPriceLabel(plan));
+                builder.CloseElement();
+
+                builder.OpenElement(26 + i * 30, "strong");
+                builder.AddContent(27 + i * 30, $"€{plan.PriceYearly:0}/year");
+                builder.CloseElement();
+
+                var savings = GetAnnualSavingsText(plan);
+                if (!string.IsNullOrWhiteSpace(savings))
+                {
+                    builder.OpenElement(28 + i * 30, "span");
+                    builder.AddAttribute(29 + i * 30, "class", "plan-price__save");
+                    builder.AddContent(30 + i * 30, savings);
+                    builder.CloseElement();
+                }
+            }
+            else
+            {
+                builder.OpenElement(23 + i * 30, "strong");
+                builder.AddContent(24 + i * 30, GetMonthlyPriceLabel(plan));
+                builder.CloseElement();
+            }
+
             var caption = GetPlanPriceCaption(plan);
             if (!string.IsNullOrWhiteSpace(caption))
             {
-                builder.OpenElement(24 + i * 30, "small");
-                builder.AddAttribute(25 + i * 30, "class", "text-muted d-block");
-                builder.AddContent(26 + i * 30, caption);
+                builder.OpenElement(31 + i * 30, "small");
+                builder.AddAttribute(32 + i * 30, "class", "text-muted d-block");
+                builder.AddContent(33 + i * 30, caption);
                 builder.CloseElement();
             }
+
             builder.CloseElement();
 
             builder.OpenElement(27 + i * 30, "ul");
@@ -445,12 +539,20 @@
                          ?? plans.FirstOrDefault(p => p.IsRecommended)?.Name
                          ?? plans.First().Name;
         _selectedPlan = targetPlan;
+        _planPreselected = !string.IsNullOrWhiteSpace(planName);
+        _currentStepIndex = _planPreselected ? Math.Min(1, _steps.Count - 1) : 0;
         _showWizard = true;
     }
 
     private void CloseWizard() => _showWizard = false;
 
     private void SelectWizardPlan(string planName) => _selectedPlan = planName;
+
+    private void JumpToPlanStep()
+    {
+        _planPreselected = false;
+        _currentStepIndex = 0;
+    }
 
     private void SetBillingMode(bool annual)
     {
@@ -463,15 +565,8 @@
         StateHasChanged();
     }
 
-    private string GetPlanPriceLabel(SubscriptionPlanDto plan)
-    {
-        if (_showAnnualBilling && plan.PriceYearly > 0)
-        {
-            return plan.PriceYearly == 0 ? "Free" : $"€{plan.PriceYearly:0}/year";
-        }
-
-        return plan.PriceMonthly == 0 ? "Free" : $"€{plan.PriceMonthly:0}/month";
-    }
+    private string GetMonthlyPriceLabel(SubscriptionPlanDto plan) =>
+        plan.PriceMonthly == 0 ? "Free" : $"€{plan.PriceMonthly:0}/month";
 
     private string? GetPlanPriceCaption(SubscriptionPlanDto plan)
     {
@@ -481,6 +576,26 @@
         }
 
         return plan.PriceMonthly > 0 ? "Billed monthly" : null;
+    }
+
+    private string? GetAnnualSavingsText(SubscriptionPlanDto plan)
+    {
+        if (plan.PriceMonthly <= 0 || plan.PriceYearly is null || plan.PriceYearly <= 0)
+        {
+            return null;
+        }
+
+        var yearly = plan.PriceYearly.Value;
+        var monthlyAnnualized = plan.PriceMonthly * 12m;
+        if (monthlyAnnualized <= 0 || yearly >= monthlyAnnualized)
+        {
+            return null;
+        }
+
+        var discount = 1m - (yearly / monthlyAnnualized);
+        var percent = Math.Round(discount * 100m);
+
+        return percent > 0 ? $"Save {percent:0}%" : null;
     }
 
     private async Task ContinueWizardAsync()
@@ -567,15 +682,29 @@
 </div>
 """);
 
-        builder.OpenElement(13, "div");
-        builder.AddAttribute(14, "class", "d-flex flex-wrap gap-2 mt-3");
-        builder.AddMarkupContent(15, "<a class=\"btn btn-primary\" href=\"/admin/encryption?onboarding=1\"><i class=\"bi bi-key-fill me-2\"></i>Open encryption settings</a>");
-        builder.AddMarkupContent(16, "<a class=\"btn btn-outline-secondary\" href=\"/admin/offline-byok\"><i class=\"bi bi-cloud-slash me-2\"></i>Offline BYOK lab</a>");
-        builder.OpenElement(17, "button");
-        builder.AddAttribute(18, "class", "btn btn-link p-0 text-decoration-none");
-        builder.AddAttribute(19, "type", "button");
-        builder.AddAttribute(20, "onclick", EventCallback.Factory.Create(this, RefreshStatusAsync));
-        builder.AddContent(21, "I've updated my keys, refresh status");
+        if (_planPreselected)
+        {
+            builder.OpenElement(13, "div");
+            builder.AddAttribute(14, "class", "wizard-selection-summary");
+            builder.AddContent(15, $"Plan selected: {SelectedPlanDisplayName}");
+            builder.OpenElement(16, "button");
+            builder.AddAttribute(17, "type", "button");
+            builder.AddAttribute(18, "class", "btn btn-link p-0 ms-2");
+            builder.AddAttribute(19, "onclick", EventCallback.Factory.Create(this, JumpToPlanStep));
+            builder.AddContent(20, "Change plan");
+            builder.CloseElement();
+            builder.CloseElement();
+        }
+
+        builder.OpenElement(21, "div");
+        builder.AddAttribute(22, "class", "d-flex flex-wrap gap-2 mt-3");
+        builder.AddMarkupContent(23, "<a class=\"btn btn-primary\" href=\"/admin/encryption?onboarding=1\"><i class=\"bi bi-key-fill me-2\"></i>Open encryption settings</a>");
+        builder.AddMarkupContent(24, "<a class=\"btn btn-outline-secondary\" href=\"/admin/offline-byok\"><i class=\"bi bi-cloud-slash me-2\"></i>Offline BYOK lab</a>");
+        builder.OpenElement(25, "button");
+        builder.AddAttribute(26, "class", "btn btn-link p-0 text-decoration-none");
+        builder.AddAttribute(27, "type", "button");
+        builder.AddAttribute(28, "onclick", EventCallback.Factory.Create(this, RefreshStatusAsync));
+        builder.AddContent(29, "I've updated my keys, refresh status");
         builder.CloseElement();
         builder.CloseElement();
 

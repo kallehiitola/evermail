@@ -2701,21 +2701,45 @@ h1:focus {
     font-size: 0.95rem;
 }
 
+.plan-price,
+.wizard-plan__price {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.plan-price strong,
+.wizard-plan__price strong {
+    font-size: 1.25rem;
+    white-space: nowrap;
+}
+
+.plan-price--inline {
+    margin-top: 0.35rem;
+}
+
 .billing-toggle {
     display: inline-flex;
     padding: 0.4rem;
     border-radius: 999px;
     background-color: var(--color-surface-muted);
     gap: 0.25rem;
+    justify-content: center;
+    margin: 0 auto;
+    width: -moz-fit-content;
+    width: fit-content;
 }
 
 .billing-toggle--inline {
     align-items: center;
     justify-content: center;
+    width: 100%;
 }
 
 .billing-toggle--compact {
     justify-content: center;
+    width: 100%;
 }
 
 .billing-toggle__option {
@@ -2737,6 +2761,39 @@ h1:focus {
     background-color: var(--color-surface);
     box-shadow: var(--shadow-sm);
     color: var(--color-brand-primary);
+}
+
+.plan-price__strike {
+    text-decoration: line-through;
+    color: var(--color-text-secondary);
+    margin-right: 0.5rem;
+    white-space: nowrap;
+}
+
+.plan-price__save {
+    color: var(--color-success);
+    font-weight: 600;
+    margin-left: 0.5rem;
+    font-size: 0.9rem;
+    white-space: nowrap;
+}
+
+.wizard-selection-summary {
+    background-color: var(--color-surface-muted);
+    border-radius: 999px;
+    padding: 0.35rem 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    font-weight: 500;
+}
+
+.wizard-plan-summary-card {
+    border: 1px solid var(--color-border);
+    border-radius: 22px;
+    padding: 1.5rem;
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 1.5rem;
 }
 
 .upload-checklist {
@@ -2950,5 +3007,10 @@ h1:focus {
 
 .wizard-flow li.is-active span {
     background: var(--color-brand-primary);
+    color: #fff;
+}
+
+.wizard-flow li.is-complete span {
+    background: var(--color-success);
     color: #fff;
 }
