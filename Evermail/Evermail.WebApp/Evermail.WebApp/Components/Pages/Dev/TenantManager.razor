@@ -4,6 +4,7 @@
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Dev
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components
 @using System.Net.Http.Headers
 @attribute [Authorize(Roles = "SuperAdmin")]
 @inject HttpClient Http
@@ -86,16 +87,40 @@ else
                                             Created @tenant.CreatedAt.ToLocalTime():g • @tenant.UserCount user(s)
                                         </p>
                                     </div>
-                                    <div class="text-end">
-                                        <button class="btn btn-danger"
-                                                @onclick="() => ConfirmAndDeleteAsync(tenant)"
-                                                disabled="@_isDeleting">
-                                            @if (_isDeleting)
-                                            {
-                                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                            }
-                                            Delete tenant
-                                        </button>
+                                    <div class="d-flex flex-column gap-2 text-end">
+                                        <div class="btn-group">
+                                            <button class="btn btn-outline-warning"
+                                                    title="Clear plan confirmation, payment acknowledgement, and encryption settings"
+                                                    @onclick="() => ResetOnboardingAsync(tenant)"
+                                                    disabled="@(_isResetting && _resettingTenantId == tenant.Id)">
+                                                @if (_isResetting && _resettingTenantId == tenant.Id)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                                }
+                                                Reset onboarding
+                                            </button>
+                                            <button class="btn btn-danger"
+                                                    @onclick="() => ConfirmAndDeleteAsync(tenant)"
+                                                    disabled="@_isDeleting">
+                                                @if (_isDeleting)
+                                                {
+                                                    <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                                }
+                                                Delete tenant
+                                            </button>
+                                        </div>
+                                        <div class="text-muted small">
+                                            Needs onboarding: @(NeedsOnboarding(tenant) ? "Yes" : "No")
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mt-3">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        @RenderStatusBadge("Plan confirmed", tenant.PlanConfirmed)
+                                        @RenderStatusBadge("Encryption configured", tenant.EncryptionConfigured)
+                                        @RenderStatusBadge("Billing acknowledged", tenant.PaymentAcknowledged)
+                                        @RenderStatusBadge("Mailbox uploaded", tenant.HasMailbox)
                                     </div>
                                 </div>
 
@@ -158,6 +183,8 @@ else
     private readonly List<DevTenantDto> _tenants = new();
     private bool _isLoading;
     private bool _isDeleting;
+    private bool _isResetting;
+    private Guid? _resettingTenantId;
     private string? _statusMessage;
     private bool _statusIsError;
 
@@ -290,6 +317,81 @@ else
             StateHasChanged();
         }
     }
+
+    private async Task ResetOnboardingAsync(DevTenantDto tenant)
+    {
+        if (_isResetting)
+        {
+            return;
+        }
+
+        var confirmed = await Js.InvokeAsync<bool>("confirm", $"Reset onboarding for '{tenant.Name}'? This clears plan confirmation, billing acknowledgement, and encryption settings.");
+        if (!confirmed)
+        {
+            return;
+        }
+
+        _isResetting = true;
+        _resettingTenantId = tenant.Id;
+        StateHasChanged();
+
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _statusMessage = "You must be signed in to reset onboarding.";
+                _statusIsError = true;
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Post, BuildApiUri($"api/v1/dev/tenants/{tenant.Id}/reset-onboarding"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+
+            if (response.IsSuccessStatusCode && payload?.Success == true)
+            {
+                _statusMessage = $"Onboarding reset for '{tenant.Name}'.";
+                _statusIsError = false;
+                await LoadTenantsAsync();
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _statusMessage = "Session expired. Please sign in again.";
+                _statusIsError = true;
+            }
+            else
+            {
+                _statusMessage = payload?.Error ?? $"Failed to reset onboarding for '{tenant.Name}'.";
+                _statusIsError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"Error resetting onboarding: {ex.Message}";
+            _statusIsError = true;
+        }
+        finally
+        {
+            _isResetting = false;
+            _resettingTenantId = null;
+            StateHasChanged();
+        }
+    }
+
+    private bool NeedsOnboarding(DevTenantDto tenant)
+        => !(tenant.PlanConfirmed && tenant.EncryptionConfigured && tenant.PaymentAcknowledged && tenant.HasMailbox);
+
+    private RenderFragment RenderStatusBadge(string label, bool isComplete) => builder =>
+    {
+        var seq = 0;
+        builder.OpenElement(seq++, "span");
+        builder.AddAttribute(seq++, "class", $"badge {(isComplete ? "bg-success" : "bg-secondary")} text-wrap");
+        builder.AddContent(seq++, label);
+        builder.CloseElement();
+    };
 
     private Uri BuildApiUri(string relativePath)
     {

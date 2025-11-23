@@ -60,7 +60,11 @@ public record TenantOnboardingStatusDto(
     bool EncryptionConfigured,
     bool HasMailbox,
     bool PlanConfirmed,
-    string SubscriptionTier);
+    string SubscriptionTier,
+    string SecurityPreference,
+    bool PaymentAcknowledged,
+    DateTime? PaymentAcknowledgedAt,
+    string? IdentityProvider);
 
 public record SubscriptionPlanDto(
     string Name,
@@ -77,6 +81,24 @@ public record SubscriptionPlanDto(
     IReadOnlyList<string> Features);
 
 public record SelectSubscriptionPlanRequest(string PlanName);
+
+public record SetSecurityPreferenceRequest(string Mode);
+
+public record PaymentAcknowledgementRequest(bool Acknowledged);
+
+public record SecurityPreferenceResponse(string SecurityPreference);
+
+public record PaymentAcknowledgementResponse(DateTime? PaymentAcknowledgedAt);
+
+public record OfflineByokUploadRequest(
+    string Version,
+    string? TenantLabel,
+    DateTime CreatedAt,
+    string WrappedDek,
+    string Salt,
+    string Nonce,
+    string Checksum,
+    string Passphrase);
 
 public record TenantEncryptionHistoryItemDto(
     Guid Id,

@@ -1,14 +1,19 @@
 @inherits LayoutComponentBase
+@using System
 @using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Navigation
 
-<div class="page">
-    <AuthorizeView>
-        <Authorized>
-            <div class="sidebar">
-                <NavMenu />
-            </div>
-        </Authorized>
-    </AuthorizeView>
+<div class="page @(ShouldHideSidebar ? "page--no-sidebar" : null)">
+    @if (!ShouldHideSidebar)
+    {
+        <AuthorizeView>
+            <Authorized>
+                <div class="sidebar">
+                    <NavMenu />
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    }
 
     <main>
         <TopRow />
@@ -26,3 +31,8 @@
 </div>
 
 <AiImpersonationBootstrapper />
+
+@code {
+    private bool ShouldHideSidebar =>
+    Navigation.Uri?.Contains("/onboarding", StringComparison.OrdinalIgnoreCase) == true;
+}

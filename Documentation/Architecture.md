@@ -110,6 +110,57 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
 - **Progress tracking**: `TenantOnboardingStatusDto` now includes `PlanConfirmed` and `SubscriptionTier`. The wizard (and dashboard banner) calculates completion purely from the backend (`PlanConfirmed`, `EncryptionConfigured`, `HasMailbox`) so refreshing the page always reflects reality.
 - **Design language**: Uses the same gradient hero, pill groups, and `.modern-card` stack as Home/Upload. The left rail is a progress list (step number + icon) while the right pane renders rich content for the selected step (plan cards, security alert, upload CTA). Everything is dark-mode aware thanks to existing tokens.
 
+###### Onboarding UX Narrative (Jan 2026 refresh)
+
+1. **OAuth welcome**  
+   - Immediately after Google or Microsoft sign-in we land users on `/onboarding` with a hero block: “Welcome back, `<email>`” plus a provider badge (Google/Microsoft).  
+   - Copy clarifies that their identity is already secured and the next steps are about configuring the workspace.  
+   - CTA: “Start setup” selects the first item in the progress rail.
+
+2. **Plan selection**  
+   - Modern cards list each plan (Free/Pro/Team/etc.) with upbeat copy (“Launch fast”, “Scale with AI search”).  
+   - Each card shows price, limits, and bullets. Selecting a card calls `PUT /api/v1/tenants/subscription`.  
+   - Confirmation toast: “Great choice! You can switch plans anytime in Settings → Billing.”  
+   - Rail marks step complete once `TenantOnboardingStatusDto.PlanConfirmed = true`.
+
+3. **Security setup**  
+   - Two cards with marketing-friendly pros/cons:
+     - **Evermail-managed (Fast Start)**  
+       - Headline: “Be searching in minutes.”  
+       - Bullets: “Evermail holds the keys”, “Best for trials & debugging”, “Switch to BYOK anytime.”  
+       - CTA button “Use quick-start keys” triggers `UpsertTenantEncryptionSettings` with `Provider=EvermailManaged` and shows a success badge: “Keys provisioned automatically.”
+     - **Customer-managed key (BYOK)**  
+       - Headline: “Your key, your rules.”  
+       - Bullets: “Evermail can’t see plaintext without your approval”, “Pairs with Azure Key Vault, AWS KMS, or offline bundles”, “Perfect for compliance teams.”  
+       - When selected, an inline panel embeds the existing Offline BYOK Lab component so admins can generate a test key bundle using browser WebCrypto. Copy reassures them they can swap in Azure/AWS credentials later.
+   - Side copy references their OAuth identity (“`kalle@contoso.com` will manage these keys”) to keep context.  
+  - Backend stores a new `TenantSecurityPreference` string (`QuickStart` or `BYOK`) inside onboarding status so the wizard can resume correctly.
+
+4. **Billing acknowledgement**  
+   - Placeholder step while Stripe integration is pending.  
+   - Panel reminds the user of the plan they chose, estimated monthly/annual cost, and offers two buttons: “Connect Stripe (coming soon)” (disabled) and “Acknowledge billing later” (records `PaymentAcknowledgedAt`).  
+   - Marketing copy: “We’ll prompt you to enter billing once you’re ready to import real archives. No charges until you connect Stripe.”  
+   - Stored in backend as `Tenant.PaymentAcknowledged`/timestamp so we know they’ve seen the paywall expectations.
+
+5. **Upload kickoff**  
+   - Final step shows a celebratory card (“Security locked in. Billing queued up. Let’s import your first mailbox.”) plus plan limit reminders.  
+   - Primary CTA goes to `/upload`; secondary link surfaces documentation/video.  
+   - Checklist recaps prior steps with checkmarks so admins see the full journey they just completed.
+
+###### Messaging & Content Guidelines
+- **Tone**: friendly SaaS marketing. Emphasize benefits before trade-offs (“Switch to BYOK whenever compliance demands it” instead of “Managed keys are less secure”).  
+- **Google/Microsoft identity**: always show the signed-in provider icon in the hero + sidebar identity card so users know which account is active.  
+- **Security choice rationale**:
+  - Evermail-managed: highlight speed, zero configuration, ideal for demos/debugging. Disclose that Evermail infrastructure can decrypt during operations.  
+  - BYOK: highlight tenant-controlled keys, zero-operator access, compliance readiness. Mention that setup takes longer and requires vault access.  
+- **Offline BYOK lab integration**: reuse the existing component but frame it as “Need a key right now? Generate a test bundle without leaving your browser.” Provide reminders (“Store this bundle safely—Evermail can’t recover it”).  
+- **Placeholder billing step**: be transparent (“Stripe hookup coming soon”) yet actionable (“Mark this step as acknowledged so we can alert you when checkout is ready”).  
+- **Data contract updates** (for future implementation):
+  - `TenantOnboardingStatusDto` gains `SecurityPreference`, `PaymentAcknowledged`, `PaymentAcknowledgedAt`, and `IdentityProvider`.
+  - Wizard uses these flags to unlock the Upload step only when plan + security + billing acknowledgements are all true.
+
+This spec keeps the onboarding flow grounded in the current implementation while documenting the UX copy, OAuth considerations, and marketing positioning we expect to ship alongside the managed/BYOK security choices.
+
 #### Admin Dashboard (Blazor Server)
 - **Purpose**: Internal operations and monitoring
 - **Technology**: Blazor Server for real-time updates

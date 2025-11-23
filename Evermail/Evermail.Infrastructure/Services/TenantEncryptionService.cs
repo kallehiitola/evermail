@@ -5,6 +5,7 @@ using Azure.Security.KeyVault.Keys;
 using Evermail.Common.DTOs.Tenant;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services.Encryption;
 using Microsoft.EntityFrameworkCore;
 
 namespace Evermail.Infrastructure.Services;
@@ -19,15 +20,21 @@ public class TenantEncryptionService : ITenantEncryptionService
     private readonly TokenCredential _credential;
     private readonly IAwsKmsConnector _awsKmsConnector;
 
+    private const string ProviderOffline = "Offline";
+
     public TenantEncryptionService(
         EvermailDbContext context,
         TokenCredential credential,
-        IAwsKmsConnector awsKmsConnector)
+        IAwsKmsConnector awsKmsConnector,
+        IOfflineByokKeyProtector offlineByokKeyProtector)
     {
         _context = context;
         _credential = credential;
         _awsKmsConnector = awsKmsConnector;
+        _offlineByokKeyProtector = offlineByokKeyProtector;
     }
+
+    private readonly IOfflineByokKeyProtector _offlineByokKeyProtector;
 
     public async Task<TenantEncryptionSettingsDto> GetSettingsAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
@@ -62,12 +69,61 @@ public class TenantEncryptionService : ITenantEncryptionService
                 ClearAwsFields(entity);
                 entity.EncryptionPhase = "NotConfigured";
                 break;
+            case ProviderOffline:
+                throw new InvalidOperationException("Use the offline BYOK upload endpoint to configure offline keys.");
             default:
                 throw new NotSupportedException($"Encryption provider '{normalizedProvider}' is not supported.");
         }
 
         entity.UpdatedAt = DateTime.UtcNow;
         entity.UpdatedByUserId = userId;
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return MapToDto(entity);
+    }
+
+    public async Task<TenantEncryptionSettingsDto> UploadOfflineBundleAsync(
+        Guid tenantId,
+        Guid userId,
+        OfflineByokUploadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (string.IsNullOrWhiteSpace(request.Passphrase) || request.Passphrase.Length < 12)
+        {
+            throw new InvalidOperationException("Passphrase must be at least 12 characters.");
+        }
+
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+
+        var masterKey = DecryptOfflineBundle(request);
+
+        try
+        {
+            entity.Provider = ProviderOffline;
+            entity.OfflineMasterKeyCiphertext = _offlineByokKeyProtector.Protect(masterKey);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(masterKey);
+        }
+
+        ClearAzureFields(entity);
+        ClearAwsFields(entity);
+
+        entity.OfflineBundleVersion = request.Version?.Trim();
+        entity.OfflineKeyChecksum = request.Checksum?.Trim();
+        entity.OfflineTenantLabel = string.IsNullOrWhiteSpace(request.TenantLabel)
+            ? null
+            : request.TenantLabel.Trim();
+        entity.OfflineKeyCreatedAt = DateTime.SpecifyKind(request.CreatedAt, DateTimeKind.Utc);
+        entity.EncryptionPhase = "BYOKConfigured";
+        entity.UpdatedAt = DateTime.UtcNow;
+        entity.UpdatedByUserId = userId;
+        entity.LastVerifiedAt = DateTime.UtcNow;
+        entity.LastVerificationMessage = "Offline BYOK bundle uploaded.";
 
         await _context.SaveChangesAsync(cancellationToken);
 
@@ -82,6 +138,12 @@ public class TenantEncryptionService : ITenantEncryptionService
         {
             ProviderAzureKeyVault or ProviderEvermailManaged => await TestAzureKeyVaultAsync(entity, cancellationToken),
             ProviderAwsKms => await TestAwsKmsAsync(entity, cancellationToken),
+            ProviderOffline => new TenantEncryptionTestResultDto(
+                Success: !string.IsNullOrWhiteSpace(entity.OfflineMasterKeyCiphertext),
+                Message: string.IsNullOrWhiteSpace(entity.OfflineMasterKeyCiphertext)
+                    ? "Offline BYOK master key not uploaded."
+                    : "Offline bundle uploaded.",
+                Timestamp: DateTime.UtcNow),
             _ => new TenantEncryptionTestResultDto(
                 Success: false,
                 Message: $"Provider '{entity.Provider}' cannot be validated yet.",
@@ -264,6 +326,73 @@ public class TenantEncryptionService : ITenantEncryptionService
         return result;
     }
 
+    private static byte[] DecryptOfflineBundle(OfflineByokUploadRequest request)
+    {
+        byte[] salt;
+        byte[] nonce;
+        byte[] wrappedDek;
+        byte[] checksum;
+
+        try
+        {
+            salt = Convert.FromBase64String(request.Salt);
+            nonce = Convert.FromBase64String(request.Nonce);
+            wrappedDek = Convert.FromBase64String(request.WrappedDek);
+            checksum = Convert.FromBase64String(request.Checksum);
+        }
+        catch (FormatException ex)
+        {
+            throw new InvalidOperationException("Offline bundle values must be base64 encoded.", ex);
+        }
+
+        if (salt.Length != 16)
+        {
+            throw new InvalidOperationException("Offline bundle salt must be 16 bytes.");
+        }
+
+        if (nonce.Length != 12)
+        {
+            throw new InvalidOperationException("Offline bundle nonce must be 12 bytes.");
+        }
+
+        if (wrappedDek.Length <= 16)
+        {
+            throw new InvalidOperationException("Offline bundle data is invalid.");
+        }
+
+        var ciphertext = wrappedDek.AsSpan(0, wrappedDek.Length - 16);
+        var tag = wrappedDek.AsSpan(wrappedDek.Length - 16);
+
+        var plaintext = new byte[ciphertext.Length];
+
+        using var pbkdf2 = new Rfc2898DeriveBytes(
+            request.Passphrase,
+            salt,
+            310_000,
+            HashAlgorithmName.SHA256);
+
+        var wrappingKey = pbkdf2.GetBytes(32);
+
+        try
+        {
+            using var aes = new AesGcm(wrappingKey, tag.Length);
+            aes.Decrypt(nonce, ciphertext, tag, plaintext);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(wrappingKey);
+        }
+
+        var computedChecksum = SHA256.HashData(plaintext);
+        if (!CryptographicOperations.FixedTimeEquals(computedChecksum, checksum))
+        {
+            CryptographicOperations.ZeroMemory(plaintext);
+            throw new InvalidOperationException("Offline bundle checksum mismatch.");
+        }
+
+        return plaintext;
+    }
+
     private static string SanitizeUri(string value)
     {
         if (Uri.TryCreate(value, UriKind.Absolute, out var uri))
@@ -299,17 +428,20 @@ public class TenantEncryptionService : ITenantEncryptionService
                 entity.AwsExternalId)
             : null;
 
+        var isConfigured = entity.Provider switch
+        {
+            ProviderAzureKeyVault => !string.IsNullOrWhiteSpace(entity.KeyVaultUri) &&
+                                     !string.IsNullOrWhiteSpace(entity.KeyVaultKeyName),
+            ProviderAwsKms => !string.IsNullOrWhiteSpace(entity.AwsKmsKeyArn) &&
+                              !string.IsNullOrWhiteSpace(entity.AwsIamRoleArn),
+            ProviderOffline => !string.IsNullOrWhiteSpace(entity.OfflineMasterKeyCiphertext),
+            _ => false
+        };
+
         return new TenantEncryptionSettingsDto(
             Provider: entity.Provider,
             EncryptionPhase: entity.EncryptionPhase,
-            IsConfigured: entity.Provider switch
-            {
-                ProviderAzureKeyVault => !string.IsNullOrWhiteSpace(entity.KeyVaultUri) &&
-                                         !string.IsNullOrWhiteSpace(entity.KeyVaultKeyName),
-                ProviderAwsKms => !string.IsNullOrWhiteSpace(entity.AwsKmsKeyArn) &&
-                                  !string.IsNullOrWhiteSpace(entity.AwsIamRoleArn),
-                _ => false
-            },
+            IsConfigured: isConfigured,
             UpdatedAt: entity.UpdatedAt ?? entity.CreatedAt,
             LastVerifiedAt: entity.LastVerifiedAt,
             LastVerificationMessage: entity.LastVerificationMessage,
@@ -330,6 +462,7 @@ public class TenantEncryptionService : ITenantEncryptionService
         {
             "Azure" or "AzureKeyVault" or "azure" => ProviderAzureKeyVault,
             "Aws" or "AWS" or "AwsKms" => ProviderAwsKms,
+            "Offline" or "offline-byok" => ProviderOffline,
             "EvermailManaged" or "Evermail" => ProviderEvermailManaged,
             _ => normalized
         };

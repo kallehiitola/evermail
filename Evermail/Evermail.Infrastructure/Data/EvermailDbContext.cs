@@ -50,10 +50,10 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
 
             modelBuilder.Entity<Attachment>()
                 .HasQueryFilter(a => a.TenantId == _tenantContext.TenantId);
-            
+
             modelBuilder.Entity<MailboxUpload>()
                 .HasQueryFilter(mu => mu.TenantId == _tenantContext.TenantId);
-            
+
             modelBuilder.Entity<MailboxDeletionQueue>()
                 .HasQueryFilter(mdq => mdq.TenantId == _tenantContext.TenantId);
 
@@ -91,6 +91,9 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.HasKey(t => t.Id);
             entity.HasIndex(t => t.Slug).IsUnique();
             entity.HasIndex(t => t.StripeCustomerId);
+            entity.Property(t => t.SecurityPreference)
+                .HasMaxLength(32)
+                .HasDefaultValue("QuickStart");
         });
 
         modelBuilder.Entity<TenantEncryptionSettings>(entity =>
@@ -124,7 +127,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
         modelBuilder.Entity<ApplicationUser>(entity =>
         {
             entity.HasIndex(u => u.TenantId);
-            
+
             entity.HasOne(u => u.Tenant)
                 .WithMany(t => t.Users)
                 .HasForeignKey(u => u.TenantId)
@@ -153,7 +156,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany(u => u.Mailboxes)
                 .HasForeignKey(m => m.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
-            
+
             entity.HasOne(m => m.LatestUpload)
                 .WithMany()
                 .HasForeignKey(m => m.LatestUploadId)
@@ -247,7 +250,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany(m => m.EmailMessages)
                 .HasForeignKey(e => e.MailboxId)
                 .OnDelete(DeleteBehavior.Cascade);
-            
+
             entity.HasOne(e => e.MailboxUpload)
                 .WithMany()
                 .HasForeignKey(e => e.MailboxUploadId)
@@ -257,7 +260,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany(t => t.Emails)
                 .HasForeignKey(e => e.ConversationId)
                 .OnDelete(DeleteBehavior.NoAction);
-            
+
             entity.HasMany(e => e.Recipients)
                 .WithOne(r => r.EmailMessage)
                 .HasForeignKey(r => r.EmailMessageId)
@@ -384,7 +387,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
         {
             entity.HasKey(sp => sp.Id);
             entity.HasIndex(sp => sp.Name).IsUnique();
-            
+
             // Specify decimal precision
             entity.Property(sp => sp.PriceMonthly).HasPrecision(18, 2);
             entity.Property(sp => sp.PriceYearly).HasPrecision(18, 2);
@@ -422,7 +425,7 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany()
                 .HasForeignKey(rt => rt.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
-                
+
             // Computed column for IsActive can't be persisted, it's calculated in code
             entity.Ignore(rt => rt.IsActive);
             entity.Ignore(rt => rt.IsExpired);

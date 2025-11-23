@@ -8,6 +8,7 @@ using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
 using Evermail.Infrastructure.Services.Archives;
 using Evermail.Infrastructure.Services.Encryption;
+using Evermail.Infrastructure.Configuration;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 
@@ -31,6 +32,9 @@ catch (Exception ex)
 // Database connection
 var connectionString = builder.Configuration.GetConnectionString("evermaildb")
     ?? throw new InvalidOperationException("Connection string 'evermaildb' is not configured");
+
+builder.Services.Configure<OfflineByokOptions>(
+    builder.Configuration.GetSection("OfflineByok"));
 
 builder.Services.AddDbContext<EvermailDbContext>(options =>
 {
@@ -61,6 +65,8 @@ builder.Services.AddSingleton<IAwsKmsConnector, AwsKmsConnector>();
 builder.Services.AddSingleton<IKeyWrappingProvider, EvermailManagedWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingProvider, AzureKeyVaultWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingProvider, AwsKmsWrappingProvider>();
+builder.Services.AddSingleton<IOfflineByokKeyProtector, OfflineByokKeyProtector>();
+builder.Services.AddSingleton<IKeyWrappingProvider, OfflineByokWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingService, KeyWrappingService>();
 builder.Services.AddSingleton<PstToMboxWriter>();
 builder.Services.AddScoped<IArchivePreparationService, ArchivePreparationService>();

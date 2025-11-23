@@ -189,6 +189,29 @@ Validates connectivity to the configured provider:
 
 On failure, `success` is `false` and `error` contains the human-friendly reason (missing permissions, wrong ARN, etc.).
 
+### POST /tenants/encryption/offline
+Uploads an offline BYOK bundle that was generated entirely in the browser. The payload includes the wrapped DEK plus the passphrase so the API can unwrap it once, encrypt it with the server-side protector key, and mark the tenant as `Provider = Offline`.
+
+**Request Body**:
+```json
+{
+  "version": "offline-byok/v1",
+  "tenantLabel": "Finance Vault",
+  "createdAt": "2025-11-23T08:18:05.791Z",
+  "wrappedDek": "n+6bZYpDdfrkqjCKq77i4GHaa/tYDG0eWhM+U/rxQRXgqn9s1SVm/1R1fJFDLbNX",
+  "salt": "nEmZ1At8t2cL4NTn7aQCyg==",
+  "nonce": "vvru5fEnMHh03kM2",
+  "checksum": "9L/5X59nXs11Wutcgl2UrDBttv8ZNTetJfiVKEyWOhk=",
+  "passphrase": "correct horse battery staple"
+}
+```
+
+- The passphrase is only used inside the request lifetime. After the API derives the wrapping key and decrypts the DEK, both the plaintext DEK and passphrase are zeroed.
+- The service encrypts the DEK with the protector key configured via `OfflineByok:MasterKey` and stores the ciphertext in `TenantEncryptionSettings.OfflineMasterKeyCiphertext`.
+- Idempotent: calling this endpoint again overwrites the previous offline key (useful for rotation).
+
+**Response (200 OK)** mirrors `GET /tenants/encryption`. If the checksum or passphrase is wrong the API returns `400 Bad Request` with `error` set to the reason.
+
 ### GET /tenants/plans
 Returns every active subscription plan so the onboarding wizard and admin screens can render pricing cards.
 
@@ -251,7 +274,11 @@ Returns a lightweight status object used by the guided registration / dashboard 
     "planConfirmed": false,
     "subscriptionTier": "Free",
     "encryptionConfigured": false,
-    "hasMailbox": false
+    "hasMailbox": false,
+    "securityPreference": "QuickStart",
+    "paymentAcknowledged": false,
+    "paymentAcknowledgedAt": null,
+    "identityProvider": "Google"
   }
 }
 ```
@@ -262,8 +289,51 @@ Interpretation:
 - `subscriptionTier` – the current plan name (`Free`, `Pro`, `Team`, `Enterprise`), even if not yet confirmed.
 - `encryptionConfigured` – `true` once the tenant has selected Evermail-managed, Azure Key Vault, AWS KMS, or Offline BYOK and supplied the required fields.
 - `hasMailbox` – `true` once at least one mailbox is uploaded; completes the onboarding checklist.
+- `securityPreference` – `"QuickStart"` (Evermail-managed) or `"BYOK"` depending on what the admin picked in the wizard. This lets the UI display the right card even before BYOK setup is complete.
+- `paymentAcknowledged` / `paymentAcknowledgedAt` – track whether the admin clicked the “I’ll connect Stripe later” placeholder. We block the upload step until this box is checked so future billing prompts make sense.
+- `identityProvider` – `"Google"`, `"Microsoft"`, or `"Password"` based on the current user’s authentication provider. Display-only; helps admins understand which account is active while configuring keys.
 
 The endpoint requires `Admin` or `SuperAdmin` role membership and is consumed by `/` (dashboard) and `/onboarding`.
+
+### PUT /tenants/onboarding/security
+Records which encryption path the tenant intends to use so the onboarding wizard can highlight the correct card and copy. This does **not** provision keys by itself—it simply stores the preference (`QuickStart` or `BYOK`). For quick start, the UI immediately follows up with `PUT /tenants/encryption` using the `EvermailManaged` provider so the step completes.
+
+**Request Body**:
+```json
+{
+  "mode": "BYOK"
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "securityPreference": "BYOK"
+  }
+}
+```
+
+### PUT /tenants/onboarding/payment
+Marks the placeholder billing step as acknowledged. Until Stripe checkout is wired up we simply capture that the admin saw the pricing copy and agreed to connect billing later.
+
+**Request Body**:
+```json
+{
+  "acknowledged": true
+}
+```
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "paymentAcknowledgedAt": "2025-11-22T10:15:00Z"
+  }
+}
+```
 
 ---
 

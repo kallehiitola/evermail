@@ -3,9 +3,11 @@ using Evermail.Common.DTOs.Tenant;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
 using Evermail.Infrastructure.Services;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+using Evermail.WebApp.Services.Onboarding;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -16,6 +18,12 @@ public static class TenantEndpoints
         group.MapGet("/onboarding/status", GetOnboardingStatusAsync)
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
+        group.MapPut("/onboarding/security", SetSecurityPreferenceAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
+
+        group.MapPut("/onboarding/payment", AcknowledgePaymentAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
+
         var encryption = group.MapGroup("/encryption")
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
@@ -23,6 +31,7 @@ public static class TenantEndpoints
         encryption.MapPut("/", UpsertEncryptionSettingsAsync);
         encryption.MapPost("/test", TestEncryptionSettingsAsync);
         encryption.MapGet("/history", GetEncryptionHistoryAsync);
+        encryption.MapPost("/offline", UploadOfflineBundleAsync);
 
         group.MapGet("/plans", GetSubscriptionPlansAsync)
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
@@ -54,6 +63,7 @@ public static class TenantEndpoints
         UpsertTenantEncryptionSettingsRequest request,
         ITenantEncryptionService service,
         TenantContext tenantContext,
+        IOnboardingStatusService onboardingStatusService,
         CancellationToken cancellationToken)
     {
         if (tenantContext.TenantId == Guid.Empty)
@@ -74,6 +84,8 @@ public static class TenantEndpoints
             tenantContext.UserId,
             request,
             cancellationToken);
+
+        onboardingStatusService.Invalidate(tenantContext.TenantId);
 
         return Results.Ok(new ApiResponse<TenantEncryptionSettingsDto>(
             Success: true,
@@ -117,9 +129,42 @@ public static class TenantEndpoints
             Data: items));
     }
 
+    private static async Task<IResult> UploadOfflineBundleAsync(
+        OfflineByokUploadRequest request,
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        IOnboardingStatusService onboardingStatusService,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var dto = await service.UploadOfflineBundleAsync(
+                tenantContext.TenantId,
+                tenantContext.UserId,
+                request,
+                cancellationToken);
+
+            onboardingStatusService.Invalidate(tenantContext.TenantId);
+
+            return Results.Ok(new ApiResponse<TenantEncryptionSettingsDto>(
+                Success: true,
+                Data: dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
+        }
+    }
+
     private static async Task<IResult> GetOnboardingStatusAsync(
         EvermailDbContext context,
         TenantContext tenantContext,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         if (tenantContext.TenantId == Guid.Empty)
@@ -147,26 +192,108 @@ public static class TenantEndpoints
                    where ur.RoleId == adminRoleId && user.TenantId == tenantContext.TenantId
                    select ur).AnyAsync(cancellationToken);
 
-        var encryptionConfigured = await context.TenantEncryptionSettings
+        var encryptionSettings = await context.TenantEncryptionSettings
             .AsNoTracking()
-            .Where(s => s.TenantId == tenantContext.TenantId)
-            .Select(s => IsEncryptionConfigured(s))
-            .FirstOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(s => s.TenantId == tenantContext.TenantId, cancellationToken);
+
+        var encryptionConfigured = encryptionSettings is not null &&
+            OnboardingStatusCalculator.IsEncryptionConfigured(encryptionSettings);
 
         var hasMailbox = await context.Mailboxes
             .AsNoTracking()
             .AnyAsync(m => m.TenantId == tenantContext.TenantId, cancellationToken);
+
+        var securityPreference = NormalizeSecurityPreference(tenant.SecurityPreference);
+        var paymentAcknowledgedAt = tenant.PaymentAcknowledgedAt;
+        var identityProvider = ResolveIdentityProvider(httpContext.User);
 
         var dto = new TenantOnboardingStatusDto(
             HasAdmin: hasAdmin,
             EncryptionConfigured: encryptionConfigured,
             HasMailbox: hasMailbox,
             PlanConfirmed: tenant.OnboardingPlanConfirmedAt.HasValue,
-            SubscriptionTier: tenant.SubscriptionTier);
+            SubscriptionTier: tenant.SubscriptionTier,
+            SecurityPreference: securityPreference,
+            PaymentAcknowledged: paymentAcknowledgedAt.HasValue,
+            PaymentAcknowledgedAt: paymentAcknowledgedAt,
+            IdentityProvider: identityProvider);
 
         return Results.Ok(new ApiResponse<TenantOnboardingStatusDto>(
             Success: true,
             Data: dto));
+    }
+
+    private static async Task<IResult> SetSecurityPreferenceAsync(
+        SetSecurityPreferenceRequest request,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.Mode))
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "mode is required"));
+        }
+
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Tenant not found."));
+        }
+
+        var normalized = NormalizeSecurityPreference(request.Mode);
+        tenant.SecurityPreference = normalized;
+        tenant.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new ApiResponse<SecurityPreferenceResponse>(
+            Success: true,
+            Data: new SecurityPreferenceResponse(normalized)));
+    }
+
+    private static async Task<IResult> AcknowledgePaymentAsync(
+        PaymentAcknowledgementRequest request,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        IOnboardingStatusService onboardingStatusService,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (request is null || request.Acknowledged != true)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "acknowledged must be true"));
+        }
+
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Tenant not found."));
+        }
+
+        if (!tenant.PaymentAcknowledgedAt.HasValue)
+        {
+            tenant.PaymentAcknowledgedAt = DateTime.UtcNow;
+            tenant.PaymentAcknowledgedByUserId = tenantContext.UserId;
+            tenant.UpdatedAt = DateTime.UtcNow;
+            await context.SaveChangesAsync(cancellationToken);
+            onboardingStatusService.Invalidate(tenantContext.TenantId);
+        }
+
+        return Results.Ok(new ApiResponse<PaymentAcknowledgementResponse>(
+            Success: true,
+            Data: new PaymentAcknowledgementResponse(tenant.PaymentAcknowledgedAt)));
     }
 
     private static readonly string[] SupportedProviders =
@@ -211,6 +338,7 @@ public static class TenantEndpoints
         SelectSubscriptionPlanRequest request,
         EvermailDbContext context,
         TenantContext tenantContext,
+        IOnboardingStatusService onboardingStatusService,
         CancellationToken cancellationToken)
     {
         if (tenantContext.TenantId == Guid.Empty)
@@ -246,6 +374,7 @@ public static class TenantEndpoints
         tenant.OnboardingPlanConfirmedAt = DateTime.UtcNow;
 
         await context.SaveChangesAsync(cancellationToken);
+        onboardingStatusService.Invalidate(tenantContext.TenantId);
 
         return Results.Ok(new ApiResponse<object>(
             Success: true,
@@ -339,18 +468,44 @@ public static class TenantEndpoints
         return provider.Trim();
     }
 
-    private static bool IsEncryptionConfigured(TenantEncryptionSettings settings)
+    private static string NormalizeSecurityPreference(string? mode)
     {
-        var provider = settings.Provider ?? "AzureKeyVault";
-
-        return provider switch
+        if (string.Equals(mode, "BYOK", StringComparison.OrdinalIgnoreCase))
         {
-            "AwsKms" => !string.IsNullOrWhiteSpace(settings.AwsKmsKeyArn) &&
-                        !string.IsNullOrWhiteSpace(settings.AwsIamRoleArn),
-            "EvermailManaged" => true,
-            _ => !string.IsNullOrWhiteSpace(settings.KeyVaultUri) &&
-                 !string.IsNullOrWhiteSpace(settings.KeyVaultKeyName)
-        };
+            return "BYOK";
+        }
+
+        return "QuickStart";
+    }
+
+    private static string? ResolveIdentityProvider(ClaimsPrincipal? user)
+    {
+        if (user?.Identity?.IsAuthenticated != true)
+        {
+            return null;
+        }
+
+        var provider = user.FindFirst("idp")?.Value
+            ?? user.FindFirst("http://schemas.microsoft.com/identity/claims/identityprovider")?.Value
+            ?? user.Identity?.AuthenticationType;
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            return null;
+        }
+
+        if (provider.Contains("google", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Google";
+        }
+
+        if (provider.Contains("microsoft", StringComparison.OrdinalIgnoreCase) ||
+            provider.Contains("live", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Microsoft";
+        }
+
+        return provider;
     }
 
     private sealed record HistoryQuery([property: FromQuery(Name = "limit")] int? Limit);

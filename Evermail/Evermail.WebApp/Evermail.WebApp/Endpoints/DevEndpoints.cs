@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Evermail.WebApp.Services.Onboarding;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -32,13 +33,15 @@ public static class DevEndpoints
             .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
         group.MapDelete("/tenants/{tenantId:guid}", DeleteTenantAsync)
             .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
+        group.MapPost("/tenants/{tenantId:guid}/reset-onboarding", ResetTenantOnboardingAsync)
+            .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
         group.MapGet("/test-keyvault", TestKeyVaultAccessAsync)
             .RequireAuthorization();
         group.MapGet("/fulltext-status", GetFullTextStatusAsync)
             .RequireAuthorization();
         group.MapGet("/ai-auth", GenerateAiAuthTokenAsync)
             .AllowAnonymous();
-        
+
         return group;
     }
 
@@ -62,7 +65,7 @@ public static class DevEndpoints
         }
 
         var result = await userManager.AddToRoleAsync(user, "Admin");
-        
+
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
@@ -73,11 +76,11 @@ public static class DevEndpoints
         }
 
         var roles = await userManager.GetRolesAsync(user);
-        
+
         return Results.Ok(new ApiResponse<object>(
             Success: true,
-            Data: new 
-            { 
+            Data: new
+            {
                 Email = user.Email,
                 Roles = roles,
                 Message = $"✅ User '{email}' has been added to Admin role!"
@@ -107,13 +110,13 @@ public static class DevEndpoints
         // Add both Admin and SuperAdmin roles
         var adminResult = await userManager.AddToRoleAsync(user, "Admin");
         var superAdminResult = await userManager.AddToRoleAsync(user, "SuperAdmin");
-        
+
         var roles = await userManager.GetRolesAsync(user);
-        
+
         return Results.Ok(new ApiResponse<object>(
             Success: true,
-            Data: new 
-            { 
+            Data: new
+            {
                 Email = user.Email,
                 Roles = roles,
                 Message = $"✅ User '{email}' has been added to SuperAdmin role!"
@@ -141,11 +144,11 @@ public static class DevEndpoints
         }
 
         var roles = await userManager.GetRolesAsync(user);
-        
+
         return Results.Ok(new ApiResponse<object>(
             Success: true,
-            Data: new 
-            { 
+            Data: new
+            {
                 Email = user.Email,
                 UserId = user.Id,
                 TenantId = user.TenantId,
@@ -173,16 +176,16 @@ public static class DevEndpoints
             var queuesConnection = configuration.GetConnectionString("queues");
             var sqlPassword = configuration["sql-password"];
 
-            results["blobs-connection"] = blobsConnection != null 
-                ? $"✅ Found (length: {blobsConnection.Length})" 
+            results["blobs-connection"] = blobsConnection != null
+                ? $"✅ Found (length: {blobsConnection.Length})"
                 : "❌ Not found";
-            
-            results["queues-connection"] = queuesConnection != null 
-                ? $"✅ Found (length: {queuesConnection.Length})" 
+
+            results["queues-connection"] = queuesConnection != null
+                ? $"✅ Found (length: {queuesConnection.Length})"
                 : "❌ Not found";
-            
-            results["sql-password"] = sqlPassword != null 
-                ? $"✅ Found (length: {sqlPassword.Length})" 
+
+            results["sql-password"] = sqlPassword != null
+                ? $"✅ Found (length: {sqlPassword.Length})"
                 : "❌ Not found";
 
             // Try to access Key Vault directly via SecretClient (if available)
@@ -205,7 +208,7 @@ public static class DevEndpoints
 
             // Verify source by checking connection string pattern
             // Key Vault connection strings contain "evermaildevstorage" (dev) or production storage account name
-            if (blobsConnection?.Contains("evermaildevstorage") == true || 
+            if (blobsConnection?.Contains("evermaildevstorage") == true ||
                 blobsConnection?.Contains("evermailprodstorage") == true)
             {
                 results["source"] = "✅ Key Vault (connection string matches Key Vault pattern)";
@@ -218,13 +221,13 @@ public static class DevEndpoints
             {
                 results["source"] = "❌ No connection string found";
             }
-            
+
             // Test if services actually USE the connection strings by trying to access storage
             try
             {
                 var blobClient = serviceProvider.GetService<Azure.Storage.Blobs.BlobServiceClient>();
                 var queueClient = serviceProvider.GetService<Azure.Storage.Queues.QueueServiceClient>();
-                
+
                 if (blobClient != null)
                 {
                     results["blob-service"] = "✅ BlobServiceClient registered and using Key Vault connection string";
@@ -244,7 +247,7 @@ public static class DevEndpoints
                 {
                     results["blob-service"] = "❌ BlobServiceClient not registered";
                 }
-                
+
                 if (queueClient != null)
                 {
                     results["queue-service"] = "✅ QueueServiceClient registered and using Key Vault connection string";
@@ -472,6 +475,24 @@ public static class DevEndpoints
                 g => g.Key,
                 g => g.Select(x => x.Name).ToList());
 
+        var encryptionSettings = await context.TenantEncryptionSettings
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        var encryptionLookup = encryptionSettings
+            .GroupBy(s => s.TenantId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(OnboardingStatusCalculator.IsEncryptionConfigured).Any(result => result));
+
+        var mailboxTenantIds = await context.Mailboxes
+            .AsNoTracking()
+            .Select(m => m.TenantId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        var mailboxSet = mailboxTenantIds.ToHashSet();
+
         var dto = tenants.Select(t =>
         {
             var users = t.Users
@@ -491,13 +512,20 @@ public static class DevEndpoints
                 })
                 .ToList();
 
+            var encryptionConfigured = encryptionLookup.TryGetValue(t.Id, out var configured) && configured;
+            var hasMailbox = mailboxSet.Contains(t.Id);
+
             return new DevTenantDto(
                 t.Id,
                 t.Name,
                 t.Slug,
                 t.CreatedAt,
                 users.Count,
-                users);
+                users,
+                t.OnboardingPlanConfirmedAt.HasValue,
+                encryptionConfigured,
+                t.PaymentAcknowledgedAt.HasValue,
+                hasMailbox);
         }).ToList();
 
         return Results.Ok(new ApiResponse<IReadOnlyList<DevTenantDto>>(
@@ -565,6 +593,42 @@ public static class DevEndpoints
             return Results.BadRequest(new ApiResponse<object>(
                 Success: false,
                 Error: $"Failed to delete tenant: {ex.Message}"));
+        }
+
+        return Results.Ok(new ApiResponse<object>(
+            Success: true,
+            Data: new { TenantId = tenantId }));
+    }
+
+    private static async Task<IResult> ResetTenantOnboardingAsync(
+        Guid tenantId,
+        EvermailDbContext context,
+        IWebHostEnvironment env,
+        IOnboardingStatusService onboardingStatusService,
+        CancellationToken cancellationToken)
+    {
+        if (!env.IsDevelopment())
+        {
+            return Results.NotFound();
+        }
+
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(
+                Success: false,
+                Error: "Tenant not found"));
+        }
+
+        var reset = await onboardingStatusService.ResetAsync(tenantId, cancellationToken);
+
+        if (!reset)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Failed to reset onboarding state."));
         }
 
         return Results.Ok(new ApiResponse<object>(

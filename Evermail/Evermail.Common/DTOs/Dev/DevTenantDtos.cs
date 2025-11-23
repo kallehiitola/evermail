@@ -6,7 +6,11 @@ public record DevTenantDto(
     string Slug,
     DateTime CreatedAt,
     int UserCount,
-    IReadOnlyList<DevTenantUserDto> Users);
+    IReadOnlyList<DevTenantUserDto> Users,
+    bool PlanConfirmed,
+    bool EncryptionConfigured,
+    bool PaymentAcknowledged,
+    bool HasMailbox);
 
 public record DevTenantUserDto(
     Guid Id,

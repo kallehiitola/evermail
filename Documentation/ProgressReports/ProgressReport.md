@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-22 (morning)  
+> **Last Updated**: 2025-11-23  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -289,6 +289,20 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 🧭 Updated docs (`Architecture.md`, `API.md`, `Security.md`) to cite Microsoft’s MS-PST open spec + export doc, spell out the new formats, and explain how the zero-access WASM path will reuse the same SourceFormat metadata for client-side extraction.
 - 🪪 Logged the enhancements here so future engineers know the ingestion worker is multi-format aware, enforces guardrails server-side, and already has the hooks required for client-only decryption flows.
 
+### 2025-11-23 - Onboarding UX Polish & Zero-Touch BYOK Safeguards
+- 🧭 Hid the global sidebar/top-nav chrome whenever `/onboarding` is active so first-time admins get a full-width wizard without navigation distractions.
+- 🎯 Simplified the hero banner (removed debug identity chips + marketing cards) and replaced it with a single progress summary so the page focuses on the “finish setup” CTA.
+- 🧩 Rebuilt the timeline rail: numbered pills are now clickable, connector lines stay aligned across breakpoints, and completion state transitions don’t re-render random components.
+- 🧱 Redesigned plan selection into a flex-centered grid (Enterprise card now centers on its own row) and added an inline “Run guided wizard” toolbar instead of scattered buttons.
+- 🔐 Wired the inline Offline BYOK generator to automatically upload the wrapped DEK via the new `/tenants/encryption/offline` endpoint and documented the flow so “zero-touch” messaging matches reality; stored the protector key in dev/prod Key Vaults for parity.
+- 🧹 Fixed leftover UI artifacts (e.g., literal “*** End Patch” text) and render-tree errors so onboarding loads reliably after the refactor.
+
+### 2025-11-23 - Security Gap Assessment & Action Plan
+- 🧾 Compared `Documentation/Security.md` promises with the live stack and catalogued missing deliverables: zero-access encrypted uploads (`/api/v1/mailboxes/encrypted-upload`), the Fast Start Evermail-managed key path, Confidential Compute/Secure Key Release rollout, audit logging middleware, HTTP security headers/CSP, API rate limiting, and GDPR self-service endpoints all still need implementation.
+- 🧪 Confirmed that the Offline BYOK lab + `/tenants/encryption/offline` flow works end-to-end; captured the follow-on items (attach wrapped DEKs to uploads, deterministic token derivation, multi-admin bundles) so we can sequence them behind the encrypted upload pipeline.
+- 🛡️ Logged operational gaps: Stripe/Webhook-free billing toggle, audit trail expansion, and per-tenant throttles—these are now tracked as explicit backlog items instead of implicit “future phases.”
+- 🗂️ Updated `Next Steps` with a security-first roadmap so the team can start with the missing controls before layering on additional feature work.
+
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.
 - 📚 Clarified `Documentation/API.md` + `Documentation/Security.md` with notes on snippet metadata, attachment previews, and how `EvermailSearchHighlights` keeps sanitized markup intact, keeping API + UI expectations in sync.
@@ -385,12 +399,13 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Next Steps
 
-1. **Lifecycle QA & automation** - Add integration tests for rename/re-import/delete flows and worker queue handlers.
-2. **Microsoft OAuth Credentials** - Complete OAuth setup
-3. **Email Parsing Enhancements** - Expand attachment coverage (inline images, large binaries) + add metrics
-4. **Blob Storage Integration** - Harden upload JS (resume/cancel, chunk retries)
-5. **Email Search** - Full-text search implementation
-6. **Stripe Integration** - Payment processing setup
+1. **Zero-Access upload pipeline** – Ship the encrypted upload endpoint (`/api/v1/mailboxes/encrypted-upload`), WASM chunk encryption, and metadata headers so tenants can actually use the documented Zero-Access mode.
+2. **Evermail-managed “Fast Start” encryption** – Implement the automatic Evermail-managed key provisioning path that flips `EncryptionConfigured = true` when tenants pick the quick-start option.
+3. **Security middleware & audit logging** – Add HSTS/CSP/X-Frame/etc. headers plus the `AuditMiddleware` so sensitive POST/DELETE operations create traceable records.
+4. **API rate limiting & DDoS guardrails** – Wire up `AspNetCoreRateLimit` (or equivalent) and document the production Front Door/WAF posture.
+5. **GDPR self-service APIs** – Implement `/api/v1/users/me/export` + `DELETE /api/v1/users/me` with the documented retention/anonymization workflow.
+6. **Confidential compute & SKR rollout** – Start Phase 1 of the Confidential Content Protection plan (Secure Key Release policies, per-mailbox DEK metadata) to unblock later TEE enforcement.
+7. **Stripe integration** – Finish payment plumbing (Checkout, webhooks, portal) so onboarding can enforce plan upgrades once the security layers are in place.
 
 ---
 

@@ -47,6 +47,12 @@ Evermail now offers two complementary protection tiers so tenants can choose the
 
 Zero-Access Archive Mode inherits every safeguard from Confidential Compute Mode (tenant TMKs, audit logging, retention policies) while guaranteeing Evermail’s infrastructure never observes plaintext. This tier is aimed at compliance-sensitive customers who accept reduced functionality in exchange for cryptographic separation.
 
+#### Implementation Status (November 2025)
+
+- ✅ **Delivered**: Offline BYOK lab (browser-wrapped bundles + `/api/v1/tenants/encryption/offline`), archive format detection, plan-aware normalization, and onboarding UX that guides admins through Fast Start vs BYOK choices.
+- 🚧 **In progress**: The encrypted upload contract (`/api/v1/mailboxes/encrypted-upload` + `X-Evermail-Encrypted` headers), deterministic token derivation, multi-admin bundle import/export, and client-only ingestion bypass are still outstanding work items.
+- 📝 **Tracked follow-ups**: Evermail-managed “Fast Start” provisioning must actually stamp `EncryptionConfigured = true`, the Confidential Compute/Secure Key Release rollout is still in Phase 0, and the production API surface needs the documented security middleware (HSTS/CSP headers, rate limiting, audit logging, GDPR export/delete endpoints). These items are now logged in `Documentation/ProgressReports/ProgressReport.md#recent-updates` and are prioritized in the Next Steps section.
+
 ##### Offline key custody prototype (Browser BYOK)
 
 Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment with client-side key handling before enabling full zero-access ingestion:
@@ -60,18 +66,42 @@ Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment w
 4. The UI displays:
    - **Plaintext DEK** (copy once, never stored by Evermail).
    - **Wrapped bundle JSON** containing `wrappedDek`, `salt`, `nonce`, `checksum`, `tenantLabel`, and `createdAt`.
-5. Admin downloads the bundle as `tenant-name-evermail-key.json` and stores it offline (password manager, HSM, etc.). Evermail never uploads or persists this artifact.
+5. Admin downloads the bundle as `tenant-name-evermail-key.json` for their own safekeeping **and** the UI now automatically POSTs the wrapped bundle + passphrase to `/api/v1/tenants/encryption/offline`. The API unwraps the DEK in memory, re-encrypts it with the service-wide Offline BYOK master key (configured via `OfflineByok:MasterKey`), writes the ciphertext to `TenantEncryptionSettings.OfflineMasterKeyCiphertext`, and immediately zeroes the plaintext/passphrase. This allows the security step in the onboarding wizard to finish without leaving the page while still keeping the recovery material solely in the tenant’s custody.
+6. Existing bundles can be imported later from the same admin page—the new “Upload bundle” card lets an admin pick the `.evermail-key.json`, enter the passphrase, and call the same API without re-generating keys.
 
 **Warnings surfaced in the UI and reiterated here:**
 - Lose the downloaded bundle or passphrase → Evermail cannot restore access.
-- Prototype scope is client-side only; uploads still follow the standard pipeline until we wire the encrypted-upload endpoint.
+- Evermail only stores the DEK encrypted with the Offline BYOK master key provided by operators. Compromise of the SQL row does **not** reveal the tenant key unless the operator also compromises the host-level protector.
 - Do **not** paste the plaintext key anywhere else—treat it like a hardware token.
 - Bundle format is versioned (`"version": "offline-byok/v1"`); future releases will maintain backward compatibility or provide a migration tool.
+
+**Service-side controls**
+- `OfflineByok:MasterKey` must be a base64-encoded 256-bit secret shared by the WebApp and the ingestion worker. Set it via user secrets or Key Vault before enabling BYOK; the protector refuses to start without it.
+- `TenantEncryptionSettings.Provider = "Offline"` indicates the tenant is running on their own DEK. The ingestion worker unwraps mailbox DEKs by decrypting `OfflineMasterKeyCiphertext` with the protector, wrapping the per-mailbox keys with AES-GCM, and zeroing buffers after each operation.
 
 Upcoming milestones:
 - Attach the browser-wrapped DEK to mailbox uploads via metadata headers.
 - Offer deterministic token derivation so server-side filtering remains possible.
 - Allow tenants to register multiple offline bundles (per admin) with recovery workflows.
+
+##### Onboarding security choices (Quick Start vs BYOK)
+
+The onboarding wizard now walks every new tenant through a friendly, marketing-style comparison of the two supported encryption paths:
+
+- **Evermail-managed (Fast Start)**  
+  - Copy highlights speed: “Be searching in minutes.”  
+  - Single click provisions the built-in `EvermailManaged` provider via `UpsertTenantEncryptionSettings`, completing the security step instantly for trials, demos, or debugging.  
+  - We surface the trade-off transparently: Evermail operators could still decrypt during normal operations, so compliance teams should graduate to BYOK before production.  
+  - Progress tracking marks this step complete because `Tenant.EncryptionSettings.Provider = EvermailManaged` yields `EncryptionConfigured = true`.
+
+- **Customer-managed key (BYOK)**  
+  - Copy focuses on control: “Your key, your rules.”  
+  - Selecting this option sets `Tenant.SecurityPreference = "BYOK"` and exposes two paths:
+    1. Inline **Offline BYOK Lab** component (reusing `offlineByok.js`) so admins can generate a wrapped DEK bundle entirely in the browser today.  
+    2. Links to `/admin/encryption?onboarding=1` where they can plug in Azure Key Vault or AWS KMS credentials when ready.
+  - We remind users that the step only completes once the BYOK settings validate successfully (`EncryptionConfigured = true`), even if they’ve downloaded a prototype bundle.
+
+The hero banner shows which identity provider (Google or Microsoft) the current admin used to sign in so they understand which account controls the workspace keys. All copy stays upbeat (“Need maximum assurances? Flip on BYOK whenever security asks.”) while clearly listing the trade-offs in the wizard cards.
 
 #### External KMS Providers (AWS First)
 

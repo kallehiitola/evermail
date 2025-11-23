@@ -348,6 +348,12 @@
         if (_isAuthenticated)
         {
             await LoadOnboardingStatusAsync();
+            if (_needsOnboarding && !IsOnOnboardingRoute())
+            {
+                Logger.LogInformation("➡️ Tenant still needs onboarding. Redirecting to /onboarding");
+                Navigation.NavigateTo("/onboarding", forceLoad: true);
+                return;
+            }
             await LoadDashboardSnapshotAsync();
         }
         else
@@ -542,6 +548,11 @@
                 status.EncryptionConfigured,
                 "/onboarding?step=Security"),
             new OnboardingStep(
+                "Acknowledge billing",
+                "Glance at the pricing copy and mark that you'll connect Stripe before production traffic.",
+                status.PaymentAcknowledged,
+                "/onboarding?step=Billing"),
+            new OnboardingStep(
                 "Upload your first mailbox",
                 "Drag & drop a Gmail Takeout or Outlook export to start indexing and search-testing.",
                 status.HasMailbox,
@@ -550,7 +561,13 @@
     }
 
     private static bool NeedsOnboarding(TenantOnboardingStatusDto status)
-        => !(status.PlanConfirmed && status.EncryptionConfigured && status.HasMailbox);
+        => !(status.PlanConfirmed && status.EncryptionConfigured && status.PaymentAcknowledged && status.HasMailbox);
+
+    private bool IsOnOnboardingRoute()
+    {
+        var relative = Navigation.ToBaseRelativePath(Navigation.Uri);
+        return relative.StartsWith("onboarding", StringComparison.OrdinalIgnoreCase);
+    }
 
     private void UseSampleData()
     {

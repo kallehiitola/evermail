@@ -1,9 +1,15 @@
 @page "/admin/offline-byok"
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
+@using System.Globalization
+@using System.Net.Http.Headers
 @using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Authorization
 @inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject HttpClient Http
+@inject IAuthenticationStateService AuthStateService
 @implements IAsyncDisposable
 
 <PageTitle>Offline BYOK Lab - Evermail</PageTitle>
@@ -18,13 +24,15 @@
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <div>
                                     <h1 class="h3 mb-1">Offline BYOK Lab (Prototype)</h1>
-                                    <p class="text-muted mb-0">Generate tenant-managed keys entirely in your browser. Nothing is sent to Evermail.</p>
+                                    <p class="text-muted mb-0">Generate tenant-managed keys entirely in your browser.
+                                        Nothing is sent to Evermail.</p>
                                 </div>
                                 <span class="badge bg-warning text-dark text-uppercase">Experimental</span>
                             </div>
 
                             <div class="alert alert-warning">
-                                <strong>Important:</strong> Lose this bundle or your passphrase and Evermail cannot help recover it. Store the download in an offline vault before you close this tab.
+                                <strong>Important:</strong> Lose this bundle or your passphrase and Evermail cannot help
+                                recover it. Store the download in an offline vault before you close this tab.
                             </div>
 
                             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -41,40 +49,40 @@
                                 </div>
                             }
 
-                            <EditForm Model="_form" OnValidSubmit="GenerateAsync">
-                                <DataAnnotationsValidator />
+                            <form @onsubmit="PreventDefaultAsync">
 
                                 <div class="mb-3">
                                     <label class="form-label">Tenant label</label>
-                                    <InputText class="form-control" @bind-Value="_form.TenantLabel" placeholder="Acme Compliance Archive" />
-                                    <div class="form-text">This label is embedded inside the bundle so you can tell keys apart later.</div>
+                                    <input class="form-control" @bind="_form.TenantLabel"
+                                        placeholder="Acme Compliance Archive" />
+                                    <div class="form-text">This label is embedded inside the bundle so you can tell keys
+                                        apart later.</div>
                                 </div>
 
                                 <div class="mb-3">
                                     <label class="form-label">Passphrase</label>
-                                    <InputText type="password" class="form-control" @bind-Value="_form.Passphrase" />
+                                    <input type="password" class="form-control" @bind="_form.Passphrase" />
                                     <div class="form-text">Minimum 12 characters. We never send it to the server.</div>
                                 </div>
 
                                 <div class="mb-4">
                                     <label class="form-label">Confirm passphrase</label>
-                                    <InputText type="password" class="form-control" @bind-Value="_form.ConfirmPassphrase" />
+                                    <input type="password" class="form-control" @bind="_form.ConfirmPassphrase" />
                                 </div>
 
-                                <button class="btn btn-primary" type="submit" disabled="@_isGenerating">
+                                <button class="btn btn-primary" type="button" disabled="@_isGenerating"
+                                    @onclick="GenerateAsync">
                                     @if (_isGenerating)
                                     {
                                         <span class="spinner-border spinner-border-sm me-2" role="status"></span>
                                     }
                                     Generate secure key
                                 </button>
-                                <button type="button"
-                                        class="btn btn-outline-secondary ms-2"
-                                        disabled="@(_isGenerating || _bundle is null)"
-                                        @onclick="DownloadBundleAsync">
+                                <button type="button" class="btn btn-outline-secondary ms-2"
+                                    disabled="@(_isGenerating || _bundle is null)" @onclick="DownloadBundleAsync">
                                     <i class="bi bi-download"></i> Download bundle
                                 </button>
-                            </EditForm>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -88,7 +96,8 @@
                                 <li>Encrypts the DEK with AES-GCM and packages it as a `.evermail-key.json` bundle.</li>
                             </ol>
                             <p class="text-muted mb-4">
-                                The plaintext DEK never leaves your device. Copy it to your password manager or hardware wallet,
+                                The plaintext DEK never leaves your device. Copy it to your password manager or hardware
+                                wallet,
                                 then delete it from the screen.
                             </p>
 
@@ -105,11 +114,12 @@
                                     <div class="input-group">
                                         <input type="text" class="form-control" value="@_bundle.PlaintextDek" readonly />
                                         <button class="btn btn-outline-secondary"
-                                                @onclick='@(() => CopyToClipboardAsync("Plaintext DEK", _bundle.PlaintextDek))'>
+                                            @onclick='@(() => CopyToClipboardAsync("Plaintext DEK", _bundle.PlaintextDek))'>
                                             <i class="bi bi-clipboard"></i>
                                         </button>
                                     </div>
-                                    <div class="form-text text-danger">Copy once, then secure it elsewhere. Evermail never stores this.</div>
+                                    <div class="form-text text-danger">Copy once, then secure it elsewhere. Evermail never
+                                        stores this.</div>
                                 </div>
 
                                 <div class="mb-3">
@@ -122,7 +132,7 @@
                                     <div class="input-group">
                                         <input type="text" class="form-control" value="@_bundle.Checksum" readonly />
                                         <button class="btn btn-outline-secondary"
-                                                @onclick='@(() => CopyToClipboardAsync("Checksum", _bundle.Checksum))'>
+                                            @onclick='@(() => CopyToClipboardAsync("Checksum", _bundle.Checksum))'>
                                             <i class="bi bi-clipboard"></i>
                                         </button>
                                     </div>
@@ -135,8 +145,71 @@
                             <ul class="text-muted mb-0">
                                 <li>Store the bundle and passphrase in separate secure locations.</li>
                                 <li>When zero-access uploads ship, you’ll attach this bundle per mailbox.</li>
-                                <li>Want early access? Drop us a line at <a href="mailto:founders@evermail.com">founders@evermail.com</a>.</li>
+                                <li>Want early access? Drop us a line at <a
+                                        href="mailto:founders@evermail.com">founders@evermail.com</a>.</li>
                             </ul>
+                        </div>
+                    </div>
+                    <div class="card mt-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Upload an existing bundle</h5>
+                            <p class="text-muted">If you generated a bundle earlier, upload it here with the matching
+                                passphrase to store your tenant master key.</p>
+
+                            @if (!string.IsNullOrEmpty(_uploadErrorMessage))
+                            {
+                                <div class="alert alert-danger py-2">
+                                    @_uploadErrorMessage
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(_uploadStatusMessage))
+                            {
+                                <div class="alert alert-success py-2">
+                                    @_uploadStatusMessage
+                                </div>
+                            }
+
+                            <div class="mb-3">
+                                <label class="form-label">Bundle file</label>
+                                <InputFile OnChange="HandleBundleSelected" accept=".evermail-key.json,.json"
+                                    class="form-control" />
+                                @if (_selectedBundleFileName is not null)
+                                {
+                                    <div class="form-text">
+                                        Selected: @_selectedBundleFileName
+                                    </div>
+                                }
+                            </div>
+
+                            @if (_selectedBundle is not null)
+                            {
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Tenant label</label>
+                                    <div class="form-control-plaintext">@_selectedBundle.TenantLabel</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Checksum</label>
+                                    <div class="form-control-plaintext small">@_selectedBundle.Checksum</div>
+                                </div>
+                            }
+
+                            <div class="mb-3">
+                                <label class="form-label">Passphrase</label>
+                                <input type="password" class="form-control" @bind="_uploadPassphrase" />
+                                <div class="form-text">Minimum 12 characters. Used only to unwrap the bundle and never
+                                    stored.</div>
+                            </div>
+
+                            <button class="btn btn-primary" type="button"
+                                disabled="@(_selectedBundle is null || string.IsNullOrWhiteSpace(_uploadPassphrase) || _isUploadingExistingBundle)"
+                                @onclick="UploadExistingBundleAsync">
+                                @if (_isUploadingExistingBundle)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                Upload bundle
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -156,6 +229,12 @@
     private OfflineByokBundle? _bundle;
     private string _bundlePreview = string.Empty;
     private IJSObjectReference? _module;
+    private OfflineByokBundle? _selectedBundle;
+    private string? _selectedBundleFileName;
+    private string? _uploadPassphrase;
+    private string? _uploadErrorMessage;
+    private string? _uploadStatusMessage;
+    private bool _isUploadingExistingBundle;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -187,19 +266,19 @@
         try
         {
             var rawBundle = await _module.InvokeAsync<OfflineByokBundleResult>(
-                "generateOfflineKeyBundle",
-                _form.Passphrase,
-                _form.TenantLabel?.Trim());
+            "generateOfflineKeyBundle",
+            _form.Passphrase,
+            _form.TenantLabel?.Trim());
 
             _bundle = new OfflineByokBundle(
-                rawBundle.version,
-                rawBundle.tenantLabel,
-                rawBundle.createdAt,
-                rawBundle.plaintextDek,
-                rawBundle.wrappedDek,
-                rawBundle.salt,
-                rawBundle.nonce,
-                rawBundle.checksum);
+            rawBundle.version,
+            rawBundle.tenantLabel,
+            rawBundle.createdAt,
+            rawBundle.plaintextDek,
+            rawBundle.wrappedDek,
+            rawBundle.salt,
+            rawBundle.nonce,
+            rawBundle.checksum);
 
             _bundlePreview = JsonSerializer.Serialize(_bundle with { PlaintextDek = "[hidden]" }, _jsonOptions);
             _statusMessage = "Key generated. Download the bundle and secure the plaintext DEK immediately.";
@@ -256,9 +335,9 @@
         }
 
         var chars = value
-            .ToLowerInvariant()
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
-            .ToArray();
+        .ToLowerInvariant()
+        .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+        .ToArray();
 
         var slug = new string(chars).Trim('-');
         return string.IsNullOrWhiteSpace(slug) ? "evermail-offline-bundle" : slug;
@@ -290,24 +369,24 @@
     }
 
     private sealed record OfflineByokBundleResult(
-        string version,
-        string tenantLabel,
-        string createdAt,
-        string plaintextDek,
-        string wrappedDek,
-        string salt,
-        string nonce,
-        string checksum);
+    string version,
+    string tenantLabel,
+    string createdAt,
+    string plaintextDek,
+    string wrappedDek,
+    string salt,
+    string nonce,
+    string checksum);
 
     private sealed record OfflineByokBundle(
-        string Version,
-        string TenantLabel,
-        string CreatedAt,
-        string PlaintextDek,
-        string WrappedDek,
-        string Salt,
-        string Nonce,
-        string Checksum);
+    string Version,
+    string TenantLabel,
+    string CreatedAt,
+    string PlaintextDek,
+    string WrappedDek,
+    string Salt,
+    string Nonce,
+    string Checksum);
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -321,6 +400,143 @@
             await _module.DisposeAsync();
         }
     }
+
+    private async Task HandleBundleSelected(InputFileChangeEventArgs args)
+    {
+        _uploadErrorMessage = null;
+        _uploadStatusMessage = null;
+        _selectedBundle = null;
+        _selectedBundleFileName = null;
+
+        var file = args.File;
+        if (file is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await using var stream = file.OpenReadStream(512 * 1024);
+            using var reader = new StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+            _selectedBundle = JsonSerializer.Deserialize<OfflineByokBundle>(json, _jsonOptions);
+            if (_selectedBundle is null)
+            {
+                _uploadErrorMessage = "Bundle file is not valid.";
+                return;
+            }
+
+            _selectedBundleFileName = file.Name;
+        }
+        catch (JsonException)
+        {
+            _uploadErrorMessage = "Bundle file is not valid JSON.";
+        }
+        catch (Exception ex)
+        {
+            _uploadErrorMessage = $"Failed to read bundle: {ex.Message}";
+        }
+    }
+
+    private async Task UploadExistingBundleAsync()
+    {
+        if (_selectedBundle is null)
+        {
+            _uploadErrorMessage = "Select a bundle file first.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_uploadPassphrase) || _uploadPassphrase.Length < 12)
+        {
+            _uploadErrorMessage = "Passphrase must be at least 12 characters.";
+            return;
+        }
+
+        _isUploadingExistingBundle = true;
+        _uploadErrorMessage = null;
+
+        try
+        {
+            var response = await SendUploadRequestAsync(_selectedBundle, _uploadPassphrase);
+            if (response?.Success != true)
+            {
+                _uploadErrorMessage = response?.Error ?? "Failed to upload offline bundle.";
+                return;
+            }
+
+            _uploadStatusMessage = "Offline key uploaded. Return to onboarding to continue.";
+        }
+        catch (Exception ex)
+        {
+            _uploadErrorMessage = $"Failed to upload bundle: {ex.Message}";
+        }
+        finally
+        {
+            _isUploadingExistingBundle = false;
+        }
+    }
+
+    private async Task<ApiResponse<TenantEncryptionSettingsDto>?> SendUploadRequestAsync(
+    OfflineByokBundle bundle,
+    string passphrase)
+    {
+        var token = await AuthStateService.GetTokenAsync();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("You must be signed in to upload a BYOK bundle.");
+        }
+
+        if (!DateTime.TryParse(
+        bundle.CreatedAt,
+        CultureInfo.InvariantCulture,
+        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+        out var createdAt))
+        {
+            createdAt = DateTime.UtcNow;
+        }
+
+        var payload = new OfflineByokUploadRequest(
+        bundle.Version,
+        bundle.TenantLabel,
+        createdAt,
+        bundle.WrappedDek,
+        bundle.Salt,
+        bundle.Nonce,
+        bundle.Checksum,
+        passphrase);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, BuildApiUri("api/v1/tenants/encryption/offline"))
+        {
+            Content = JsonContent.Create(payload)
+        };
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        EnsureHttpClientBaseAddress();
+
+        var response = await Http.SendAsync(request);
+        var apiResponse = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(apiResponse?.Error ?? $"Offline upload failed ({response.StatusCode}).");
+        }
+
+        return apiResponse;
+    }
+
+    private Uri BuildApiUri(string relativePath)
+    {
+        relativePath = relativePath.TrimStart('/');
+        return new Uri(new Uri(Navigation.BaseUri), relativePath);
+    }
+
+    private void EnsureHttpClientBaseAddress()
+    {
+        if (Http.BaseAddress is null)
+        {
+            Http.BaseAddress = new Uri(Navigation.BaseUri);
+        }
+    }
+
+    private static Task PreventDefaultAsync() => Task.CompletedTask;
 }
-
-

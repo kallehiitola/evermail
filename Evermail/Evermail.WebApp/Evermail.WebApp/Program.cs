@@ -3,6 +3,7 @@ using Azure.Core;
 using Azure.Identity;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Configuration;
 using Evermail.Infrastructure.Services;
 using Evermail.Infrastructure.Services.Encryption;
 using Evermail.Infrastructure.Services.Archives;
@@ -12,6 +13,7 @@ using Evermail.WebApp.Endpoints;
 using Evermail.WebApp.Configuration;
 using Evermail.WebApp.Middleware;
 using Evermail.WebApp.Services;
+using Evermail.WebApp.Services.Onboarding;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -38,8 +40,13 @@ builder.Services.AddSingleton<TokenCredential>(_ =>
     return new DefaultAzureCredential(credentialOptions);
 });
 
+builder.Services.AddMemoryCache();
+
 builder.Services.Configure<AiImpersonationOptions>(
     builder.Configuration.GetSection(AiImpersonationOptions.SectionName));
+
+builder.Services.Configure<OfflineByokOptions>(
+    builder.Configuration.GetSection("OfflineByok"));
 
 // Load secrets from Azure Key Vault
 // - In production: Uses managed identity (automatic)
@@ -216,6 +223,8 @@ builder.Services.AddSingleton<IAwsKmsConnector, AwsKmsConnector>();
 builder.Services.AddSingleton<IKeyWrappingProvider, EvermailManagedWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingProvider, AzureKeyVaultWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingProvider, AwsKmsWrappingProvider>();
+builder.Services.AddSingleton<IOfflineByokKeyProtector, OfflineByokKeyProtector>();
+builder.Services.AddSingleton<IKeyWrappingProvider, OfflineByokWrappingProvider>();
 builder.Services.AddSingleton<IKeyWrappingService, KeyWrappingService>();
 builder.Services.AddScoped<ITenantEncryptionService, TenantEncryptionService>();
 builder.Services.AddScoped<IMailboxEncryptionStateService, MailboxEncryptionStateService>();
@@ -228,6 +237,7 @@ builder.Services.AddScoped<ThemeService>();
 builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.AddMudServices();
 builder.Services.AddScoped<IDateFormatService, DateFormatService>();
+builder.Services.AddScoped<IOnboardingStatusService, OnboardingStatusService>();
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>
@@ -312,6 +322,7 @@ app.UseAntiforgery();
 
 app.UseAuthentication();
 app.UseMiddleware<AiImpersonationMiddleware>();
+app.UseMiddleware<OnboardingRedirectMiddleware>();
 
 // Map API endpoints
 var api = app.MapGroup("/api/v1");
