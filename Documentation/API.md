@@ -212,6 +212,49 @@ Uploads an offline BYOK bundle that was generated entirely in the browser. The p
 
 **Response (200 OK)** mirrors `GET /tenants/encryption`. If the checksum or passphrase is wrong the API returns `400 Bad Request` with `error` set to the reason.
 
+### GET /tenants/encryption/bundles
+List every wrapped offline BYOK bundle registered for the tenant. Each entry represents a separate admin’s recovery copy.
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "f1a75bea-8b54-4f09-8357-9e9c2265b2ed",
+      "label": "Legal team – Marta",
+      "version": "offline-byok/v1",
+      "createdByUserId": "5bfe3c6e-557d-4b6a-b244-6bb4dbe5ceb0",
+      "createdAt": "2025-11-23T19:42:00Z",
+      "lastUsedAt": "2025-11-23T19:42:30Z"
+    }
+  ]
+}
+```
+
+### POST /tenants/encryption/bundles
+Upload or register an additional wrapped DEK bundle (identical schema to the Offline BYOK lab output). The payload never contains plaintext keys.
+
+```json
+{
+  "version": "offline-byok/v1",
+  "label": "Legal team – Marta",
+  "wrappedDek": "n+6bZYpDdfrkqjCKq77i4GHaa/tYDG0eWhM+U/rxQRXgqn9s1SVm/1R1fJFDLbNX",
+  "salt": "nEmZ1At8t2cL4NTn7aQCyg==",
+  "nonce": "vvru5fEnMHh03kM2",
+  "checksum": "9L/5X59nXs11Wutcgl2UrDBttv8ZNTetJfiVKEyWOhk="
+}
+```
+
+Response mirrors `GET /tenants/encryption/bundles`. Validation ensures salts/nonces/checksums are base64-decoded and lengths match the spec.
+
+### DELETE /tenants/encryption/bundles/{id}
+Remove a stale bundle (for example when an admin leaves). Does **not** rotate the active offline key, it simply deletes the encrypted copy.
+
+```
+DELETE /api/v1/tenants/encryption/bundles/f1a75bea-8b54-4f09-8357-9e9c2265b2ed
+204 No Content
+```
+
 ### GET /tenants/plans
 Returns every active subscription plan so the onboarding wizard and admin screens can render pricing cards.
 
@@ -580,6 +623,79 @@ Tell the API the browser finished uploading the blob so it can enqueue processin
 ```
 
 If the client calls `/mailboxes/{id}/uploads` the server wraps both steps and returns the same payload.
+
+### POST /mailboxes/encrypted-upload/initiate
+Start a zero-access upload. Returns the SAS URL, mailbox/upload IDs, and the `tokenSalt` the browser needs to derive deterministic tokens from the DEK.
+
+**Request**
+```json
+{
+  "fileName": "SensitiveArchive.mbox",
+  "fileSizeBytes": 134217728,
+  "mailboxId": "optional-guid",
+  "scheme": "zero-access/aes-gcm-chunked/v1"
+}
+```
+
+**Response**
+```json
+{
+  "success": true,
+  "data": {
+    "sasUrl": "https://storage.blob.core.windows.net/mbox-archives/...&sig=...",
+    "blobPath": "mbox-archives/{tenant}/{mailbox}/{guid}_encrypted.mbox",
+    "mailboxId": "98d1c9b9-01f7-4fd7-9ccb-d3b18d1e1e93",
+    "uploadId": "87a4f041-32d3-4f2b-930c-b52100e64bb5",
+    "tokenSalt": "rTQ6kpmzO5E8b+Ja3n8ihQ=="
+  }
+}
+```
+
+### POST /mailboxes/encrypted-upload/complete
+Finish a zero-access upload after the ciphertext has been committed. The browser provides the encryption metadata, DEK fingerprint, ciphertext sizes, and hashed deterministic token sets.
+
+**Request**
+```json
+{
+  "mailboxId": "98d1c9b9-01f7-4fd7-9ccb-d3b18d1e1e93",
+  "uploadId": "87a4f041-32d3-4f2b-930c-b52100e64bb5",
+  "scheme": "zero-access/aes-gcm-chunked/v1",
+  "keyFingerprint": "7oxTWQ+R6AndVtmzvW6IFmUn+bE1qzGV1JlGN4fq6to=",
+  "metadataJson": "{...}",
+  "originalSizeBytes": 134217728,
+  "cipherSizeBytes": 136314880,
+  "tokenSets": [
+    {
+      "tokenType": "tag",
+      "tokens": [
+        "D7if5gKN7Qq6yGwq/3qTwcHOGH3R7pV8r1p4t7SqU8g=",
+        "Mk3Z9bYsi/6YQM4tI8MkU7gVn1o5grquR7pMtybFstA="
+      ]
+    }
+  ]
+}
+```
+
+**Response (200 OK)**
+```json
+{
+  "success": true,
+  "data": {
+    "mailboxId": "98d1c9b9-01f7-4fd7-9ccb-d3b18d1e1e93",
+    "uploadId": "87a4f041-32d3-4f2b-930c-b52100e64bb5",
+    "status": "Encrypted"
+  }
+}
+```
+
+`tokenSets.tokens` are Base64 HMAC-SHA256 strings derived client-side using the DEK, the `tokenSalt`, and HKDF per the zero-access spec. The server stores them but cannot reverse them.
+
+### GET /mailboxes?tagToken=...
+Filter the mailbox list by deterministic tag tokens (supply multiple `tagToken` query parameters for AND semantics). Clients hash the plaintext tag locally before calling this endpoint.
+
+```
+GET /api/v1/mailboxes?tagToken=D7if5gKN7Qq6yGwq%2F3qTwcHOGH3R7pV8r1p4t7SqU8g%3D
+```
 
 ## Emails
 
@@ -1127,47 +1243,82 @@ Handle Stripe webhook events.
 ## GDPR & Data Export
 
 ### POST /users/me/export
-Request data export (GDPR compliance).
+Request a GDPR data bundle. The server immediately starts streaming the archive (profile, mailboxes, emails, audit logs) into the dedicated `gdpr-exports` blob container.
 
 **Response (202 Accepted)**:
 ```json
 {
   "success": true,
   "data": {
-    "exportId": "guid",
-    "status": "Pending",
-    "message": "Export will be ready in 5-10 minutes. Check back soon."
+    "id": "e6b4f15e-4eb5-4e19-a388-3a566063d8e6",
+    "status": "Completed",
+    "requestedAt": "2025-11-23T21:10:00Z",
+    "completedAt": "2025-11-23T21:10:07Z",
+    "expiresAt": "2025-11-30T21:10:07Z",
+    "fileSizeBytes": 15234567,
+    "downloadUrl": "https://evermaildevstorage.blob.core.windows.net/gdpr-exports/...&sig=..."
   }
 }
 ```
 
+- Bundles stay available for 7 days. Callers should download immediately because the SAS is only valid for 15 minutes.
+- Every request is audited (`UserDataExportRequested` / `UserDataExportCompleted`).
+
 ### GET /users/me/exports/{id}
-Check export status and download.
+Return the metadata for a previously requested bundle. Includes a new SAS URL when `status === "Completed"`.
 
 **Response (200 OK)**:
 ```json
 {
   "success": true,
   "data": {
-    "id": "guid",
+    "id": "e6b4f15e-4eb5-4e19-a388-3a566063d8e6",
     "status": "Completed",
-    "downloadUrl": "/api/v1/users/me/exports/guid/download",
-    "expiresAt": "2025-11-18T10:00:00Z",
-    "fileSizeBytes": 10485760
+    "requestedAt": "2025-11-23T21:10:00Z",
+    "completedAt": "2025-11-23T21:10:07Z",
+    "expiresAt": "2025-11-30T21:10:07Z",
+    "fileSizeBytes": 15234567,
+    "downloadUrl": "https://evermaildevstorage.blob.core.windows.net/gdpr-exports/...&sig=..."
+  }
+}
+```
+
+### GET /users/me/exports/{id}/download
+Convenience endpoint that always returns a fresh SAS link even if the caller already has the metadata cached.
+
+**Response (200 OK)**:
+```json
+{
+  "success": true,
+  "data": {
+    "downloadUrl": "https://evermaildevstorage.blob.core.windows.net/gdpr-exports/...&sig=...",
+    "expiresAt": "2025-11-23T21:25:07Z"
   }
 }
 ```
 
 ### DELETE /users/me
-Delete account (GDPR "right to be forgotten").
+Trigger the GDPR "right to be forgotten" workflow for the currently authenticated user.
 
-**Response (204 No Content)**
+**Response (202 Accepted)**
 
-Deletes:
-- User account
-- All mailboxes and emails
-- All attachments from blob storage
-- Audit logs (after anonymization)
+```json
+{
+  "success": true,
+  "data": {
+    "jobId": "5f488dd4-15e2-4371-a5a8-34b2211ed0a2",
+    "status": "Completed",
+    "requestedAt": "2025-11-23T21:12:11Z",
+    "completedAt": "2025-11-23T21:12:12Z"
+  }
+}
+```
+
+Actions performed:
+- Immediately revoke refresh tokens and anonymise the Identity record (scrubbed email/user name, `IsActive = false`, reset security stamp).
+- Enqueue `MailboxDeletionQueue` jobs for every mailbox/upload to remove blobs + SQL data.
+- Remove user-specific personalization tables (display settings, saved filters, etc.) and anonymise historical audit entries.
+- Persist a `UserDeletionJob` row so admins can prove when the request was handled.
 
 ---
 

@@ -23,8 +23,14 @@ public class JwtTokenService : IJwtTokenService
         _context = context;
     }
 
-    public Task<string> GenerateTokenAsync(ApplicationUser user, IList<string> roles)
+    public async Task<string> GenerateTokenAsync(ApplicationUser user, IList<string> roles)
     {
+        var subscriptionTier = await _context.Tenants
+            .AsNoTracking()
+            .Where(t => t.Id == user.TenantId)
+            .Select(t => t.SubscriptionTier)
+            .FirstOrDefaultAsync() ?? "Free";
+
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
@@ -33,7 +39,8 @@ public class JwtTokenService : IJwtTokenService
             new(JwtRegisteredClaimNames.GivenName, user.FirstName),
             new(JwtRegisteredClaimNames.FamilyName, user.LastName),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString())
+            new(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString()),
+            new("subscription_tier", subscriptionTier)
         };
 
         // Add roles
@@ -57,7 +64,7 @@ public class JwtTokenService : IJwtTokenService
         var tokenHandler = new JwtSecurityTokenHandler();
         var token = tokenHandler.CreateToken(tokenDescriptor);
         
-        return Task.FromResult(tokenHandler.WriteToken(token));
+        return tokenHandler.WriteToken(token);
     }
 
     public ClaimsPrincipal? ValidateToken(string token)

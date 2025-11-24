@@ -32,6 +32,9 @@ public static class TenantEndpoints
         encryption.MapPost("/test", TestEncryptionSettingsAsync);
         encryption.MapGet("/history", GetEncryptionHistoryAsync);
         encryption.MapPost("/offline", UploadOfflineBundleAsync);
+        encryption.MapGet("/bundles", GetEncryptionBundlesAsync);
+        encryption.MapPost("/bundles", CreateEncryptionBundleAsync);
+        encryption.MapDelete("/bundles/{bundleId:guid}", DeleteEncryptionBundleAsync);
 
         group.MapGet("/plans", GetSubscriptionPlansAsync)
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
@@ -154,6 +157,69 @@ public static class TenantEndpoints
             return Results.Ok(new ApiResponse<TenantEncryptionSettingsDto>(
                 Success: true,
                 Data: dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
+        }
+    }
+
+    private static async Task<IResult> GetEncryptionBundlesAsync(
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var bundles = await service.GetBundlesAsync(tenantContext.TenantId, cancellationToken);
+        return Results.Ok(new ApiResponse<IReadOnlyList<TenantEncryptionBundleDto>>(true, bundles));
+    }
+
+    private static async Task<IResult> CreateEncryptionBundleAsync(
+        CreateTenantEncryptionBundleRequest request,
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var dto = await service.CreateBundleAsync(
+                tenantContext.TenantId,
+                tenantContext.UserId,
+                request,
+                cancellationToken);
+
+            return Results.Ok(new ApiResponse<TenantEncryptionBundleDto>(true, dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
+        }
+    }
+
+    private static async Task<IResult> DeleteEncryptionBundleAsync(
+        Guid bundleId,
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            await service.DeleteBundleAsync(tenantContext.TenantId, bundleId, tenantContext.UserId, cancellationToken);
+            return Results.NoContent();
         }
         catch (InvalidOperationException ex)
         {

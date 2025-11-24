@@ -2,6 +2,9 @@ using Evermail.Common.DTOs;
 using Evermail.Common.DTOs.User;
 using Evermail.Domain.Entities;
 using Evermail.Infrastructure.Data;
+using Evermail.Infrastructure.Services;
+using Evermail.WebApp.Services.Audit;
+using Evermail.WebApp.Services.Gdpr;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,6 +33,18 @@ public static class UserEndpoints
             .RequireAuthorization();
 
         group.MapPut("/me/settings/display", UpdateDisplaySettingsAsync)
+            .RequireAuthorization();
+
+        group.MapPost("/me/export", RequestDataExportAsync)
+            .RequireAuthorization();
+
+        group.MapGet("/me/exports/{exportId:guid}", GetDataExportStatusAsync)
+            .RequireAuthorization();
+
+        group.MapGet("/me/exports/{exportId:guid}/download", GetDataExportDownloadAsync)
+            .RequireAuthorization();
+
+        group.MapDelete("/me", DeleteAccountAsync)
             .RequireAuthorization();
 
         return group;
@@ -206,5 +221,219 @@ public static class UserEndpoints
         errorResult = null;
         return true;
     }
+
+    private static async Task<IResult> RequestDataExportAsync(
+        IGdprExportService exportService,
+        IAuditLogger auditLogger,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var export = await exportService.CreateExportAsync(tenantContext.TenantId, tenantContext.UserId, cancellationToken);
+        var downloadUrl = await exportService.TryCreateDownloadUrlAsync(export, cancellationToken);
+
+        await auditLogger.LogAsync(
+            action: "UserDataExportRequested",
+            resourceType: "UserDataExport",
+            resourceId: export.Id,
+            details: $"status:{export.Status}");
+
+        var dto = MapExport(export, downloadUrl);
+        return Results.Accepted($"/api/v1/users/me/exports/{export.Id}", new ApiResponse<UserDataExportDto>(true, dto));
+    }
+
+    private static async Task<IResult> GetDataExportStatusAsync(
+        Guid exportId,
+        IGdprExportService exportService,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var export = await exportService.GetExportAsync(exportId, tenantContext.TenantId, tenantContext.UserId, cancellationToken);
+        if (export is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Export not found."));
+        }
+
+        var downloadUrl = export.Status.Equals("Completed", StringComparison.OrdinalIgnoreCase)
+            ? await exportService.TryCreateDownloadUrlAsync(export, cancellationToken)
+            : null;
+
+        return Results.Ok(new ApiResponse<UserDataExportDto>(true, MapExport(export, downloadUrl)));
+    }
+
+    private static async Task<IResult> GetDataExportDownloadAsync(
+        Guid exportId,
+        IGdprExportService exportService,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var export = await exportService.GetExportAsync(exportId, tenantContext.TenantId, tenantContext.UserId, cancellationToken);
+        if (export is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Export not found."));
+        }
+
+        if (!string.Equals(export.Status, "Completed", StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(export.BlobPath))
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "Export is not ready yet."));
+        }
+
+        var downloadUrl = await exportService.TryCreateDownloadUrlAsync(export, cancellationToken);
+        if (downloadUrl is null)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "Unable to generate download URL."));
+        }
+
+        var dto = new UserDataExportDownloadDto(downloadUrl, DateTime.UtcNow.AddMinutes(15));
+        return Results.Ok(new ApiResponse<UserDataExportDownloadDto>(true, dto));
+    }
+
+    private static async Task<IResult> DeleteAccountAsync(
+        UserManager<ApplicationUser> userManager,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        IQueueService queueService,
+        IAuditLogger auditLogger,
+        IJwtTokenService jwtTokenService,
+        CancellationToken cancellationToken)
+    {
+        if (!TryEnsureTenant(tenantContext, out var errorResult))
+        {
+            return errorResult!;
+        }
+
+        var user = await userManager.FindByIdAsync(tenantContext.UserId.ToString());
+        if (user is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "User not found."));
+        }
+
+        var deletionJob = new UserDeletionJob
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantContext.TenantId,
+            UserId = tenantContext.UserId,
+            RequestedAt = DateTime.UtcNow,
+            Status = "Pending"
+        };
+
+        context.UserDeletionJobs.Add(deletionJob);
+
+        var mailboxes = await context.Mailboxes
+            .Where(m => m.TenantId == tenantContext.TenantId)
+            .ToListAsync(cancellationToken);
+
+        var deletionQueueJobs = new List<MailboxDeletionQueue>();
+
+        foreach (var mailbox in mailboxes)
+        {
+            mailbox.IsPendingDeletion = true;
+            mailbox.PurgeAfter = DateTime.UtcNow;
+
+            var deletion = new MailboxDeletionQueue
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantContext.TenantId,
+                MailboxId = mailbox.Id,
+                DeleteUpload = true,
+                DeleteEmails = true,
+                RequestedByUserId = tenantContext.UserId,
+                RequestedAt = DateTime.UtcNow,
+                ExecuteAfter = DateTime.UtcNow,
+                Status = "Scheduled"
+            };
+
+            context.MailboxDeletionQueue.Add(deletion);
+            deletionQueueJobs.Add(deletion);
+        }
+
+        var settings = await context.UserDisplaySettings
+            .Where(s => s.UserId == tenantContext.UserId)
+            .ToListAsync(cancellationToken);
+        context.UserDisplaySettings.RemoveRange(settings);
+
+        var filters = await context.SavedSearchFilters
+            .Where(f => f.UserId == tenantContext.UserId)
+            .ToListAsync(cancellationToken);
+        context.SavedSearchFilters.RemoveRange(filters);
+
+        var pins = await context.PinnedEmailThreads
+            .Where(p => p.UserId == tenantContext.UserId)
+            .ToListAsync(cancellationToken);
+        context.PinnedEmailThreads.RemoveRange(pins);
+
+        var anonymizedEmail = $"{user.Id:N}@deleted.evermail.local";
+        user.IsActive = false;
+        user.Email = anonymizedEmail;
+        user.NormalizedEmail = anonymizedEmail.ToUpperInvariant();
+        user.UserName = anonymizedEmail;
+        user.NormalizedUserName = user.NormalizedEmail;
+        user.FirstName = "Deleted";
+        user.LastName = "User";
+        user.PhoneNumber = null;
+        user.PhoneNumberConfirmed = false;
+        user.TwoFactorEnabled = false;
+
+        await userManager.UpdateAsync(user);
+        await jwtTokenService.RevokeAllUserTokensAsync(user.Id, "GDPR delete request");
+
+        await context.SaveChangesAsync(cancellationToken);
+
+        foreach (var job in deletionQueueJobs)
+        {
+            await queueService.EnqueueMailboxDeletionAsync(job.Id, job.MailboxId);
+        }
+
+        await context.AuditLogs
+            .Where(a => a.TenantId == tenantContext.TenantId && a.UserId == tenantContext.UserId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(a => a.UserId, a => null)
+                .SetProperty(a => a.Details, a => (a.Details ?? string.Empty) + " [user-anonymized]"),
+                cancellationToken);
+
+        deletionJob.Status = "Completed";
+        deletionJob.CompletedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+
+        await auditLogger.LogAsync(
+            action: "UserDeletionRequested",
+            resourceType: "UserDeletionJob",
+            resourceId: deletionJob.Id,
+            details: $"status:{deletionJob.Status}",
+            cancellationToken: cancellationToken);
+
+        var response = new UserDeletionResponse(
+            deletionJob.Id,
+            deletionJob.Status,
+            deletionJob.RequestedAt,
+            deletionJob.CompletedAt);
+
+        return Results.Accepted($"/api/v1/users/me/deletion/{deletionJob.Id}", new ApiResponse<UserDeletionResponse>(true, response));
+    }
+
+    private static UserDataExportDto MapExport(UserDataExport export, string? downloadUrl) =>
+        new(
+            export.Id,
+            export.Status,
+            export.RequestedAt,
+            export.CompletedAt,
+            export.ExpiresAt,
+            export.FileSizeBytes,
+            downloadUrl,
+            export.ErrorMessage);
 }
 

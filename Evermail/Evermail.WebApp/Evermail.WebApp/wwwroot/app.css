@@ -2371,6 +2371,98 @@ h1:focus {
     background: rgba(37, 99, 235, 0.05);
 }
 
+.zero-access-card {
+    border: 1px solid rgba(37, 99, 235, 0.2);
+    border-radius: 24px;
+    background: rgba(249, 250, 251, 0.6);
+}
+
+.zero-access-toggle .form-check-input {
+    width: 3rem;
+    height: 1.6rem;
+}
+
+.zero-access-toggle .form-check-input:checked {
+    background-color: var(--color-brand-primary);
+    border-color: var(--color-brand-primary);
+}
+
+.zero-access-toggle .form-check-label {
+    font-weight: 600;
+    margin-left: 0.75rem;
+}
+
+.zero-access-keybundle {
+    border: 1px solid var(--color-border);
+    border-radius: 18px;
+    padding: 1.25rem;
+    background: var(--color-surface);
+}
+
+.zero-access-keybundle__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.zero-access-keybundle__value {
+    display: block;
+    word-break: break-all;
+    font-size: 0.85rem;
+    padding: 0.65rem;
+    border-radius: 0.75rem;
+    background: var(--color-surface-muted);
+    border: 1px dashed rgba(148, 163, 184, 0.5);
+}
+
+.zero-access-keybundle__actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.zero-access-keybundle__meta {
+    margin-top: 1rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.zero-access-keybundle__meta .label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: var(--color-text-secondary);
+}
+
+.zero-access-keybundle__meta .value {
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+.zero-access-detail__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+}
+
+.zero-access-detail__grid .label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    color: var(--color-text-secondary);
+}
+
+.zero-access-detail__grid .value {
+    display: block;
+    font-family: var(--font-mono, 'JetBrains Mono', monospace);
+    font-size: 0.9rem;
+    margin-top: 0.25rem;
+}
+
 .upload-progress-card {
     display: flex;
     flex-direction: column;

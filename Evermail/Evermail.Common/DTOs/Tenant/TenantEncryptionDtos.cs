@@ -112,4 +112,20 @@ public record TenantEncryptionHistoryItemDto(
     string? LastUnwrapRequestId,
     string? ProviderMetadata);
 
+public record TenantEncryptionBundleDto(
+    Guid Id,
+    string Label,
+    string Version,
+    Guid CreatedByUserId,
+    DateTime CreatedAt,
+    DateTime? LastUsedAt);
+
+public record CreateTenantEncryptionBundleRequest(
+    string Version,
+    string? Label,
+    string WrappedDek,
+    string Salt,
+    string Nonce,
+    string Checksum);
+
 

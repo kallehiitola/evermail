@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using Azure.Storage.Blobs;
+using Azure.Storage.Blobs.Models;
 using Azure.Storage.Sas;
 
 namespace Evermail.Infrastructure.Services;
@@ -7,6 +9,7 @@ public class BlobStorageService : IBlobStorageService
 {
     private readonly BlobServiceClient _blobServiceClient;
     private const string ContainerName = "mailbox-archives";
+    private const string ExportsContainerName = "gdpr-exports";
 
     public BlobStorageService(BlobServiceClient blobServiceClient)
     {
@@ -67,8 +70,9 @@ public class BlobStorageService : IBlobStorageService
         string blobPath,
         TimeSpan validity)
     {
-        var containerClient = _blobServiceClient.GetBlobContainerClient(ContainerName);
-        var blobClient = containerClient.GetBlobClient(blobPath);
+        var (containerName, blobName) = ResolveContainer(blobPath);
+        var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+        var blobClient = containerClient.GetBlobClient(blobName);
         
         // Verify blob exists before generating SAS token
         if (!await blobClient.ExistsAsync())
@@ -79,8 +83,8 @@ public class BlobStorageService : IBlobStorageService
         // Generate SAS token with read permission
         var sasBuilder = new BlobSasBuilder
         {
-            BlobContainerName = ContainerName,
-            BlobName = blobPath,
+            BlobContainerName = containerName,
+            BlobName = blobName,
             Resource = "b",
             StartsOn = DateTimeOffset.UtcNow.AddMinutes(-5),
             ExpiresOn = DateTimeOffset.UtcNow.Add(validity)
@@ -94,16 +98,57 @@ public class BlobStorageService : IBlobStorageService
     
     public async Task<bool> BlobExistsAsync(string blobPath)
     {
-        var containerClient = _blobServiceClient.GetBlobContainerClient(ContainerName);
-        var blobClient = containerClient.GetBlobClient(blobPath);
+        var (containerName, blobName) = ResolveContainer(blobPath);
+        var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+        var blobClient = containerClient.GetBlobClient(blobName);
         return await blobClient.ExistsAsync();
     }
     
     public async Task DeleteBlobAsync(string blobPath)
     {
-        var containerClient = _blobServiceClient.GetBlobContainerClient(ContainerName);
-        var blobClient = containerClient.GetBlobClient(blobPath);
+        var (containerName, blobName) = ResolveContainer(blobPath);
+        var containerClient = _blobServiceClient.GetBlobContainerClient(containerName);
+        var blobClient = containerClient.GetBlobClient(blobName);
         await blobClient.DeleteIfExistsAsync();
+    }
+
+    public async Task<string> UploadExportAsync(Guid tenantId, Guid exportId, Stream content, CancellationToken cancellationToken = default)
+    {
+        var containerClient = _blobServiceClient.GetBlobContainerClient(ExportsContainerName);
+        await containerClient.CreateIfNotExistsAsync(cancellationToken: cancellationToken);
+
+        var blobName = $"{tenantId}/{exportId}.zip";
+        var blobClient = containerClient.GetBlobClient(blobName);
+
+        if (content.CanSeek)
+        {
+            content.Seek(0, SeekOrigin.Begin);
+        }
+
+        await blobClient.UploadAsync(
+            content,
+            new BlobUploadOptions
+            {
+                HttpHeaders = new BlobHttpHeaders { ContentType = "application/zip" },
+                Metadata = new Dictionary<string, string>
+                {
+                    ["tenantId"] = tenantId.ToString(),
+                    ["exportId"] = exportId.ToString()
+                }
+            },
+            cancellationToken);
+
+        return $"{ExportsContainerName}/{blobName}";
+    }
+
+    private static (string Container, string BlobName) ResolveContainer(string blobPath)
+    {
+        if (blobPath.StartsWith($"{ExportsContainerName}/", StringComparison.OrdinalIgnoreCase))
+        {
+            return (ExportsContainerName, blobPath.Substring(ExportsContainerName.Length + 1));
+        }
+
+        return (ContainerName, blobPath);
     }
 }
 

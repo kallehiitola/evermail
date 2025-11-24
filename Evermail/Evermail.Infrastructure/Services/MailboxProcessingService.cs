@@ -74,6 +74,29 @@ public class MailboxProcessingService
             throw new InvalidOperationException($"Mailbox upload {mailboxUploadId} not found");
         }
 
+        if (mailbox.IsClientEncrypted || upload.IsClientEncrypted)
+        {
+            _logger.LogInformation(
+                "Mailbox {MailboxId} upload {UploadId} is client-side encrypted. Skipping server-side ingestion.",
+                mailboxId,
+                mailboxUploadId);
+
+            var now = DateTime.UtcNow;
+            mailbox.Status = "Encrypted";
+            mailbox.ErrorMessage = null;
+            mailbox.ProcessingStartedAt ??= now;
+            mailbox.ProcessingCompletedAt ??= now;
+            mailbox.UpdatedAt = now;
+
+            upload.Status = "Encrypted";
+            upload.ErrorMessage = null;
+            upload.ProcessingStartedAt ??= now;
+            upload.ProcessingCompletedAt ??= now;
+
+            await _context.SaveChangesAsync(cancellationToken);
+            return;
+        }
+
         // Update status to Processing
         mailbox.Status = "Processing";
         mailbox.ProcessingStartedAt = DateTime.UtcNow;

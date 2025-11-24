@@ -34,6 +34,10 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
     public DbSet<UserDisplaySetting> UserDisplaySettings => Set<UserDisplaySetting>();
     public DbSet<SavedSearchFilter> SavedSearchFilters => Set<SavedSearchFilter>();
     public DbSet<PinnedEmailThread> PinnedEmailThreads => Set<PinnedEmailThread>();
+    public DbSet<UserDataExport> UserDataExports => Set<UserDataExport>();
+    public DbSet<UserDeletionJob> UserDeletionJobs => Set<UserDeletionJob>();
+    public DbSet<ZeroAccessMailboxToken> ZeroAccessMailboxTokens => Set<ZeroAccessMailboxToken>();
+    public DbSet<TenantEncryptionBundle> TenantEncryptionBundles => Set<TenantEncryptionBundle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,6 +87,18 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
 
             modelBuilder.Entity<PinnedEmailThread>()
                 .HasQueryFilter(p => p.TenantId == _tenantContext.TenantId && p.UserId == _tenantContext.UserId);
+
+            modelBuilder.Entity<UserDataExport>()
+                .HasQueryFilter(e => e.TenantId == _tenantContext.TenantId && e.UserId == _tenantContext.UserId);
+
+            modelBuilder.Entity<UserDeletionJob>()
+                .HasQueryFilter(j => j.TenantId == _tenantContext.TenantId && j.UserId == _tenantContext.UserId);
+
+            modelBuilder.Entity<ZeroAccessMailboxToken>()
+                .HasQueryFilter(t => t.TenantId == _tenantContext.TenantId);
+
+            modelBuilder.Entity<TenantEncryptionBundle>()
+                .HasQueryFilter(b => b.TenantId == _tenantContext.TenantId);
         }
 
         // Tenant
@@ -146,6 +162,14 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .HasDefaultValue("mbox");
             entity.Property(m => m.NormalizedSizeBytes)
                 .HasDefaultValue(0L);
+            entity.Property(m => m.IsClientEncrypted)
+                .HasDefaultValue(false);
+            entity.Property(m => m.EncryptionScheme)
+                .HasMaxLength(100);
+            entity.Property(m => m.EncryptionKeyFingerprint)
+                .HasMaxLength(128);
+            entity.Property(m => m.ZeroAccessTokenSalt)
+                .HasMaxLength(64);
 
             entity.HasOne(m => m.Tenant)
                 .WithMany(t => t.Mailboxes)
@@ -175,10 +199,46 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .HasDefaultValue("mbox");
             entity.Property(mu => mu.NormalizedSizeBytes)
                 .HasDefaultValue(0L);
+            entity.Property(mu => mu.IsClientEncrypted)
+                .HasDefaultValue(false);
+            entity.Property(mu => mu.EncryptionScheme)
+                .HasMaxLength(100);
+            entity.Property(mu => mu.EncryptionKeyFingerprint)
+                .HasMaxLength(128);
 
             entity.HasOne(mu => mu.Mailbox)
                 .WithMany(m => m.Uploads)
                 .HasForeignKey(mu => mu.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ZeroAccessMailboxToken>(entity =>
+        {
+            entity.HasKey(t => t.Id);
+            entity.HasIndex(t => new { t.TenantId, t.MailboxId });
+            entity.HasIndex(t => new { t.TenantId, t.TokenType, t.TokenValue });
+            entity.Property(t => t.TokenType).HasMaxLength(50);
+            entity.Property(t => t.TokenValue).HasMaxLength(512);
+
+            entity.HasOne(t => t.Mailbox)
+                .WithMany()
+                .HasForeignKey(t => t.MailboxId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<TenantEncryptionBundle>(entity =>
+        {
+            entity.HasKey(b => b.Id);
+            entity.HasIndex(b => new { b.TenantId, b.CreatedAt });
+            entity.Property(b => b.Label).HasMaxLength(150);
+            entity.Property(b => b.Version).HasMaxLength(50);
+            entity.Property(b => b.Salt).HasMaxLength(64);
+            entity.Property(b => b.Nonce).HasMaxLength(48);
+            entity.Property(b => b.Checksum).HasMaxLength(88);
+
+            entity.HasOne(b => b.Tenant)
+                .WithMany()
+                .HasForeignKey(b => b.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -380,6 +440,24 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .WithMany()
                 .HasForeignKey(p => p.EmailMessageId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserDataExport>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.TenantId, e.UserId });
+            entity.HasIndex(e => new { e.TenantId, e.Status });
+            entity.Property(e => e.Status).HasMaxLength(32);
+            entity.Property(e => e.BlobPath).HasMaxLength(500);
+            entity.Property(e => e.ErrorMessage).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<UserDeletionJob>(entity =>
+        {
+            entity.HasKey(j => j.Id);
+            entity.HasIndex(j => new { j.TenantId, j.UserId });
+            entity.Property(j => j.Status).HasMaxLength(32);
+            entity.Property(j => j.Notes).HasMaxLength(1000);
         });
 
         // SubscriptionPlan

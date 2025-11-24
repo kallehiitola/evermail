@@ -3,14 +3,17 @@
 @using Evermail.Common.Constants
 @using Evermail.Common.DTOs
 @using Evermail.Common.DTOs.Upload
+@using Evermail.Common.DTOs.Tenant
 @using Microsoft.AspNetCore.Components.Authorization
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.WebUtilities
 @using Evermail.WebApp.Services
 @using System.Net.Http.Json
+@using System.Net.Http.Headers
 @using System.IO
 @using System.Collections.Generic
+@using System.Linq
 @using Microsoft.JSInterop
 @inject HttpClient Http
 @inject IJSRuntime JS
@@ -142,6 +145,88 @@
             </div>
         </section>
 
+        @if (_supportsZeroAccess)
+        {
+            <section class="modern-card zero-access-card">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                    <div>
+                        <p class="hero-eyebrow mb-1 text-uppercase">Zero-access mode</p>
+                        <h4 class="mb-1">Encrypt in the browser so Evermail never sees plaintext.</h4>
+                        <p class="text-muted mb-0">
+                            Available because your tenant is configured for BYOK. We'll block server-side ingestion and store the ciphertext exactly as you upload it.
+                        </p>
+                    </div>
+                    <div class="form-check form-switch zero-access-toggle">
+                        <input class="form-check-input"
+                               type="checkbox"
+                               role="switch"
+                               id="zeroAccessToggle"
+                               checked="@_useZeroAccess"
+                               @onchange="OnZeroAccessToggleChanged" />
+                        <label class="form-check-label" for="zeroAccessToggle">
+                            Client-side encryption
+                        </label>
+                    </div>
+                </div>
+
+                @if (_useZeroAccess)
+                {
+                    <div class="alert alert-warning mt-3" role="alert">
+                        <i class="bi bi-shield-lock me-2"></i>
+                        Store this key offline—Evermail cannot recover it for you.
+                    </div>
+
+                    @if (_zeroAccessBundle is not null)
+                    {
+                        <div class="zero-access-keybundle mt-3">
+                            <div class="zero-access-keybundle__header">
+                                <div>
+                                    <p class="mb-1 fw-semibold">Encryption key</p>
+                                    <code class="zero-access-keybundle__value">@_zeroAccessBundle.KeyBase64</code>
+                                </div>
+                                <div class="zero-access-keybundle__actions">
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="CopyZeroAccessKeyAsync">
+                                        <i class="bi bi-clipboard me-1"></i>Copy
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="DownloadZeroAccessBundleAsync">
+                                        <i class="bi bi-download me-1"></i>Download bundle
+                                    </button>
+                                    <button class="btn btn-link btn-sm text-decoration-none" type="button" @onclick="GenerateZeroAccessKeyAsync">
+                                        Regenerate
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="zero-access-keybundle__meta">
+                                <div>
+                                    <span class="label">Fingerprint</span>
+                                    <span class="value">@_zeroAccessBundle.Fingerprint</span>
+                                </div>
+                                <div>
+                                    <span class="label">Scheme</span>
+                                    <span class="value">@_zeroAccessBundle.Scheme</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mt-3">Generating encryption key...</p>
+                    }
+
+                    <div class="mt-4">
+                        <label class="form-label fw-semibold">Mailbox tags (optional)</label>
+                        <textarea class="form-control"
+                                  rows="2"
+                                  placeholder="Comma-separated tags, e.g. case-4821,project-omega"
+                                  @bind="_zeroAccessTagInput"></textarea>
+                        <small class="text-muted">
+                            We hash these tags in your browser so you can filter encrypted mailboxes later. Never send plaintext labels to Evermail.
+                        </small>
+                    </div>
+                }
+            </section>
+        }
+
         @if (_targetMailboxId.HasValue)
         {
             <section class="modern-card subtle-card">
@@ -179,6 +264,11 @@
     private Guid? _targetMailboxId;
     private bool _isDragOver;
     private bool _hasClientSideError;
+    private TenantOnboardingStatusDto? _tenantStatus;
+    private bool _supportsZeroAccess;
+    private bool _useZeroAccess;
+    private ZeroAccessKeyBundleModel? _zeroAccessBundle;
+    private string _zeroAccessTagInput = string.Empty;
 
     private string DropzoneCssClass => _selectedFile is null
         ? _isDragOver ? "upload-dropzone upload-dropzone--drag" : "upload-dropzone"
@@ -208,6 +298,131 @@
 
         // TODO: Fetch actual tenant plan limit from API
         _maxFileSizeGB = 100;
+
+        await LoadTenantStatusAsync();
+    }
+
+    private async Task LoadTenantStatusAsync()
+    {
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _supportsZeroAccess = false;
+                _useZeroAccess = false;
+                return;
+            }
+
+            var request = new HttpRequestMessage(
+                HttpMethod.Get,
+                $"{Navigation.BaseUri}api/v1/tenants/onboarding/status");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                _supportsZeroAccess = false;
+                _useZeroAccess = false;
+                return;
+            }
+
+            var statusResponse =
+                await response.Content.ReadFromJsonAsync<ApiResponse<TenantOnboardingStatusDto>>();
+            if (statusResponse?.Success == true && statusResponse.Data is not null)
+            {
+                _tenantStatus = statusResponse.Data;
+                _supportsZeroAccess = statusResponse.Data.EncryptionConfigured &&
+                    string.Equals(statusResponse.Data.SecurityPreference, "BYOK", StringComparison.OrdinalIgnoreCase);
+                if (!_supportsZeroAccess)
+                {
+                    _useZeroAccess = false;
+                }
+            }
+        }
+        catch
+        {
+            _supportsZeroAccess = false;
+            _useZeroAccess = false;
+        }
+    }
+
+    private async Task OnZeroAccessToggleChanged(ChangeEventArgs args)
+    {
+        if (!_supportsZeroAccess)
+        {
+            _useZeroAccess = false;
+            return;
+        }
+
+        var next = args.Value switch
+        {
+            bool b => b,
+            string s when bool.TryParse(s, out var parsed) => parsed,
+            _ => !_useZeroAccess
+        };
+
+        _useZeroAccess = _supportsZeroAccess && next;
+
+        if (_useZeroAccess)
+        {
+            await EnsureZeroAccessBundleAsync();
+        }
+    }
+
+    private async Task EnsureZeroAccessBundleAsync(bool force = false)
+    {
+        if (!_useZeroAccess)
+        {
+            _zeroAccessBundle = null;
+            return;
+        }
+
+        if (!force && _zeroAccessBundle is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            _zeroAccessBundle = await JS.InvokeAsync<ZeroAccessKeyBundleModel>("zeroAccessUpload.generateBundle");
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to generate encryption key: {ex.Message}";
+            _useZeroAccess = false;
+        }
+    }
+
+    private Task GenerateZeroAccessKeyAsync() => EnsureZeroAccessBundleAsync(force: true);
+
+    private async Task CopyZeroAccessKeyAsync()
+    {
+        if (_zeroAccessBundle is null)
+        {
+            return;
+        }
+
+        await JS.InvokeVoidAsync("zeroAccessUpload.copyToClipboard", _zeroAccessBundle.KeyBase64);
+    }
+
+    private async Task DownloadZeroAccessBundleAsync()
+    {
+        if (_zeroAccessBundle is null)
+        {
+            return;
+        }
+
+        var bundle = new
+        {
+            key = _zeroAccessBundle.KeyBase64,
+            fingerprint = _zeroAccessBundle.Fingerprint,
+            noncePrefix = _zeroAccessBundle.NoncePrefixBase64,
+            scheme = _zeroAccessBundle.Scheme,
+            generatedAt = DateTime.UtcNow
+        };
+
+        await JS.InvokeVoidAsync("zeroAccessUpload.downloadBundle", bundle);
     }
 
     private void HandleFileSelected(InputFileChangeEventArgs e)
@@ -251,17 +466,20 @@
 
     private async Task StartUpload()
     {
-        if (_selectedFile == null) return;
-        
+        if (_selectedFile == null)
+        {
+            return;
+        }
+
         if (_totalGB > _maxFileSizeGB)
         {
             _errorMessage = $"File size ({_totalGB:F2} GB) exceeds your plan limit ({_maxFileSizeGB} GB). Please upgrade your subscription.";
             return;
         }
-        
+
         _isProcessing = true;
         _errorMessage = string.Empty;
-        
+
         try
         {
             var token = await AuthStateService.GetTokenAsync();
@@ -271,62 +489,142 @@
                 return;
             }
 
-            var apiUrl = $"{Navigation.BaseUri}api/v1/upload/initiate";
-            var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
-            request.Headers.Add("Authorization", $"Bearer {token}");
-            request.Content = JsonContent.Create(new InitiateUploadRequest(
-                _fileName,
-                _totalBytes,
-                _formatHint,
-                _targetMailboxId
-            ));
-            
-            var initiateResponse = await Http.SendAsync(request);
-            
-            if (!initiateResponse.IsSuccessStatusCode)
+            string sasUrl;
+            Guid mailboxId;
+            Guid uploadId;
+            string? tokenSalt = null;
+
+            if (_useZeroAccess)
             {
-                var errorContent = await initiateResponse.Content.ReadAsStringAsync();
-                _errorMessage = $"Failed to initiate upload: {errorContent}";
-                return;
+                var zeroAccessRequest = new HttpRequestMessage(
+                    HttpMethod.Post,
+                    $"{Navigation.BaseUri}api/v1/mailboxes/encrypted-upload/initiate");
+                zeroAccessRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                zeroAccessRequest.Content = JsonContent.Create(new InitiateZeroAccessUploadRequest(
+                    _fileName,
+                    _totalBytes,
+                    _targetMailboxId,
+                    "zero-access/aes-gcm-chunked/v1"));
+
+                var zeroAccessResponse = await Http.SendAsync(zeroAccessRequest);
+                if (!zeroAccessResponse.IsSuccessStatusCode)
+                {
+                    var error = await zeroAccessResponse.Content.ReadAsStringAsync();
+                    _errorMessage = $"Failed to initiate encrypted upload: {error}";
+                    return;
+                }
+
+                var payload = await zeroAccessResponse.Content
+                    .ReadFromJsonAsync<ApiResponse<InitiateZeroAccessUploadResponse>>();
+
+                if (payload?.Success != true || payload.Data is null)
+                {
+                    _errorMessage = payload?.Error ?? "Failed to initiate encrypted upload";
+                    return;
+                }
+
+                sasUrl = payload.Data.UploadUrl;
+                mailboxId = payload.Data.MailboxId;
+                uploadId = payload.Data.UploadId;
+                tokenSalt = payload.Data.TokenSalt;
+            }
+            else
+            {
+                var apiUrl = $"{Navigation.BaseUri}api/v1/upload/initiate";
+                var request = new HttpRequestMessage(HttpMethod.Post, apiUrl);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Content = JsonContent.Create(new InitiateUploadRequest(
+                    _fileName,
+                    _totalBytes,
+                    _formatHint,
+                    _targetMailboxId,
+                    ClientSideEncryption: false));
+
+                var initiateResponse = await Http.SendAsync(request);
+                if (!initiateResponse.IsSuccessStatusCode)
+                {
+                    var errorContent = await initiateResponse.Content.ReadAsStringAsync();
+                    _errorMessage = $"Failed to initiate upload: {errorContent}";
+                    return;
+                }
+
+                var result = await initiateResponse.Content.ReadFromJsonAsync<ApiResponse<InitiateUploadResponse>>();
+                if (result?.Success != true || result.Data is null)
+                {
+                    _errorMessage = result?.Error ?? "Failed to initiate upload";
+                    return;
+                }
+
+                sasUrl = result.Data.UploadUrl;
+                mailboxId = result.Data.MailboxId;
+                uploadId = result.Data.UploadId;
             }
 
-            var result = await initiateResponse.Content.ReadFromJsonAsync<ApiResponse<InitiateUploadResponse>>();
-            
-            if (result?.Success != true || result.Data == null)
-            {
-                _errorMessage = result?.Error ?? "Failed to initiate upload";
-                return;
-            }
-            
             _isProcessing = false;
             _isUploading = true;
-            
-            var uploadSucceeded = await UploadToAzureBlobAsync(result.Data.UploadUrl);
 
-            if (!uploadSucceeded)
+            var uploadMetadata = await UploadToAzureBlobAsync(sasUrl);
+            if (!_isUploading)
             {
                 return;
             }
-            
-            var completeUrl = $"{Navigation.BaseUri}api/v1/upload/complete";
-            var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
-            completeRequest.Headers.Add("Authorization", $"Bearer {token}");
-            completeRequest.Content = JsonContent.Create(new CompleteUploadRequest(
-                result.Data.MailboxId,
-                result.Data.UploadId
-            ));
-            
-            var completeResponse = await Http.SendAsync(completeRequest);
-            
-            if (!completeResponse.IsSuccessStatusCode)
+
+            if (_useZeroAccess)
             {
-                _errorMessage = "Upload completed but failed to queue for processing";
-                return;
+                if (uploadMetadata is null || _zeroAccessBundle is null || string.IsNullOrWhiteSpace(tokenSalt))
+                {
+                    _errorMessage = "Encrypted upload failed to return metadata.";
+                    _isUploading = false;
+                    return;
+                }
+
+                var tagTokens = await BuildZeroAccessTagTokensAsync(tokenSalt);
+                IReadOnlyList<DeterministicTokenSetDto>? tokenSets = tagTokens.Count > 0
+                    ? new[] { new DeterministicTokenSetDto("tag", tagTokens) }
+                    : null;
+
+                var zeroAccessUrl = $"{Navigation.BaseUri}api/v1/mailboxes/encrypted-upload/complete";
+                var zeroAccessRequest = new HttpRequestMessage(HttpMethod.Post, zeroAccessUrl);
+                zeroAccessRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                zeroAccessRequest.Content = JsonContent.Create(new CompleteZeroAccessUploadRequest(
+                    mailboxId,
+                    uploadId,
+                    _zeroAccessBundle.Scheme,
+                    _zeroAccessBundle.Fingerprint,
+                    uploadMetadata.MetadataJson,
+                    _totalBytes,
+                    uploadMetadata.CipherSizeBytes,
+                    tokenSets
+                ));
+
+                var zeroAccessResponse = await Http.SendAsync(zeroAccessRequest);
+                if (!zeroAccessResponse.IsSuccessStatusCode)
+                {
+                    _errorMessage = "Encrypted upload completed but failed to finalize.";
+                    return;
+                }
             }
-            
+            else
+            {
+                var completeUrl = $"{Navigation.BaseUri}api/v1/upload/complete";
+                var completeRequest = new HttpRequestMessage(HttpMethod.Post, completeUrl);
+                completeRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                completeRequest.Content = JsonContent.Create(new CompleteUploadRequest(
+                    mailboxId,
+                    uploadId));
+
+                var completeResponse = await Http.SendAsync(completeRequest);
+
+                if (!completeResponse.IsSuccessStatusCode)
+                {
+                    _errorMessage = "Upload completed but failed to queue for processing";
+                    return;
+                }
+            }
+
             _isUploading = false;
             _uploadComplete = true;
-            _completedMailboxId = result.Data.MailboxId;
+            _completedMailboxId = mailboxId;
         }
         catch (Exception ex)
         {
@@ -342,14 +640,41 @@
         }
     }
 
-    private async Task<bool> UploadToAzureBlobAsync(string sasUrl)
+    private async Task<ZeroAccessUploadResultModel?> UploadToAzureBlobAsync(string sasUrl)
     {
         DotNetObjectReference<Upload>? dotNetRef = null;
         try
         {
             dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, dotNetRef);
-            return true;
+            if (_useZeroAccess)
+            {
+                if (_zeroAccessBundle is null)
+                {
+                    throw new InvalidOperationException("Encryption key bundle is missing.");
+                }
+
+                var options = new
+                {
+                    keyBase64 = _zeroAccessBundle.KeyBase64,
+                    fingerprint = _zeroAccessBundle.Fingerprint,
+                    noncePrefixBase64 = _zeroAccessBundle.NoncePrefixBase64,
+                    scheme = _zeroAccessBundle.Scheme,
+                    chunkSize = 4 * 1024 * 1024
+                };
+
+                var result = await JS.InvokeAsync<ZeroAccessUploadResultModel>(
+                    "zeroAccessUpload.encryptAndUpload",
+                    sasUrl,
+                    dotNetRef,
+                    options);
+
+                return result;
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("azureBlobUpload.upload", sasUrl, dotNetRef);
+                return null;
+            }
         }
         catch (Exception ex)
         {
@@ -358,7 +683,7 @@
                 _errorMessage = $"Upload failed: {ex.Message}";
             }
             _isUploading = false;
-            return false;
+            return null;
         }
         finally
         {
@@ -413,6 +738,64 @@
         EmailArchiveFormats.EmlZip => "EML ZIP bundle",
         EmailArchiveFormats.Mbox => ".mbox archive",
         _ => format
+    };
+
+    private IReadOnlyList<string> ParseZeroAccessTags()
+    {
+        if (string.IsNullOrWhiteSpace(_zeroAccessTagInput))
+        {
+            return Array.Empty<string>();
+        }
+
+        return _zeroAccessTagInput
+            .Split(new[] { ',', ';', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(tag => tag.Trim())
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+    }
+
+    private async Task<IReadOnlyList<string>> BuildZeroAccessTagTokensAsync(string tokenSaltBase64)
+    {
+        if (_zeroAccessBundle is null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var tags = ParseZeroAccessTags();
+        if (tags.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        try
+        {
+            var tokens = await JS.InvokeAsync<string[]>(
+                "zeroAccessUpload.deriveTagTokens",
+                _zeroAccessBundle,
+                tokenSaltBase64,
+                tags.ToArray());
+
+            return tokens ?? Array.Empty<string>();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private sealed record ZeroAccessKeyBundleModel
+    {
+        public string KeyBase64 { get; init; } = string.Empty;
+        public string Fingerprint { get; init; } = string.Empty;
+        public string NoncePrefixBase64 { get; init; } = string.Empty;
+        public string Scheme { get; init; } = "zero-access/aes-gcm-chunked/v1";
+    };
+
+    private sealed record ZeroAccessUploadResultModel
+    {
+        public string MetadataJson { get; init; } = string.Empty;
+        public long CipherSizeBytes { get; init; }
     };
 
     [JSInvokable]

@@ -4,6 +4,7 @@ using Evermail.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Evermail.Infrastructure.Migrations
 {
     [DbContext(typeof(EvermailDbContext))]
-    partial class EvermailDbContextModelSnapshot : ModelSnapshot
+    [Migration("20251123152755_AddClientSideEncryption")]
+    partial class AddClientSideEncryption
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -501,10 +504,6 @@ namespace Evermail.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
-                    b.Property<string>("EncryptionKeyFingerprint")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
-
                     b.Property<string>("EncryptionMetadataJson")
                         .HasColumnType("nvarchar(max)");
 
@@ -594,10 +593,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<Guid>("UserId")
                         .HasMaxLength(64)
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("ZeroAccessTokenSalt")
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
 
                     b.HasKey("Id");
 
@@ -775,10 +770,6 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<Guid?>("DeletedByUserId")
                         .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("EncryptionKeyFingerprint")
-                        .HasMaxLength(128)
-                        .HasColumnType("nvarchar(128)");
 
                     b.Property<string>("EncryptionMetadataJson")
                         .HasColumnType("nvarchar(max)");
@@ -1219,60 +1210,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.ToTable("Tenants");
                 });
 
-            modelBuilder.Entity("Evermail.Domain.Entities.TenantEncryptionBundle", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Checksum")
-                        .IsRequired()
-                        .HasMaxLength(88)
-                        .HasColumnType("nvarchar(88)");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("CreatedByUserId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Label")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)");
-
-                    b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Nonce")
-                        .IsRequired()
-                        .HasMaxLength(48)
-                        .HasColumnType("nvarchar(48)");
-
-                    b.Property<string>("Salt")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("nvarchar(64)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Version")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("WrappedDek")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "CreatedAt");
-
-                    b.ToTable("TenantEncryptionBundles");
-                });
-
             modelBuilder.Entity("Evermail.Domain.Entities.TenantEncryptionSettings", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -1392,90 +1329,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.ToTable("TenantEncryptionSettings");
                 });
 
-            modelBuilder.Entity("Evermail.Domain.Entities.UserDataExport", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("BlobPath")
-                        .HasMaxLength(500)
-                        .HasColumnType("nvarchar(500)");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime?>("ExpiresAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<long?>("FileSizeBytes")
-                        .HasColumnType("bigint");
-
-                    b.Property<DateTime>("RequestedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasMaxLength(64)
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("UserId")
-                        .HasMaxLength(64)
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "Status");
-
-                    b.HasIndex("TenantId", "UserId");
-
-                    b.ToTable("UserDataExports");
-                });
-
-            modelBuilder.Entity("Evermail.Domain.Entities.UserDeletionJob", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("CompletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Notes")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime>("RequestedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)");
-
-                    b.Property<Guid>("TenantId")
-                        .HasMaxLength(64)
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("UserId")
-                        .HasMaxLength(64)
-                        .HasColumnType("uniqueidentifier");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId", "UserId");
-
-                    b.ToTable("UserDeletionJobs");
-                });
-
             modelBuilder.Entity("Evermail.Domain.Entities.UserDisplaySetting", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1521,42 +1374,6 @@ namespace Evermail.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("UserDisplaySettings");
-                });
-
-            modelBuilder.Entity("Evermail.Domain.Entities.ZeroAccessMailboxToken", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<Guid>("MailboxId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("TenantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("TokenType")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("TokenValue")
-                        .IsRequired()
-                        .HasMaxLength(512)
-                        .HasColumnType("nvarchar(512)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MailboxId");
-
-                    b.HasIndex("TenantId", "MailboxId");
-
-                    b.HasIndex("TenantId", "TokenType", "TokenValue");
-
-                    b.ToTable("ZeroAccessMailboxTokens");
                 });
 
             modelBuilder.Entity("Evermail.Infrastructure.Data.FullTextSearchResult", b =>
@@ -1965,17 +1782,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.Navigation("Tenant");
                 });
 
-            modelBuilder.Entity("Evermail.Domain.Entities.TenantEncryptionBundle", b =>
-                {
-                    b.HasOne("Evermail.Domain.Entities.Tenant", "Tenant")
-                        .WithMany()
-                        .HasForeignKey("TenantId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Tenant");
-                });
-
             modelBuilder.Entity("Evermail.Domain.Entities.TenantEncryptionSettings", b =>
                 {
                     b.HasOne("Evermail.Domain.Entities.Tenant", "Tenant")
@@ -2004,17 +1810,6 @@ namespace Evermail.Infrastructure.Migrations
                     b.Navigation("Tenant");
 
                     b.Navigation("User");
-                });
-
-            modelBuilder.Entity("Evermail.Domain.Entities.ZeroAccessMailboxToken", b =>
-                {
-                    b.HasOne("Evermail.Domain.Entities.Mailbox", "Mailbox")
-                        .WithMany()
-                        .HasForeignKey("MailboxId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Mailbox");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

@@ -21,6 +21,16 @@ public class MailboxUpload
     public long FileSizeBytes { get; set; }
     public long NormalizedSizeBytes { get; set; }
 
+    public bool IsClientEncrypted { get; set; }
+
+    [MaxLength(100)]
+    public string? EncryptionScheme { get; set; }
+
+    public string? EncryptionMetadataJson { get; set; }
+
+    [MaxLength(128)]
+    public string? EncryptionKeyFingerprint { get; set; }
+
     [Required, MaxLength(64)]
     public string SourceFormat { get; set; } = "mbox";
     

@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using Azure.Core;
 using Azure.Identity;
@@ -36,6 +37,14 @@ public class TenantEncryptionService : ITenantEncryptionService
 
     private readonly IOfflineByokKeyProtector _offlineByokKeyProtector;
 
+    private static readonly Expression<Func<TenantEncryptionBundle, TenantEncryptionBundleDto>> MapBundleDtoExpression = bundle => new TenantEncryptionBundleDto(
+        bundle.Id,
+        bundle.Label,
+        bundle.Version,
+        bundle.CreatedByUserId,
+        bundle.CreatedAt,
+        bundle.LastUsedAt);
+
     public async Task<TenantEncryptionSettingsDto> GetSettingsAsync(Guid tenantId, CancellationToken cancellationToken = default)
     {
         var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
@@ -64,10 +73,7 @@ public class TenantEncryptionService : ITenantEncryptionService
                 ClearAzureFields(entity);
                 break;
             case ProviderEvermailManaged:
-                // Automatic provisioning path (future). For now treat as not configured and clear manual fields.
-                ClearAzureFields(entity);
-                ClearAwsFields(entity);
-                entity.EncryptionPhase = "NotConfigured";
+                ApplyEvermailManagedSettings(entity);
                 break;
             case ProviderOffline:
                 throw new InvalidOperationException("Use the offline BYOK upload endpoint to configure offline keys.");
@@ -126,6 +132,17 @@ public class TenantEncryptionService : ITenantEncryptionService
         entity.LastVerificationMessage = "Offline BYOK bundle uploaded.";
 
         await _context.SaveChangesAsync(cancellationToken);
+
+        await UpsertBundleRecordAsync(
+            tenantId,
+            userId,
+            request.Version,
+            request.TenantLabel,
+            request.WrappedDek,
+            request.Salt,
+            request.Nonce,
+            request.Checksum,
+            cancellationToken);
 
         return MapToDto(entity);
     }
@@ -257,6 +274,16 @@ public class TenantEncryptionService : ITenantEncryptionService
         entity.ProviderMetadata = null;
     }
 
+    private void ApplyEvermailManagedSettings(TenantEncryptionSettings entity)
+    {
+        ClearAzureFields(entity);
+        ClearAwsFields(entity);
+
+        entity.EncryptionPhase = "EvermailManaged";
+        entity.LastVerifiedAt = DateTime.UtcNow;
+        entity.LastVerificationMessage = "Evermail-managed Fast Start keys provisioned automatically.";
+    }
+
     private async Task<TenantEncryptionTestResultDto> TestAzureKeyVaultAsync(
         TenantEncryptionSettings entity,
         CancellationToken cancellationToken)
@@ -324,6 +351,56 @@ public class TenantEncryptionService : ITenantEncryptionService
         await _context.SaveChangesAsync(cancellationToken);
 
         return result;
+    }
+
+    public async Task<IReadOnlyList<TenantEncryptionBundleDto>> GetBundlesAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        return await _context.TenantEncryptionBundles
+            .AsNoTracking()
+            .Where(b => b.TenantId == tenantId)
+            .OrderByDescending(b => b.CreatedAt)
+            .Select(MapBundleDtoExpression)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<TenantEncryptionBundleDto> CreateBundleAsync(
+        Guid tenantId,
+        Guid userId,
+        CreateTenantEncryptionBundleRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateBundleRequest(request);
+
+        return await UpsertBundleRecordAsync(
+            tenantId,
+            userId,
+            request.Version,
+            request.Label,
+            request.WrappedDek,
+            request.Salt,
+            request.Nonce,
+            request.Checksum,
+            cancellationToken);
+    }
+
+    public async Task DeleteBundleAsync(
+        Guid tenantId,
+        Guid bundleId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var bundle = await _context.TenantEncryptionBundles
+            .FirstOrDefaultAsync(b => b.TenantId == tenantId && b.Id == bundleId, cancellationToken);
+
+        if (bundle is null)
+        {
+            throw new InvalidOperationException("Bundle not found.");
+        }
+
+        _context.TenantEncryptionBundles.Remove(bundle);
+        await _context.SaveChangesAsync(cancellationToken);
     }
 
     private static byte[] DecryptOfflineBundle(OfflineByokUploadRequest request)
@@ -403,6 +480,88 @@ public class TenantEncryptionService : ITenantEncryptionService
         return value.Trim();
     }
 
+    private async Task<TenantEncryptionBundleDto> UpsertBundleRecordAsync(
+        Guid tenantId,
+        Guid userId,
+        string version,
+        string? label,
+        string wrappedDek,
+        string salt,
+        string nonce,
+        string checksum,
+        CancellationToken cancellationToken)
+    {
+        var normalizedLabel = NormalizeBundleLabel(label);
+        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? "offline-byok/v1" : version.Trim();
+
+        var bundle = await _context.TenantEncryptionBundles
+            .FirstOrDefaultAsync(b => b.TenantId == tenantId && b.Checksum == checksum, cancellationToken);
+
+        if (bundle is null)
+        {
+            bundle = new TenantEncryptionBundle
+            {
+                TenantId = tenantId,
+                CreatedByUserId = userId,
+                Label = normalizedLabel,
+                Version = normalizedVersion,
+                WrappedDek = wrappedDek,
+                Salt = salt,
+                Nonce = nonce,
+                Checksum = checksum,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _context.TenantEncryptionBundles.Add(bundle);
+        }
+        else
+        {
+            bundle.Label = normalizedLabel;
+            bundle.Version = normalizedVersion;
+            bundle.WrappedDek = wrappedDek;
+            bundle.Salt = salt;
+            bundle.Nonce = nonce;
+            bundle.LastUsedAt = DateTime.UtcNow;
+            bundle.CreatedByUserId = userId;
+        }
+
+        await _context.SaveChangesAsync(cancellationToken);
+        return MapBundleDto(bundle);
+    }
+
+    private static void ValidateBundleRequest(CreateTenantEncryptionBundleRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Version))
+        {
+            throw new InvalidOperationException("version is required.");
+        }
+
+        _ = Convert.FromBase64String(request.WrappedDek);
+        _ = Convert.FromBase64String(request.Salt);
+        _ = Convert.FromBase64String(request.Nonce);
+        _ = Convert.FromBase64String(request.Checksum);
+    }
+
+    private static string NormalizeBundleLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+        {
+            return "Offline bundle";
+        }
+
+        var trimmed = label.Trim();
+        return trimmed.Length > 150 ? trimmed[..150] : trimmed;
+    }
+
+    private static TenantEncryptionBundleDto MapBundleDto(TenantEncryptionBundle entity)
+        => new(
+            entity.Id,
+            entity.Label,
+            entity.Version,
+            entity.CreatedByUserId,
+            entity.CreatedAt,
+            entity.LastUsedAt);
+
     private static TenantEncryptionSettingsDto MapToDto(TenantEncryptionSettings entity)
     {
         var secureKeyRelease = new SecureKeyReleaseDto(
@@ -435,6 +594,7 @@ public class TenantEncryptionService : ITenantEncryptionService
             ProviderAwsKms => !string.IsNullOrWhiteSpace(entity.AwsKmsKeyArn) &&
                               !string.IsNullOrWhiteSpace(entity.AwsIamRoleArn),
             ProviderOffline => !string.IsNullOrWhiteSpace(entity.OfflineMasterKeyCiphertext),
+            ProviderEvermailManaged => true,
             _ => false
         };
 

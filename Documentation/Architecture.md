@@ -128,7 +128,7 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
      - **Evermail-managed (Fast Start)**  
        - Headline: “Be searching in minutes.”  
        - Bullets: “Evermail holds the keys”, “Best for trials & debugging”, “Switch to BYOK anytime.”  
-       - CTA button “Use quick-start keys” triggers `UpsertTenantEncryptionSettings` with `Provider=EvermailManaged` and shows a success badge: “Keys provisioned automatically.”
+       - CTA button “Use quick-start keys” triggers `UpsertTenantEncryptionSettings` with `Provider=EvermailManaged`. The backend now auto-provisions the managed protector (sets `EncryptionPhase = EvermailManaged`, stamps `LastVerifiedAt`, and invalidates onboarding caches) so the wizard immediately shows “Keys provisioned automatically.”
      - **Customer-managed key (BYOK)**  
        - Headline: “Your key, your rules.”  
        - Bullets: “Evermail can’t see plaintext without your approval”, “Pairs with Azure Key Vault, AWS KMS, or offline bundles”, “Perfect for compliance teams.”  
@@ -274,6 +274,9 @@ This spec keeps the onboarding flow grounded in the current implementation while
 - **PST/OST conversion**: `PstToMboxWriter` embeds the open-source `XstReader` engine (Ms-PL) to walk every folder/message in the PST/OST, hydrate recipients + attachments, and emit canonical `MimeMessage` instances into an `MboxrdWriter`. Attachments stay inline so the existing hashing/dedupe/attachment pipeline works untouched. The implementation follows Microsoft’s [MS-PST specification](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-pst/) and the official [Outlook export workflow](https://support.microsoft.com/en-us/office/export-emails-contacts-and-calendar-items-to-outlook-using-a-pst-file-14252b52-3075-4e9b-be4e-ff9ef1068f91).
 - **Plan-aware inflation guardrails**: After normalization we compare the inflated byte count against the tenant’s `SubscriptionPlan.MaxFileSizeGB`. If a 700 MB ZIP expands to 4 GB but the tenant’s limit is 1 GB the worker fails fast with a descriptive error, blocking compressed payload attacks and aligning with the safeguards outlined in `Documentation/Security.md`.
 - **Client-side parity**: When Zero-Access Archive Mode is enabled the browser consults the same `SourceFormat` metadata to decide which parser to run (mbox, pst/ost, eml) before encrypting chunks client-side. The new normalization service makes it easy to short-circuit the server-side conversion path once the WASM extractor ships.
+- **Encrypted upload contract**: `POST /api/v1/mailboxes/encrypted-upload/initiate` prepares the mailbox, returns a SAS URL, and hands back a `tokenSalt`. After the browser encrypts and uploads the chunks it calls `POST /api/v1/mailboxes/encrypted-upload/complete` with the scheme metadata, key fingerprint, ciphertext statistics, and the hashed deterministic tag tokens. Server-side ingestion simply records metadata; the worker never touches ciphertext.
+- **Deterministic tokens (phase 1)**: Tag hashes live in `ZeroAccessMailboxTokens` (TenantId + MailboxId + TokenType + TokenValue). Search surfaces add a `tagToken` filter so the client can hash the user’s query with the same token key and have the server narrow the result set *before* the mailbox is downloaded/decrypted locally. Future phases will extend the same storage to per-email tokens emitted by the WASM parser.
+- **Multi-admin BYOK bundles**: `TenantEncryptionBundle` stores wrapped DEK bundles per admin (label, checksum, createdBy) so several privileged users can maintain their own recovery material without overwriting each other. The Offline BYOK lab and admin encryption page now list these bundles, allow re-download, and expose a `DELETE` affordance for stale entries.
 - **Normalization flow**:
   1. Raw `.mbox` → streamed directly into MimeKit’s `MimeParser`.
   2. `.zip` containing `.mbox` → entries are concatenated into a temporary `.mbox` file then streamed (still honoring the 5 GB per-file plan limit).
@@ -343,6 +346,9 @@ This spec keeps the onboarding flow grounded in the current implementation while
   - `Mailboxes` - Uploaded mbox metadata and processing status
   - `EmailMessages` - Core email data
   - `Attachments` - Attachment metadata (files in Blob)
+- `ZeroAccessMailboxTokens` - Opaque deterministic tag hashes for zero-access mailboxes (powers equality filtering without plaintext)
+- `TenantEncryptionBundles` - Registry of offline BYOK bundles per admin (wrapped ciphertext + metadata)
+- `UserDataExports` / `UserDeletionJobs` - GDPR job tracking
   - `Workspaces` - Shared archive spaces (Phase 2)
   - `AuditLogs` - GDPR compliance and security auditing
   - `SubscriptionPlans` - Stripe subscription tracking

@@ -511,7 +511,6 @@
         };
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        EnsureHttpClientBaseAddress();
 
         var response = await Http.SendAsync(request);
         var apiResponse = await response.Content.ReadFromJsonAsync<ApiResponse<TenantEncryptionSettingsDto>>();
@@ -528,14 +527,6 @@
     {
         relativePath = relativePath.TrimStart('/');
         return new Uri(new Uri(Navigation.BaseUri), relativePath);
-    }
-
-    private void EnsureHttpClientBaseAddress()
-    {
-        if (Http.BaseAddress is null)
-        {
-            Http.BaseAddress = new Uri(Navigation.BaseUri);
-        }
     }
 
     private static Task PreventDefaultAsync() => Task.CompletedTask;

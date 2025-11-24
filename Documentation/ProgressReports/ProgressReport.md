@@ -303,6 +303,29 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 🛡️ Logged operational gaps: Stripe/Webhook-free billing toggle, audit trail expansion, and per-tenant throttles—these are now tracked as explicit backlog items instead of implicit “future phases.”
 - 🗂️ Updated `Next Steps` with a security-first roadmap so the team can start with the missing controls before layering on additional feature work.
 
+### 2025-11-23 - Security Middleware & Audit Logging
+- 🛡️ Added a dedicated `SecurityHeadersMiddleware` that now injects HSTS, CSP (`default-src 'self'` with scoped allowances), X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy, and legacy X-XSS protection headers on every response (dev mode automatically relaxes CSP for hot reload).
+- 📝 Introduced `IAuditLogger` + `AuditLoggingMiddleware` so every authenticated `POST/PUT/PATCH/DELETE` request under `/api/v1` writes to `AuditLogs` with tenant ID, user ID, IP, user agent, route, and status code—giving us the compliance trail promised in `Security.md`.
+- 🧰 Exposed the logger via DI for future manual enrichments (e.g., attaching resource IDs), documented the policies/design up front, and updated `Security.md` to reflect the now-enforced middleware plus baseline audit coverage.
+
+### 2025-11-23 - Fast Start Encryption Auto-Provisioning
+- ⚡ Wired the “Use quick-start keys” action to fully provision Evermail-managed encryption: `TenantEncryptionService` now clears BYOK metadata, marks `EncryptionPhase = EvermailManaged`, and stamps verification timestamps the moment a tenant selects Fast Start.
+- 📊 Onboarding status flips immediately because the backend invalidates the cache and the wizard re-queries `/tenants/onboarding/status`, so admins see “Keys provisioned automatically” without leaving the page.
+- 📚 Updated `Documentation/Architecture.md` to note the end-to-end behavior so future UI/AI changes know the backend instantly marks Fast Start work as complete.
+
+### 2025-11-23 - Rate Limiting & GDPR Self-Service
+- 🚦 Enabled ASP.NET Core’s built-in rate limiter with per-tier partitions (Free 100/hr → Enterprise unlimited + anonymous 60/min) so abusive tenants/IPs can’t starve shared infrastructure; rejection responses now emit `Retry-After` and rate-limit headers to keep SDKs standards-compliant.
+- 📦 Shipped GDPR export pipeline: `/api/v1/users/me/export` streams profile/mailbox/email/audit data into the dedicated `gdpr-exports` container, returns 202 + download URLs, and logs every request via the audit middleware.
+- 🗑️ Implemented `/api/v1/users/me` account deletion flow that anonymizes Identity records, revokes refresh tokens, queues mailbox purges, and records durable `UserDeletionJob` receipts so admins can prove “right to be forgotten” compliance.
+- 🧱 Added new `UserDataExports`/`UserDeletionJobs` tables plus DI services (`IGdprExportService`, rate-limit plan catalog) and wired `JwtTokenService` to stamp subscription tier claims so throttling stays synchronous with zero DB hits.
+
+### 2025-11-23 - Zero-Access Upload Contract & Bundle Registry
+- 🔐 Landed the `/api/v1/mailboxes/encrypted-upload/initiate|complete` contract: Blazor zero-access uploads now request a dedicated SAS + `tokenSalt`, stream AES-GCM chunks via `zero-access-upload.js`, and finalize with metadata (scheme, fingerprint, ciphertext sizes) and deterministic tag tokens derived client-side.
+- 🧵 Added deterministic tag storage so encrypted mailboxes remain discoverable without plaintext: hashed tags land in `ZeroAccessMailboxTokens`, `/api/v1/mailboxes?tagToken=...` filters lists, and the UI now exposes optional tag inputs + JS HKDF/HMAC helpers to keep keys local.
+- 📦 Created `TenantEncryptionBundles` + new admin APIs (`GET/POST/DELETE /tenants/encryption/bundles`) so multiple admins can register offline BYOK bundles; the onboarding inline component now lists bundles, tracks creation/use timestamps, and lets admins prune stale copies.
+- 🛠️ Updated `Upload.razor`, zero-access JS, `MailboxProcessingService`, and API DTOs to track encryption metadata (`IsClientEncrypted`, `EncryptionScheme`, `EncryptionKeyFingerprint`, token salts) so zero-access archives skip ingestion immediately yet surface rich status in `/mailboxes`.
+- 📚 Synced `Documentation/Security.md`, `Architecture.md`, and `API.md` with the encrypted upload workflow, deterministic token strategy (phase 1 – mailbox tags), and bundle registry design so future encrypted-search work builds on the documented contract.
+
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.
 - 📚 Clarified `Documentation/API.md` + `Documentation/Security.md` with notes on snippet metadata, attachment previews, and how `EvermailSearchHighlights` keeps sanitized markup intact, keeping API + UI expectations in sync.
@@ -399,13 +422,10 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Next Steps
 
-1. **Zero-Access upload pipeline** – Ship the encrypted upload endpoint (`/api/v1/mailboxes/encrypted-upload`), WASM chunk encryption, and metadata headers so tenants can actually use the documented Zero-Access mode.
-2. **Evermail-managed “Fast Start” encryption** – Implement the automatic Evermail-managed key provisioning path that flips `EncryptionConfigured = true` when tenants pick the quick-start option.
-3. **Security middleware & audit logging** – Add HSTS/CSP/X-Frame/etc. headers plus the `AuditMiddleware` so sensitive POST/DELETE operations create traceable records.
-4. **API rate limiting & DDoS guardrails** – Wire up `AspNetCoreRateLimit` (or equivalent) and document the production Front Door/WAF posture.
-5. **GDPR self-service APIs** – Implement `/api/v1/users/me/export` + `DELETE /api/v1/users/me` with the documented retention/anonymization workflow.
-6. **Confidential compute & SKR rollout** – Start Phase 1 of the Confidential Content Protection plan (Secure Key Release policies, per-mailbox DEK metadata) to unblock later TEE enforcement.
-7. **Stripe integration** – Finish payment plumbing (Checkout, webhooks, portal) so onboarding can enforce plan upgrades once the security layers are in place.
+1. **Confidential compute & SKR rollout** – Start Phase 1 of the Confidential Content Protection plan (Secure Key Release policies, per-mailbox DEK metadata) to unblock later TEE enforcement.
+2. **Deterministic token expansion** – Extend zero-access tokens from mailbox-level tags to per-email metadata + client-side search UX so encrypted tenants can filter conversations without decrypting everything.
+3. **Stripe integration** – Finish payment plumbing (Checkout, webhooks, portal) so onboarding can enforce plan upgrades once the security layers are in place.
+4. **Audit trail UX & exports** – Surface the new `AuditLogs` + GDPR job data in the admin dashboard (filters, CSV download, anomaly indicators) so compliance teams can self-serve evidence packs without touching SQL.
 
 ---
 

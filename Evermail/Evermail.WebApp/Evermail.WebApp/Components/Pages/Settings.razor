@@ -601,7 +601,6 @@
         }
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        EnsureHttpClientBaseAddress();
         return await Http.SendAsync(request);
     }
 
@@ -609,14 +608,6 @@
     {
         relativePath = relativePath.TrimStart('/');
         return new Uri(new Uri(Navigation.BaseUri), relativePath);
-    }
-
-    private void EnsureHttpClientBaseAddress()
-    {
-        if (Http.BaseAddress is null)
-        {
-            Http.BaseAddress = new Uri(Navigation.BaseUri);
-        }
     }
 
     private static long GigabytesToBytes(int gigabytes) => gigabytes <= 0 ? 0 : gigabytes * 1024L * 1024L * 1024L;

@@ -78,3 +78,26 @@ public record PinEmailResponse(
     DateTime? PinnedAt
 );
 
+public record UserDataExportDto(
+    Guid Id,
+    string Status,
+    DateTime RequestedAt,
+    DateTime? CompletedAt,
+    DateTime? ExpiresAt,
+    long? FileSizeBytes,
+    string? DownloadUrl,
+    string? ErrorMessage
+);
+
+public record UserDataExportDownloadDto(
+    string DownloadUrl,
+    DateTime ExpiresAt
+);
+
+public record UserDeletionResponse(
+    Guid JobId,
+    string Status,
+    DateTime RequestedAt,
+    DateTime? CompletedAt
+);
+

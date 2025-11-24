@@ -1114,16 +1114,7 @@
         }
 
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        EnsureHttpClientBaseAddress();
         return await Http.SendAsync(request);
-    }
-
-    private void EnsureHttpClientBaseAddress()
-    {
-        if (Http.BaseAddress is null)
-        {
-            Http.BaseAddress = new Uri(Navigation.BaseUri);
-        }
     }
 
     private async Task EnableQuickStartAsync()

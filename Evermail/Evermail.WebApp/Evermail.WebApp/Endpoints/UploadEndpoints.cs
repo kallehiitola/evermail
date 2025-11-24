@@ -7,6 +7,7 @@ using Evermail.Infrastructure.Services;
 using Evermail.Infrastructure.Services.Archives;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Cryptography;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -22,7 +23,8 @@ public static class UploadEndpoints
         EmailArchiveFormats.OutlookOst,
         EmailArchiveFormats.OutlookOstZip,
         EmailArchiveFormats.Eml,
-        EmailArchiveFormats.EmlZip
+        EmailArchiveFormats.EmlZip,
+        EmailArchiveFormats.ClientEncrypted
     };
 
     public static RouteGroupBuilder MapUploadEndpoints(this RouteGroupBuilder group)
@@ -31,6 +33,15 @@ public static class UploadEndpoints
             .RequireAuthorization();
         
         group.MapPost("/complete", CompleteUploadAsync)
+            .RequireAuthorization();
+
+        group.MapPost("/complete/zero-access", CompleteZeroAccessUploadAsync)
+            .RequireAuthorization();
+
+        group.MapPost("/encrypted/initiate", InitiateZeroAccessUploadAsync)
+            .RequireAuthorization();
+
+        group.MapPost("/encrypted/complete", CompleteZeroAccessUploadAsync)
             .RequireAuthorization();
         
         return group;
@@ -43,163 +54,25 @@ public static class UploadEndpoints
         EvermailDbContext context,
         TenantContext tenantContext)
     {
-        var mailboxIdOverride = overrideMailboxId ?? request.MailboxId;
-        
-        // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
         {
             return Results.Unauthorized();
         }
-
-        // 1. Get tenant's subscription plan
-        var tenant = await context.Tenants
-            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId);
-        
-        if (tenant == null)
+        try
         {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: "Tenant not found"
-            ));
+            var (response, _, _) = await PrepareUploadAsync(
+                request,
+                overrideMailboxId ?? request.MailboxId,
+                blobService,
+                context,
+                tenantContext);
+
+            return Results.Ok(new ApiResponse<InitiateUploadResponse>(true, response));
         }
-
-        var plan = await context.SubscriptionPlans
-            .FirstOrDefaultAsync(p => p.Name == tenant.SubscriptionTier);
-        
-        if (plan == null)
+        catch (InvalidOperationException ex)
         {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: "Subscription plan not found"
-            ));
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
         }
-        
-        // 2. Validate file size against plan
-        var fileSizeGB = request.FileSizeBytes / (1024.0 * 1024.0 * 1024.0);
-        if (fileSizeGB > plan.MaxFileSizeGB)
-        {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: $"File size ({fileSizeGB:F2} GB) exceeds your plan limit ({plan.MaxFileSizeGB} GB). Please upgrade your subscription."
-            ));
-        }
-        
-        var normalizedFormat = NormalizeFileType(request.FileType);
-
-        if (!string.IsNullOrWhiteSpace(normalizedFormat) && !AllowedFileTypes.Contains(normalizedFormat))
-        {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: $"Invalid file type. Allowed types: {string.Join(", ", AllowedFileTypes)}"
-            ));
-        }
-        
-        var pendingFormat = normalizedFormat ?? EmailArchiveFormats.AutoDetect;
-        
-        // Ensure user exists
-        var userExists = await context.Users.AnyAsync(u => u.Id == tenantContext.UserId);
-        if (!userExists)
-        {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: $"User not found. UserId: {tenantContext.UserId}"
-            ));
-        }
-
-        Mailbox? mailboxEntity;
-        if (mailboxIdOverride is Guid targetMailboxId)
-        {
-            mailboxEntity = await context.Mailboxes
-                .FirstOrDefaultAsync(m => m.Id == targetMailboxId && m.TenantId == tenantContext.TenantId);
-
-            if (mailboxEntity == null)
-            {
-                return Results.NotFound(new ApiResponse<object>(
-                    Success: false,
-                    Error: "Mailbox not found"
-                ));
-            }
-        }
-        else
-        {
-            mailboxEntity = new Mailbox
-            {
-                Id = Guid.NewGuid(),
-                TenantId = tenantContext.TenantId,
-                UserId = tenantContext.UserId,
-                DisplayName = request.FileName,
-                FileName = request.FileName,
-                FileSizeBytes = request.FileSizeBytes,
-                SourceFormat = pendingFormat,
-                BlobPath = string.Empty,
-                Status = "Pending",
-                CreatedAt = DateTime.UtcNow
-            };
-
-            context.Mailboxes.Add(mailboxEntity);
-            await context.SaveChangesAsync();
-        }
-
-        var mailbox = mailboxEntity;
-        if (mailbox == null)
-        {
-            return Results.BadRequest(new ApiResponse<object>(
-                Success: false,
-                Error: "Mailbox could not be resolved"
-            ));
-        }
-
-        mailbox.SourceFormat = pendingFormat;
-
-        // 4. Create MailboxUpload record
-        var upload = new MailboxUpload
-        {
-            Id = Guid.NewGuid(),
-            TenantId = tenantContext.TenantId,
-            MailboxId = mailbox.Id,
-            UploadedByUserId = tenantContext.UserId,
-            FileName = request.FileName,
-            FileSizeBytes = request.FileSizeBytes,
-            SourceFormat = pendingFormat,
-            BlobPath = string.Empty,
-            Status = "Pending",
-            CreatedAt = DateTime.UtcNow
-        };
-
-        context.MailboxUploads.Add(upload);
-        mailbox.FileName = request.FileName;
-        mailbox.FileSizeBytes = request.FileSizeBytes;
-        mailbox.Status = "Pending";
-        mailbox.LatestUploadId = upload.Id;
-        mailbox.UploadRemovedAt = null;
-        mailbox.UploadRemovedByUserId = null;
-        mailbox.IsPendingDeletion = false;
-        mailbox.PurgeAfter = null;
-        await context.SaveChangesAsync();
-        
-        // 5. Generate SAS token (2 hours validity for large uploads)
-        var sasInfo = await blobService.GenerateUploadSasTokenAsync(
-            tenantContext.TenantId,
-            mailbox.Id,
-            request.FileName,
-            TimeSpan.FromHours(2)
-        );
-        
-        // 6. Update mailbox with blob path
-        mailbox.BlobPath = sasInfo.BlobPath;
-        upload.BlobPath = sasInfo.BlobPath;
-        await context.SaveChangesAsync();
-        
-        return Results.Ok(new ApiResponse<InitiateUploadResponse>(
-            Success: true,
-            Data: new InitiateUploadResponse(
-                sasInfo.SasUrl,
-                sasInfo.BlobPath,
-                mailbox.Id,
-                upload.Id,
-                sasInfo.ExpiresAt
-            )
-        ));
     }
     
     private static Task<IResult> InitiateUploadAsync(
@@ -208,6 +81,55 @@ public static class UploadEndpoints
         EvermailDbContext context,
         TenantContext tenantContext)
         => InitiateUploadInternalAsync(request, null, blobService, context, tenantContext);
+
+    private static async Task<IResult> InitiateZeroAccessUploadAsync(
+        InitiateZeroAccessUploadRequest request,
+        IBlobStorageService blobService,
+        EvermailDbContext context,
+        TenantContext tenantContext)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var coreRequest = new InitiateUploadRequest(
+            request.FileName,
+            request.FileSizeBytes,
+            EmailArchiveFormats.ClientEncrypted,
+            request.MailboxId,
+            ClientSideEncryption: true);
+
+        try
+        {
+            var (response, mailbox, _) = await PrepareUploadAsync(
+                coreRequest,
+                request.MailboxId,
+                blobService,
+                context,
+                tenantContext);
+
+            if (string.IsNullOrWhiteSpace(mailbox.ZeroAccessTokenSalt))
+            {
+                mailbox.ZeroAccessTokenSalt = GenerateTokenSalt();
+                await context.SaveChangesAsync();
+            }
+
+            var zeroAccessResponse = new InitiateZeroAccessUploadResponse(
+                response.UploadUrl,
+                response.BlobPath,
+                response.MailboxId,
+                response.UploadId,
+                response.ExpiresAt,
+                mailbox.ZeroAccessTokenSalt!);
+
+            return Results.Ok(new ApiResponse<InitiateZeroAccessUploadResponse>(true, zeroAccessResponse));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
+        }
+    }
 
     private static async Task<IResult> CompleteUploadAsync(
         CompleteUploadRequest request,
@@ -253,6 +175,13 @@ public static class UploadEndpoints
                 Success: false,
                 Error: "Upload not found or you don't have permission to access it"
             ));
+        }
+
+        if (upload.IsClientEncrypted)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Client-side encrypted uploads must be completed via /upload/complete/zero-access"));
         }
 
         string detectedFormat;
@@ -307,6 +236,281 @@ public static class UploadEndpoints
         ));
     }
 
+    private static async Task<IResult> CompleteZeroAccessUploadAsync(
+        CompleteZeroAccessUploadRequest request,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Scheme) ||
+            string.IsNullOrWhiteSpace(request.MetadataJson) ||
+            string.IsNullOrWhiteSpace(request.KeyFingerprint))
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "scheme, metadata, and keyFingerprint are required"));
+        }
+
+        var mailbox = await context.Mailboxes
+            .FirstOrDefaultAsync(m => m.Id == request.MailboxId && m.TenantId == tenantContext.TenantId, cancellationToken);
+
+        if (mailbox is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Mailbox not found or you don't have permission to access it."));
+        }
+
+        var upload = await context.MailboxUploads
+            .FirstOrDefaultAsync(u => u.Id == request.UploadId && u.MailboxId == mailbox.Id && u.TenantId == tenantContext.TenantId, cancellationToken);
+
+        if (upload is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Upload not found or you don't have permission to access it."));
+        }
+
+        if (!upload.IsClientEncrypted)
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Upload is not marked for client-side encryption."));
+        }
+
+        upload.Status = "Encrypted";
+        upload.ErrorMessage = null;
+        upload.ProcessingStartedAt ??= DateTime.UtcNow;
+        upload.ProcessingCompletedAt = DateTime.UtcNow;
+        upload.FileSizeBytes = request.OriginalSizeBytes;
+        upload.NormalizedSizeBytes = request.OriginalSizeBytes;
+        upload.ProcessedBytes = request.CipherSizeBytes;
+        upload.EncryptionScheme = request.Scheme;
+        upload.EncryptionMetadataJson = request.MetadataJson;
+        upload.EncryptionKeyFingerprint = request.KeyFingerprint;
+
+        mailbox.FileSizeBytes = request.OriginalSizeBytes;
+        mailbox.NormalizedSizeBytes = request.OriginalSizeBytes;
+        mailbox.ProcessedBytes = request.CipherSizeBytes;
+        mailbox.IsClientEncrypted = true;
+        mailbox.EncryptionScheme = request.Scheme;
+        mailbox.EncryptionMetadataJson = request.MetadataJson;
+        mailbox.EncryptionKeyFingerprint = request.KeyFingerprint;
+        mailbox.SourceFormat = EmailArchiveFormats.ClientEncrypted;
+        mailbox.Status = "Encrypted";
+        mailbox.ErrorMessage = null;
+        mailbox.ProcessingStartedAt ??= DateTime.UtcNow;
+        mailbox.ProcessingCompletedAt = DateTime.UtcNow;
+        mailbox.UpdatedAt = DateTime.UtcNow;
+        mailbox.LatestUploadId = upload.Id;
+
+        await PersistZeroAccessTokensAsync(
+            mailbox.Id,
+            tenantContext,
+            context,
+            request.TokenSets,
+            cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return Results.Ok(new ApiResponse<CompleteUploadResponse>(
+            Success: true,
+            Data: new CompleteUploadResponse(
+                mailbox.Id,
+                upload.Id,
+                "Encrypted"
+            )
+        ));
+    }
+
+    private static async Task PersistZeroAccessTokensAsync(
+        Guid mailboxId,
+        TenantContext tenantContext,
+        EvermailDbContext context,
+        IReadOnlyList<DeterministicTokenSetDto>? tokenSets,
+        CancellationToken cancellationToken)
+    {
+        var existing = await context.ZeroAccessMailboxTokens
+            .Where(t => t.MailboxId == mailboxId && t.TenantId == tenantContext.TenantId)
+            .ToListAsync(cancellationToken);
+
+        if (existing.Count > 0)
+        {
+            context.ZeroAccessMailboxTokens.RemoveRange(existing);
+        }
+
+        if (tokenSets is null || tokenSets.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var set in tokenSets)
+        {
+            if (set?.Tokens is null || set.Tokens.Count == 0)
+            {
+                continue;
+            }
+
+            var tokenType = string.IsNullOrWhiteSpace(set.TokenType)
+                ? "tag"
+                : set.TokenType.Trim().ToLowerInvariant();
+
+            tokenType = tokenType.Length > 50 ? tokenType[..50] : tokenType;
+
+            foreach (var token in set.Tokens)
+            {
+                if (string.IsNullOrWhiteSpace(token))
+                {
+                    continue;
+                }
+
+                var normalizedToken = token.Length > 512 ? token[..512] : token;
+
+                context.ZeroAccessMailboxTokens.Add(new ZeroAccessMailboxToken
+                {
+                    Id = Guid.NewGuid(),
+                    TenantId = tenantContext.TenantId,
+                    MailboxId = mailboxId,
+                    TokenType = tokenType,
+                    TokenValue = normalizedToken,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+        }
+    }
+
+    private static async Task<UploadInitializationResult> PrepareUploadAsync(
+        InitiateUploadRequest request,
+        Guid? overrideMailboxId,
+        IBlobStorageService blobService,
+        EvermailDbContext context,
+        TenantContext tenantContext)
+    {
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId);
+
+        if (tenant is null)
+        {
+            throw new InvalidOperationException("Tenant not found.");
+        }
+
+        var plan = await context.SubscriptionPlans
+            .FirstOrDefaultAsync(p => p.Name == tenant.SubscriptionTier);
+
+        if (plan is null)
+        {
+            throw new InvalidOperationException("Subscription plan not found.");
+        }
+
+        var fileSizeGb = request.FileSizeBytes / (1024.0 * 1024.0 * 1024.0);
+        if (fileSizeGb > plan.MaxFileSizeGB)
+        {
+            throw new InvalidOperationException($"File size ({fileSizeGb:F2} GB) exceeds your plan limit ({plan.MaxFileSizeGB} GB). Please upgrade your subscription.");
+        }
+
+        var normalizedFormat = NormalizeFileType(request.FileType);
+        if (!string.IsNullOrWhiteSpace(normalizedFormat) && !AllowedFileTypes.Contains(normalizedFormat))
+        {
+            throw new InvalidOperationException($"Invalid file type. Allowed types: {string.Join(", ", AllowedFileTypes)}");
+        }
+
+        var pendingFormat = normalizedFormat ?? EmailArchiveFormats.AutoDetect;
+        var isClientEncrypted = request.ClientSideEncryption;
+        if (isClientEncrypted)
+        {
+            pendingFormat = EmailArchiveFormats.ClientEncrypted;
+        }
+
+        var userExists = await context.Users.AnyAsync(u => u.Id == tenantContext.UserId);
+        if (!userExists)
+        {
+            throw new InvalidOperationException($"User not found. UserId: {tenantContext.UserId}");
+        }
+
+        Mailbox mailbox;
+        if (overrideMailboxId.HasValue)
+        {
+            mailbox = await context.Mailboxes
+                .FirstOrDefaultAsync(m => m.Id == overrideMailboxId.Value && m.TenantId == tenantContext.TenantId)
+                ?? throw new InvalidOperationException("Mailbox not found.");
+        }
+        else
+        {
+            mailbox = new Mailbox
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tenantContext.TenantId,
+                UserId = tenantContext.UserId,
+                DisplayName = request.FileName,
+                FileName = request.FileName,
+                FileSizeBytes = request.FileSizeBytes,
+                SourceFormat = pendingFormat,
+                BlobPath = string.Empty,
+                Status = isClientEncrypted ? "EncryptedPending" : "Pending",
+                IsClientEncrypted = isClientEncrypted,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            context.Mailboxes.Add(mailbox);
+            await context.SaveChangesAsync();
+        }
+
+        mailbox.SourceFormat = pendingFormat;
+        mailbox.IsClientEncrypted = mailbox.IsClientEncrypted || isClientEncrypted;
+        mailbox.FileName = request.FileName;
+        mailbox.FileSizeBytes = request.FileSizeBytes;
+        mailbox.Status = isClientEncrypted ? "EncryptedPending" : "Pending";
+        mailbox.UploadRemovedAt = null;
+        mailbox.UploadRemovedByUserId = null;
+        mailbox.IsPendingDeletion = false;
+        mailbox.PurgeAfter = null;
+
+        var upload = new MailboxUpload
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tenantContext.TenantId,
+            MailboxId = mailbox.Id,
+            UploadedByUserId = tenantContext.UserId,
+            FileName = request.FileName,
+            FileSizeBytes = request.FileSizeBytes,
+            SourceFormat = pendingFormat,
+            BlobPath = string.Empty,
+            Status = isClientEncrypted ? "EncryptedPending" : "Pending",
+            CreatedAt = DateTime.UtcNow,
+            IsClientEncrypted = isClientEncrypted
+        };
+
+        context.MailboxUploads.Add(upload);
+        mailbox.LatestUploadId = upload.Id;
+        await context.SaveChangesAsync();
+
+        var sasInfo = await blobService.GenerateUploadSasTokenAsync(
+            tenantContext.TenantId,
+            mailbox.Id,
+            request.FileName,
+            TimeSpan.FromHours(2));
+
+        mailbox.BlobPath = sasInfo.BlobPath;
+        upload.BlobPath = sasInfo.BlobPath;
+        await context.SaveChangesAsync();
+
+        var response = new InitiateUploadResponse(
+            sasInfo.SasUrl,
+            sasInfo.BlobPath,
+            mailbox.Id,
+            upload.Id,
+            sasInfo.ExpiresAt);
+
+        return new UploadInitializationResult(response, mailbox, upload);
+    }
+
+    private static string GenerateTokenSalt()
+    {
+        Span<byte> buffer = stackalloc byte[32];
+        RandomNumberGenerator.Fill(buffer);
+        return Convert.ToBase64String(buffer);
+    }
+
     private static string? NormalizeFileType(string? fileType)
     {
         if (string.IsNullOrWhiteSpace(fileType) ||
@@ -332,5 +536,10 @@ public static class UploadEndpoints
             _ => normalized
         };
     }
+
+    private sealed record UploadInitializationResult(
+        InitiateUploadResponse Response,
+        Mailbox Mailbox,
+        MailboxUpload Upload);
 }
 

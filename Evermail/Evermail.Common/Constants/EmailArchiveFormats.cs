@@ -12,5 +12,6 @@ public static class EmailArchiveFormats
     public const string Eml = "eml";
     public const string EmlZip = "eml-zip";
     public const string AutoDetect = "auto-detect";
+    public const string ClientEncrypted = "client-encrypted";
 }
 

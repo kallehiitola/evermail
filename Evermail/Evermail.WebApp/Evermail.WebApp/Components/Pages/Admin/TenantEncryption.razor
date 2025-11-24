@@ -1,6 +1,7 @@
 @page "/admin/encryption"
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
+@using System.Linq
 @using System.Net.Http.Json
 @using System.Net.Http.Headers
 @using System.Web
@@ -187,6 +188,24 @@
                                 <li><strong>Configured:</strong> @(_settings?.IsConfigured == true ? "Yes" : "No")</li>
                                 <li><strong>Last verified:</strong> @_settings?.LastVerifiedAt?.ToString("u") ?? "Never"</li>
                                 <li><strong>Verification note:</strong> @_settings?.LastVerificationMessage ?? "—"</li>
+                                @if (IsFastStart)
+                                {
+                                    <li class="text-muted small">
+                                        Fast Start keys are active for this tenant. Switch to BYOK at any time; uploads already in Azure/AWS history stay intact.
+                                    </li>
+                                }
+                                @if (RecentProviderBadges.Any())
+                                {
+                                    <li>
+                                        <strong>Providers seen:</strong>
+                                        <span class="d-inline-flex flex-wrap gap-2 mt-2">
+                                            @foreach (var provider in RecentProviderBadges)
+                                            {
+                                                <span class="badge bg-light text-dark">@GetFriendlyProvider(provider)</span>
+                                            }
+                                        </span>
+                                    </li>
+                                }
                                 @if (_settings?.Aws is not null && string.Equals(_settings.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase))
                                 {
                                     <li><strong>AWS Account:</strong> @_settings.Aws.AccountId ?? "—"</li>
@@ -401,6 +420,8 @@
 @code {
     private const string AzureProvider = "AzureKeyVault";
     private const string AwsProvider = "AwsKms";
+    private const string FastStartProvider = "EvermailManaged";
+    private const string OfflineProvider = "Offline";
 
     private TenantEncryptionSettingsDto? _settings;
     private EncryptionFormModel _form = new();
@@ -418,11 +439,29 @@
     private bool IsAwsProvider => string.Equals(_form.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase);
     private bool ShowAzureFields => !IsAwsProvider;
 
+    private bool IsFastStart => string.Equals(_settings?.Provider, FastStartProvider, StringComparison.OrdinalIgnoreCase);
+
     private string ProviderDisplayName => _settings?.Provider switch
     {
-        AwsProvider => "AWS KMS (external)",
-        AzureProvider => "Evermail-managed / Azure Key Vault",
+        AwsProvider => "AWS KMS (customer-managed)",
+        AzureProvider => "Azure Key Vault (customer-managed)",
+        FastStartProvider => "Evermail-managed (Fast Start)",
+        OfflineProvider => "Offline BYOK (tenant-held)",
         _ => "Not configured"
+    };
+
+    private IEnumerable<string> RecentProviderBadges =>
+        _history.Select(h => h.Provider)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+    private static string GetFriendlyProvider(string provider) => provider switch
+    {
+        AwsProvider => "AWS KMS",
+        AzureProvider => "Azure Key Vault",
+        FastStartProvider => "Evermail-managed",
+        OfflineProvider => "Offline BYOK",
+        _ => provider
     };
 
     private string _buttonText => _isSaving
@@ -627,17 +666,8 @@
 
     private Uri BuildApiUri(string relativePath)
     {
-        EnsureHttpClientBaseAddress();
         relativePath = relativePath.TrimStart('/');
         return new Uri(new Uri(Navigation.BaseUri), relativePath);
-    }
-
-    private void EnsureHttpClientBaseAddress()
-    {
-        if (Http.BaseAddress is null)
-        {
-            Http.BaseAddress = new Uri(Navigation.BaseUri);
-        }
     }
 
     private async Task CopyToClipboardAsync(string label, string? value)

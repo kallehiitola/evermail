@@ -253,6 +253,9 @@ public class MailboxDeletionService
             mailbox.FileName = string.Empty;
             mailbox.FileSizeBytes = 0;
             mailbox.NormalizedSizeBytes = 0;
+            mailbox.IsClientEncrypted = false;
+            mailbox.EncryptionScheme = null;
+            mailbox.EncryptionMetadataJson = null;
 
             _logger.LogInformation(
                 "Mailbox {MailboxId}: all uploads removed; cleared blob metadata",
@@ -340,6 +343,9 @@ public class MailboxDeletionService
         mailbox.FileName = string.Empty;
         mailbox.FileSizeBytes = 0;
         mailbox.NormalizedSizeBytes = 0;
+        mailbox.IsClientEncrypted = false;
+        mailbox.EncryptionScheme = null;
+        mailbox.EncryptionMetadataJson = null;
 
         mailbox.TotalEmails = 0;
         mailbox.ProcessedEmails = 0;

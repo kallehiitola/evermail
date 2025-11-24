@@ -7,6 +7,7 @@ using Evermail.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Linq;
 
 namespace Evermail.WebApp.Endpoints;
 
@@ -43,7 +44,8 @@ public static class MailboxEndpoints
         TenantContext tenantContext,
         string? status = null,
         int page = 1,
-        int pageSize = 20)
+        int pageSize = 20,
+        IEnumerable<string>? tagToken = null)
     {
         // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
@@ -61,6 +63,22 @@ public static class MailboxEndpoints
             query = query.Where(m => m.Status == status);
         }
 
+        if (tagToken is not null)
+        {
+            var tokens = tagToken
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select(t => t.Trim())
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+
+            if (tokens.Length > 0)
+            {
+                query = query.Where(m => context.ZeroAccessMailboxTokens
+                    .Any(z => z.MailboxId == m.Id && tokens.Contains(z.TokenValue)));
+            }
+        }
+
         // Get total count
         var totalCount = await query.CountAsync();
 
@@ -75,6 +93,8 @@ public static class MailboxEndpoints
                 m.FileName,
                 m.FileSizeBytes,
                 m.NormalizedSizeBytes,
+                m.IsClientEncrypted,
+                m.EncryptionScheme,
                 m.Status,
                 m.UploadRemovedAt != null,
                 m.IsPendingDeletion,
@@ -93,6 +113,8 @@ public static class MailboxEndpoints
                         u.FileName,
                         u.FileSizeBytes,
                         u.NormalizedSizeBytes,
+                        u.IsClientEncrypted,
+                        u.EncryptionScheme,
                         u.Status,
                         u.KeepEmails,
                         u.CreatedAt,
@@ -134,6 +156,8 @@ public static class MailboxEndpoints
                 m.FileName,
                 m.FileSizeBytes,
                 m.NormalizedSizeBytes,
+                m.IsClientEncrypted,
+                m.EncryptionScheme,
                 m.Status,
                 m.UploadRemovedAt != null,
                 m.IsPendingDeletion,
@@ -152,6 +176,8 @@ public static class MailboxEndpoints
                         u.FileName,
                         u.FileSizeBytes,
                         u.NormalizedSizeBytes,
+                        u.IsClientEncrypted,
+                        u.EncryptionScheme,
                         u.Status,
                         u.KeepEmails,
                         u.CreatedAt,
@@ -202,6 +228,8 @@ public static class MailboxEndpoints
                 u.FileName,
                 u.FileSizeBytes,
                 u.NormalizedSizeBytes,
+                u.IsClientEncrypted,
+                u.EncryptionScheme,
                 u.Status,
                 u.KeepEmails,
                 u.ErrorMessage,

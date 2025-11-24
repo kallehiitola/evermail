@@ -47,8 +47,9 @@
                         </button>
                         <h1>@_mailbox.FileName</h1>
                         <p class="text-muted mb-0">
-                            Imported via .mbox · Last updated
-                            <LocalizedTimestamp Value="_mailbox.CreatedAt" CssClass="d-inline" />
+                            @BuildHeroSubtitle()
+                            <span class="mx-1">·</span>
+                            Last updated <LocalizedTimestamp Value="_mailbox.CreatedAt" CssClass="d-inline" />
                         </p>
                     </div>
                     <div class="detail-hero__right">
@@ -89,13 +90,13 @@
                 <section class="stat-grid">
                     <div class="stat-card">
                         <h3>Total emails</h3>
-                        <div class="stat-value">@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString("N0") : "—")</div>
-                        <p class="text-muted small mb-0">Processed @_mailbox.ProcessedEmails.ToString("N0")</p>
+                        <div class="stat-value">@FormatEmailStat(_mailbox.TotalEmails)</div>
+                        <p class="text-muted small mb-0">@GetProcessedSubtitle()</p>
                     </div>
                     <div class="stat-card">
                         <h3>Failed emails</h3>
-                        <div class="stat-value">@(_mailbox.FailedEmails > 0 ? _mailbox.FailedEmails.ToString("N0") : "0")</div>
-                        <p class="text-muted small mb-0">Automatic retries after parsing errors</p>
+                        <div class="stat-value">@FormatFailedStat(_mailbox.FailedEmails)</div>
+                        <p class="text-muted small mb-0">@GetFailedSubtitle()</p>
                     </div>
                     <div class="stat-card">
                         <h3>Lifecycle</h3>
@@ -103,6 +104,28 @@
                         <p class="text-muted small mb-0">@(_mailbox.IsPendingDeletion ? "Scheduled for deletion" : "Active archive")</p>
                     </div>
                 </section>
+
+                @if (IsZeroAccessMailbox)
+                {
+                    <section class="modern-card zero-access-card zero-access-detail">
+                        <p class="hero-eyebrow mb-1 text-uppercase">Zero-access encryption</p>
+                        <h4 class="mb-2">Evermail stores ciphertext only.</h4>
+                        <p class="text-muted mb-3">
+                            This mailbox was uploaded with client-side encryption. We confirm storage metadata, but cannot
+                            inspect email contents or show processing metrics.
+                        </p>
+                        <div class="zero-access-detail__grid">
+                            <div>
+                                <span class="label">Encryption scheme</span>
+                                <span class="value">@(_mailbox.EncryptionScheme ?? "zero-access/aes-gcm-chunked/v1")</span>
+                            </div>
+                            <div>
+                                <span class="label">Ciphertext stored</span>
+                                <span class="value">@FormatFileSize(GetEncryptedSize())</span>
+                            </div>
+                        </div>
+                    </section>
+                }
 
                 @if (_mailbox.Status == "Processing")
                 {
@@ -138,22 +161,31 @@
                 <section class="detail-grid">
                     <div class="detail-card">
                         <h3>Statistics</h3>
-                        <dl class="detail-dl">
-                            <div>
-                                <dt>Total emails</dt>
-                                <dd>@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString("N0") : "—")</dd>
-                            </div>
-                            <div>
-                                <dt>Processed</dt>
-                                <dd>@(_mailbox.ProcessedEmails > 0 ? _mailbox.ProcessedEmails.ToString("N0") : "—")</dd>
-                            </div>
-                            <div>
-                                <dt>Failed</dt>
-                                <dd class="@(_mailbox.FailedEmails > 0 ? "text-danger" : "text-muted")">
-                                    @_mailbox.FailedEmails.ToString("N0")
-                                </dd>
-                            </div>
-                        </dl>
+                        @if (IsZeroAccessMailbox)
+                        {
+                            <p class="text-muted mb-0">
+                                Counts and failure metrics are unavailable for zero-access uploads because Evermail never decrypts the archive.
+                            </p>
+                        }
+                        else
+                        {
+                            <dl class="detail-dl">
+                                <div>
+                                    <dt>Total emails</dt>
+                                    <dd>@(_mailbox.TotalEmails > 0 ? _mailbox.TotalEmails.ToString("N0") : "—")</dd>
+                                </div>
+                                <div>
+                                    <dt>Processed</dt>
+                                    <dd>@(_mailbox.ProcessedEmails > 0 ? _mailbox.ProcessedEmails.ToString("N0") : "—")</dd>
+                                </div>
+                                <div>
+                                    <dt>Failed</dt>
+                                    <dd class="@(_mailbox.FailedEmails > 0 ? "text-danger" : "text-muted")">
+                                        @_mailbox.FailedEmails.ToString("N0")
+                                    </dd>
+                                </div>
+                            </dl>
+                        }
                     </div>
                     <div class="detail-card">
                         <h3>Timeline</h3>
@@ -183,6 +215,13 @@
                                         <dd>@FormatDuration(duration)</dd>
                                     </div>
                                 }
+                            }
+                            @if (IsZeroAccessMailbox)
+                            {
+                                <div>
+                                    <dt>Processing</dt>
+                                    <dd>Skipped (zero-access upload)</dd>
+                                </div>
                             }
                         </dl>
                     </div>
@@ -448,18 +487,58 @@
         return (0, "Starting…");
     }
 
+    private bool IsZeroAccessMailbox => _mailbox?.IsClientEncrypted == true;
+
+    private string BuildHeroSubtitle() =>
+        _mailbox switch
+        {
+            { IsClientEncrypted: true } => "Zero-access archive",
+            _ => "Imported via .mbox"
+        };
+
+    private string FormatEmailStat(int value) =>
+        IsZeroAccessMailbox
+            ? "N/A"
+            : value > 0 ? value.ToString("N0") : "—";
+
+    private string GetProcessedSubtitle() =>
+        _mailbox is null
+            ? "—"
+            : IsZeroAccessMailbox
+                ? "Client-side encrypted (Evermail cannot inspect contents)"
+                : $"Processed {_mailbox.ProcessedEmails:N0}";
+
+    private string FormatFailedStat(int value) =>
+        IsZeroAccessMailbox
+            ? "N/A"
+            : value > 0 ? value.ToString("N0") : "0";
+
+    private string GetFailedSubtitle() =>
+        IsZeroAccessMailbox
+            ? "Not available for zero-access uploads"
+            : "Automatic retries after parsing errors";
+
+    private long GetEncryptedSize() =>
+        _mailbox is null
+            ? 0
+            : _mailbox.ProcessedBytes > 0
+                ? _mailbox.ProcessedBytes
+                : GetDisplaySize(_mailbox);
+
     private string LifecycleText() =>
         _mailbox switch
         {
             null => "—",
             { IsPendingDeletion: true } => "Scheduled for deletion",
             { UploadRemoved: true } => "Upload removed",
+            { IsClientEncrypted: true } => "Encrypted",
             _ => "Active"
         };
 
     private string GetStatusClass(string status) => status switch
     {
         "Completed" => "status-pill--success",
+        "Encrypted" => "status-pill--success",
         "Processing" => "status-pill--processing",
         "Failed" => "status-pill--danger",
         _ => "status-pill--neutral"

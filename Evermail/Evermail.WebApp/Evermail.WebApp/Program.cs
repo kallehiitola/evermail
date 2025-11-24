@@ -13,7 +13,11 @@ using Evermail.WebApp.Endpoints;
 using Evermail.WebApp.Configuration;
 using Evermail.WebApp.Middleware;
 using Evermail.WebApp.Services;
+using Evermail.WebApp.Services.Audit;
 using Evermail.WebApp.Services.Onboarding;
+using Evermail.Common.DTOs;
+using Evermail.WebApp.Services.Gdpr;
+using Evermail.WebApp.Services.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -21,6 +25,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Cryptography;
+using System.Threading.RateLimiting;
 using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -238,6 +243,40 @@ builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.AddMudServices();
 builder.Services.AddScoped<IDateFormatService, DateFormatService>();
 builder.Services.AddScoped<IOnboardingStatusService, OnboardingStatusService>();
+builder.Services.AddScoped<IAuditLogger, AuditLogger>();
+builder.Services.AddScoped<IGdprExportService, GdprExportService>();
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, token) =>
+    {
+        context.HttpContext.Response.Headers["Retry-After"] = ((int)TimeSpan.FromMinutes(1).TotalSeconds).ToString();
+        if (!context.HttpContext.Response.HasStarted)
+        {
+            await context.HttpContext.Response.WriteAsJsonAsync(
+                new ApiResponse<object>(false, null, "Too many requests"),
+                cancellationToken: token);
+        }
+    };
+
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, RateLimitPartitionKey>(httpContext =>
+    {
+        var partitionKey = RateLimitPartitionKey.Create(httpContext);
+        if (partitionKey.Plan.IsUnlimited)
+        {
+            return RateLimitPartition.GetNoLimiter(partitionKey);
+        }
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, key => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = key.Plan.PermitLimit,
+            Window = key.Plan.Window,
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit = key.Plan.QueueLimit
+        });
+    });
+});
 
 // Add tenant context resolver
 builder.Services.AddScoped<TenantContext>(sp =>
@@ -313,12 +352,14 @@ else
 }
 
 app.UseHttpsRedirection();
+app.UseMiddleware<SecurityHeadersMiddleware>();
 
 // .NET 10: Use MapStaticAssets instead of UseStaticFiles for Blazor Web Apps
 // MapStaticAssets replaces UseBlazorFrameworkFiles and optimizes static asset delivery
 app.MapStaticAssets();
 
 app.UseAntiforgery();
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseMiddleware<AiImpersonationMiddleware>();
@@ -347,6 +388,7 @@ if (app.Environment.IsDevelopment())
 // Blazor pages handle authorization at the component level, not HTTP middleware level
 // JWT Bearer authentication is configured to skip Blazor routes (see OnChallenge handler above)
 app.UseAuthorization();
+app.UseMiddleware<AuditLoggingMiddleware>();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()

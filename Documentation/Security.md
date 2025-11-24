@@ -25,13 +25,17 @@ Evermail now offers two complementary protection tiers so tenants can choose the
 2. **Blazor WASM encryption pipeline**
    - `<InputFile>` streams the `.mbox` file in 1–4 MB chunks.
    - Each chunk is encrypted in-browser with AES-GCM (unique nonce per chunk), producing ciphertext + auth tag.
-   - Optional deterministic tokens: normalized terms are HMAC’d with the DEK (or a derived token key) so the server can index opaque tokens for equality search.
-   - The browser uploads ciphertext, nonce, and metadata via HTTPS to `/api/v1/mailboxes/encrypted-upload` with `X-Evermail-Encrypted` headers describing the scheme.
+   - Deterministic tag tokens (phase 1): user-provided tags (e.g., matter IDs) are normalized client-side, HMAC’d with a token key derived from the DEK + server-issued salt, and attached to the upload so the server can filter mailboxes without seeing plaintext.
+   - The browser now calls:
+     1. `POST /api/v1/mailboxes/encrypted-upload/initiate` → returns SAS URL + `tokenSalt`.
+     2. Streams ciphertext directly to blob storage (same as before).
+     3. `POST /api/v1/mailboxes/encrypted-upload/complete` → provides scheme metadata, key fingerprint, ciphertext size, and the hashed token sets.
 
 3. **Server-side handling**
    - APIs treat uploads as opaque blobs; no parsing occurs server-side.
    - Storage paths continue to include `tenantId` for multi-tenancy, and blobs remain under our existing TMK/DEK governance.
    - Workers skip ingestion for these mailboxes; exports simply return ciphertext for client-side decryption.
+   - Deterministic tag tokens are stored in the new `ZeroAccessMailboxTokens` table (TenantId + MailboxId + TokenType + TokenValue) and power equality filters without revealing the plaintext tag.
 
 4. **Search & UX**
    - Default behavior: users download/decrypt locally and search within the Blazor client (WASM reuses the same C# parser).
@@ -45,13 +49,66 @@ Evermail now offers two complementary protection tiers so tenants can choose the
    - WASM bundles are reproducible and signed; publish hashes so tenants can verify the client code that handles encryption.
    - Long-term roadmap: integrate browser extensions or attestation (e.g., Subresource Integrity + CSP) to prove the delivered client matches the audited build.
 
+##### Encrypted upload contract (`/api/v1/mailboxes/encrypted-upload/*`)
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /initiate` | Validates plan limits, creates/updates the mailbox, allocates a SAS URL, and returns `tokenSalt` so the client can derive deterministic token keys without sharing the DEK. |
+| `POST /complete` | Marks the upload as `Encrypted`, persists encryption metadata (`scheme`, nonce prefix, fingerprint), stores ciphertext stats, and ingests the hashed token sets supplied by the browser. |
+
+Completion payload fields:
+- `scheme` – semantic version of the client encryptor (`zero-access/aes-gcm-chunked/v1`).
+- `metadataJson` – per-chunk sizes, nonce prefix, tag length, timestamps.
+- `keyFingerprint` – SHA-256 hash of the raw DEK (base64) so tenants can map bundles to uploads.
+- `tokenSets` – array of `{ "tokenType": "tag", "tokens": ["HMAC-SHA256(base64)", ...] }`. The server never sees plaintext tags; it simply stores the opaque HMACs.
+
+##### Deterministic tokens – Phase 1 (mailbox tags)
+
+- Scope: user-entered tags (e.g., “Case-4821”, “AcmeBeta”) captured during upload.
+- Derivation: the browser derives a token key via HKDF using the DEK and server-issued `tokenSalt`, then HMACs each normalized tag with SHA-256. Only the HMAC outputs are sent to the server.
+- Storage: `ZeroAccessMailboxTokens` ensures multi-tenant isolation and deduplicates repeated values.
+- Querying: clients hash the search tag with the same token key and call `GET /api/v1/mailboxes?tagToken=<base64>` to limit responses to matching mailboxes. Once the client downloads/decrypts the archive it performs full-text search locally.
+- Future phases will extend the same mechanism to per-email fields (from/to/subject tokens) as the WASM parser graduates to full message-level extraction.
+
+##### Multi-admin BYOK bundle registry
+
+- New entity `TenantEncryptionBundle` stores *wrapped* DEKs (never plaintext) per admin with labels, checksums, and timestamps so multiple administrators can maintain their own recovery bundles.
+- Admin endpoints:
+  - `GET /api/v1/tenants/encryption/bundles` – list bundles for the tenant (label, createdBy, lastUsed).
+  - `POST /api/v1/tenants/encryption/bundles` – upload/import an additional bundle (same JSON produced by the Offline BYOK lab).
+  - `DELETE /api/v1/tenants/encryption/bundles/{id}` – revoke a stale bundle.
+- UI updates:
+  - Offline BYOK components now show the existing bundle inventory, including who generated it and when it was last downloaded.
+  - Admins can regenerate bundles for themselves without overwriting other admins’ copies, and they can re-download a wrapped bundle directly from the UI (still client-side decrypted with their passphrase).
+
 Zero-Access Archive Mode inherits every safeguard from Confidential Compute Mode (tenant TMKs, audit logging, retention policies) while guaranteeing Evermail’s infrastructure never observes plaintext. This tier is aimed at compliance-sensitive customers who accept reduced functionality in exchange for cryptographic separation.
+
+### HTTP Security Middleware
+
+All HTTP responses now flow through a dedicated `SecurityHeadersMiddleware` so we consistently emit modern browser safeguards (and avoid forgetting them when we add new endpoints):
+
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` (production-only) forces HTTPS for one year so downgraded HTTP requests are rejected by the browser before they ever leave the device.
+- `Content-Security-Policy: default-src 'self'; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' https://localhost:* wss://localhost:*` (dev mode allows localhost sockets for hot-reload) drastically reduces XSS attack surface by disallowing third-party scripts/styles.
+- `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy: geolocation=(), camera=(), microphone=(), clipboard-read=(), clipboard-write=()` and `X-XSS-Protection: 1; mode=block` cover clickjacking, MIME sniffing, referrer leakage, unnecessary device APIs, and legacy IE XSS protections.
+
+Because Blazor’s hot reload still injects inline styles/scripts in development, the middleware automatically relaxes CSP only when `IHostEnvironment.IsDevelopment()` is true; production builds remain on the strict policy above.
+
+### Audit Logging
+
+Every tenant-facing API call that mutates data must leave a durable audit trail. The new `AuditLoggingMiddleware` and `IAuditLogger` service enforce this requirement automatically:
+
+- Middleware scope: all authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests under `/api/v1` (except `/api/v1/dev/*`) are recorded once the downstream pipeline finishes.
+- Captured fields: tenant ID, user ID (when available), HTTP method + route template, response status code, remote IP (v4/v6), and the reported `User-Agent`. The log fits inside the existing `AuditLogs` table (`Action`, `ResourceType`, `Details`, etc.) so no schema change is necessary.
+- Multi-tenancy: if the current `TenantContext` is empty (e.g., during anonymous login calls) the logger silently skips writing to avoid corrupting data with `Guid.Empty`.
+- Extensibility: endpoints can inject `IAuditLogger` directly when they need to add richer `Details` payloads (JSON snippets, counts, etc.), but the middleware already covers the baseline trail for sensitive operations such as mailbox deletes, user management, or encryption updates.
+
+These logs power compliance exports (“show me who deleted mailbox X”), anomaly detection (sudden surge of DELETEs from a new IP), and the GDPR “record of processing activities” requirement logged earlier in this doc.
 
 #### Implementation Status (November 2025)
 
-- ✅ **Delivered**: Offline BYOK lab (browser-wrapped bundles + `/api/v1/tenants/encryption/offline`), archive format detection, plan-aware normalization, and onboarding UX that guides admins through Fast Start vs BYOK choices.
-- 🚧 **In progress**: The encrypted upload contract (`/api/v1/mailboxes/encrypted-upload` + `X-Evermail-Encrypted` headers), deterministic token derivation, multi-admin bundle import/export, and client-only ingestion bypass are still outstanding work items.
-- 📝 **Tracked follow-ups**: Evermail-managed “Fast Start” provisioning must actually stamp `EncryptionConfigured = true`, the Confidential Compute/Secure Key Release rollout is still in Phase 0, and the production API surface needs the documented security middleware (HSTS/CSP headers, rate limiting, audit logging, GDPR export/delete endpoints). These items are now logged in `Documentation/ProgressReports/ProgressReport.md#recent-updates` and are prioritized in the Next Steps section.
+- ✅ **Delivered**: Offline BYOK lab (browser-wrapped bundles + `/api/v1/tenants/encryption/offline`), archive format detection, plan-aware normalization, security middleware (HSTS/CSP/X-Frame/X-Content), baseline audit logging, rate limiting, GDPR self-service APIs, zero-access encrypted upload contract (`/api/v1/mailboxes/encrypted-upload/*`), deterministic tag tokens, and the multi-admin BYOK bundle registry/UI.
+- 🚧 **In progress**: Deterministic token expansion to per-email metadata, deterministic download manifests for chunk-level streaming, and the Confidential Compute/Secure Key Release rollout (Phase 1). The audit log UX/export surface is also pending.
+- 📝 **Tracked follow-ups**: Stripe integration, encrypted search UX polish, and audit log reporting remain in the `Next Steps` section of `Documentation/ProgressReports/ProgressReport.md`.
 
 ##### Offline key custody prototype (Browser BYOK)
 
@@ -839,31 +896,66 @@ foreach (var entity in response.Value)
 ## Rate Limiting & DDoS Protection
 
 ### API Rate Limiting
-Use **AspNetCoreRateLimit** library:
+Evermail now uses the built-in **ASP.NET Core rate limiting middleware** (`System.Threading.RateLimiting`) so throttling happens before any API endpoint executes. We partition requests by tenant (when authenticated) or by client IP (anonymous flows such as `/api/v1/auth/login`) and apply tier-aware policies:
+
+| Tier | Limit | Window | Notes |
+|------|-------|--------|-------|
+| Free | 100 requests | 1 hour | evaluated per tenant |
+| Pro | 1,000 requests | 1 hour | evaluated per tenant |
+| Team | 10,000 requests | 1 hour | evaluated per tenant |
+| Enterprise | Unlimited | — | no throttling |
+| Anonymous | 60 requests | 1 minute | shared per IP |
+
+Implementation details:
 
 ```csharp
-services.AddMemoryCache();
-services.Configure<IpRateLimitOptions>(options =>
+builder.Services.AddRateLimiter(options =>
 {
-    options.GeneralRules = new List<RateLimitRule>
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, RateLimitPartitionKey>(ResolvePartition);
+    options.OnRejected = async (context, token) =>
     {
-        new RateLimitRule
-        {
-            Endpoint = "*",
-            Period = "1h",
-            Limit = GetLimitForTier("Free") // 100
-        }
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.Headers["Retry-After"] = ((int)TimeSpan.FromMinutes(1).TotalSeconds).ToString();
+        await context.HttpContext.Response.WriteAsJsonAsync(ApiResponse.Fail("Too many requests"), cancellationToken: token);
     };
 });
 
-services.AddInMemoryRateLimiting();
-app.UseIpRateLimiting();
+app.UseRateLimiter();
 ```
+
+- Rate limit metadata (plan name, tenant id, IP) is embedded in every JWT (`subscription_tier` claim) so the middleware can execute synchronously without hitting the database.
+- Rejections include `Retry-After`, `X-RateLimit-Limit`, and `X-RateLimit-Policy` headers, keeping client SDKs standards-compliant.
+- Development-only endpoints (`/api/v1/dev/*`) remain exempt so load tests can run without touching production budgets.
 
 ### Azure Front Door (Optional)
 For production, use **Azure Front Door** with WAF (Web Application Firewall):
 - DDoS protection (L3/L4)
 - Rate limiting per IP
+
+### GDPR Self-Service APIs
+
+- **Data export**  
+  - Endpoint: `POST /api/v1/users/me/export` (requires auth)  
+  - Generates a zipped GDPR bundle that contains:
+    - `profile.json`: tenant + user metadata and plan limits
+    - `mailboxes.json`, `uploads.json`: archive metadata including zero-access flags
+    - `emails.ndjson`: full message bodies + headers (streamed directly from SQL Server)
+    - `audit-logs.ndjson`: tenant audit entries (action, IP, user agent)
+  - Archives are written to the dedicated `gdpr-exports` blob container and kept for 7 days. Clients poll `GET /api/v1/users/me/exports/{id}` and request a signed download URL (`GET .../download`) when ready.
+  - Every request is logged via `AuditLoggingMiddleware` (`UserDataExportRequested` / `UserDataExportCompleted`).
+
+- **Right to be forgotten**  
+  - Endpoint: `DELETE /api/v1/users/me` (requires auth)  
+  - Workflow:
+    1. Soft-anonymise the Identity record (scrub email, names, phone; flip `IsActive = false`) and revoke all refresh tokens.
+    2. Enqueue `MailboxDeletionQueue` jobs for every mailbox + upload so background workers purge blobs + SQL rows.
+    3. Anonymise existing `AuditLogs` rows by clearing `UserId` and appending `[anonymized]` to the details column.
+    4. Persist a `UserDeletionJob` audit row (`status = Completed`) so admins can show deletion receipts.
+  - Response: `202 Accepted` with the deletion job id and timestamps.
+
+- **Auditability**  
+  - New tables: `UserDataExports`, `UserDeletionJobs` (both multi-tenant scoped with indexes on `TenantId` and `Status`).
+  - Audit logger emits structured events (`UserDataExportRequested`, `UserDataExportCompleted`, `UserDeletionRequested`) so compliance exports can be generated later.
 - Geo-filtering (block specific countries)
 - OWASP top 10 protection
 

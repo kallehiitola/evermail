@@ -33,5 +33,10 @@ public interface IBlobStorageService
     /// Deletes a blob at the specified path.
     /// </summary>
     Task DeleteBlobAsync(string blobPath);
+
+    /// <summary>
+    /// Uploads a GDPR export bundle and returns the fully-qualified blob path (container/prefix + blob name).
+    /// </summary>
+    Task<string> UploadExportAsync(Guid tenantId, Guid exportId, Stream content, CancellationToken cancellationToken = default);
 }
 
