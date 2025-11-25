@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-24  
+> **Last Updated**: 2025-11-25  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -332,6 +332,12 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 🧠 `TenantEncryptionService` now exposes typed helpers for generating templates, persisting policies, and returning the stored JSON/hash back to the UI. Documentation (`Security.md`, `Architecture.md`, `API.md`) was updated first to lock in the contract.
 - 📜 Delivered the compliance console: `/api/v1/audit/logs`, `/api/v1/audit/logs/export`, and `/api/v1/compliance/gdpr-jobs` back the new admin page that lists every tenant-scoped audit event, raises anomaly chips, and streams CSV evidence packs without CLI handoffs. Added `RequestedByUserId` + `Sha256` columns to GDPR job tables with migrations so export/deletion tiles can show requester email, timestamps, download links, and bundle hashes.
 - ⚙️ Containerized `Evermail.IngestionWorker` and introduced `scripts/provision-confidential-worker.ps1`, plus fresh guidance in `Documentation/Deployment.md`, so ops can publish the worker into an Azure Confidential Container Apps environment (confidential workload profile, user-assigned identity, SKR-ready permissions) without hand-editing CLI commands.
+
+### 2025-11-25 - Azure production runway hardening
+- 🗂️ Stood up shared production infrastructure in `evermail-prod`: Premium Azure Container Registry (`evermailacr`), dedicated VNet/subnet (`evermail-secure-vnet/container-apps-conf`), and an Azure SQL Database server (`evermail-sql-weu`) running General Purpose Serverless (Gen5, 1 vCore, 2 h auto-pause) to keep burn rates low until load increases.
+- 🔐 Refreshed `sql-password` in `evermail-prod-kv` and added the new `ConnectionStrings--evermaildb` secret that matches the freshly provisioned logical server so AppHost/Aspire workloads can point at the managed database immediately.
+- 📓 Captured the full CLI flow (resource provider registration, firewall rules, serverless sizing, Key Vault updates) in `Documentation/Deployment.md` to remove guesswork the next time we recreate the environment or scale it up.
+- ☁️ Created `evermailprodstg` (StorageV2, Standard_LRS) plus the `mailbox-archives`, `gdpr-exports`, `mailbox-ingestion`, and `mailbox-deletion` containers/queues; rotated the `ConnectionStrings--blobs` / `ConnectionStrings--queues` secrets so WebApp, AdminApp, and the worker now read/write from Azure Storage in West Europe instead of the dev account.
 
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.

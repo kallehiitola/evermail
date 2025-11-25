@@ -379,6 +379,107 @@ After the script completes:
    `az containerapp logs show --name evermail-conf-worker --resource-group evermail-prod --follow`.
 8. Run a test mailbox ingestion to confirm the confidential worker drains queue messages successfully.
 
+> **When the confidential workload profile becomes available**  
+> Update `scripts/provision-confidential-worker.ps1` with `-WorkloadProfileName confidential-profile -WorkloadProfileType Confidential` (or the official SKU name) before step 4, uncomment the workload-profile block inside the script, and re-run the provisioning flow. Afterwards swap the SKR policy from the placeholder `allowEvermailOps` claim to the Microsoft Azure Attestation claims for the new workload.
+
+### Azure SQL Database (serverless, production)
+
+To eliminate the local SQL dependency, we provision a cost-conscious serverless database in the same `evermail-prod` resource group. This keeps idle costs ~€30/month and can jump to more vCores later.
+
+1. **Register the provider (one-time)**
+
+   ```powershell
+   az provider register -n Microsoft.Sql --wait
+   ```
+
+2. **Create the logical server**
+
+   ```powershell
+   az sql server create `
+     --name evermail-sql-weu `
+     --resource-group evermail-prod `
+     --location westeurope `
+     --admin-user evermailadmin `
+     --admin-password "<generated-strong-password>"
+
+   az sql server firewall-rule create `
+     --resource-group evermail-prod `
+     --server evermail-sql-weu `
+     --name AllowAzure `
+     --start-ip-address 0.0.0.0 `
+     --end-ip-address 0.0.0.0
+   ```
+
+3. **Provision a serverless database (GP, Gen5, 1 vCore)**
+
+   ```powershell
+   az sql db create `
+     --resource-group evermail-prod `
+     --server evermail-sql-weu `
+     --name evermail `
+     --edition GeneralPurpose `
+     --family Gen5 `
+     --capacity 1 `
+     --compute-model Serverless `
+     --auto-pause-delay 120 `
+     --backup-storage-redundancy Local
+   ```
+
+4. **Store the connection string in Key Vault**
+
+   ```powershell
+   az keyvault secret set `
+     --vault-name evermail-prod-kv `
+     --name sql-password `
+     --value "<same-admin-password>"
+
+   az keyvault secret set `
+     --vault-name evermail-prod-kv `
+     --name ConnectionStrings--evermaildb `
+     --value "Server=tcp:evermail-sql-weu.database.windows.net,1433;Initial Catalog=evermail;Persist Security Info=False;User ID=evermailadmin;Password=<same-admin-password>;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
+   ```
+
+Any Aspire-hosted service can now read `ConnectionStrings--evermaildb` and connect securely via the managed identity that already has Key Vault access.
+
+### Production storage account (blobs + queues)
+
+We no longer rely on Azurite or the dev storage account for production uploads. Create the dedicated account once and store its connection strings in Key Vault so WebApp, AdminApp, and the worker can read them via Aspire.
+
+1. **Create the StorageV2 account**
+
+   ```powershell
+   az storage account create `
+     --name evermailprodstg `
+     --resource-group evermail-prod `
+     --location westeurope `
+     --sku Standard_LRS `
+     --kind StorageV2 `
+     --https-only true
+   ```
+
+2. **Create required containers/queues**
+
+   ```powershell
+   az storage container create --name mailbox-archives --account-name evermailprodstg
+   az storage container create --name gdpr-exports --account-name evermailprodstg
+   az storage queue create --name mailbox-ingestion --account-name evermailprodstg
+   az storage queue create --name mailbox-deletion --account-name evermailprodstg
+   ```
+
+3. **Store connection strings in Key Vault**
+
+   ```powershell
+   $conn = az storage account show-connection-string `
+     --name evermailprodstg `
+     --resource-group evermail-prod `
+     --query connectionString -o tsv
+
+    az keyvault secret set --vault-name evermail-prod-kv --name ConnectionStrings--blobs --value $conn
+    az keyvault secret set --vault-name evermail-prod-kv --name ConnectionStrings--queues --value $conn
+   ```
+
+4. **Redeploy the worker** (`scripts/provision-confidential-worker.ps1`) so the Container App picks up the refreshed secrets. WebApp/AdminApp automatically consume the same secrets when published through Aspire.
+
 ### Option 2: Manual Bicep/ARM Deployment
 
 #### 1. Create Resource Group

@@ -579,6 +579,15 @@ flowchart TD
 - Register each workload’s attestation policy with the tenant TMK (Key Vault “key release” policy). Key Vault refuses to unwrap unless the workload presents a valid attestation report for the signed container image.
 - Control plane APIs (dashboard, billing, monitoring) keep running in standard containers but never handle plaintext.
 
+> **Current deployment (2025-11-25)**  
+> Azure has not yet exposed the confidential workload profile for Container Apps in West/North Europe. Until it does, the ingestion worker runs on a standard Dedicated Container Apps environment in West Europe (`evermail-conf-worker`). Production is locked down with PIM-only access, no shell/exec, exhaustive logging, and automatic secret rotation. Development environments may keep relaxed settings (ssh/exec allowed, debugging symbols, `EnsureHttpClientBaseAddress` disabled) to speed up troubleshooting, but they never process real tenant data.
+>
+> When Microsoft lights up the confidential profile we will:
+> 1. Recreate the Container Apps environment with the confidential workload profile (same VNet/subnet), or switch to AKS confidential node pools if Container Apps still lags.
+> 2. Update the Secure Key Release policy from the placeholder `allowEvermailOps` claims to the real Microsoft Azure Attestation attributes for the signed image.
+> 3. Redeploy the worker, validate attestation hashes, rotate managed identity credentials, and flip Key Vault to “TEE-only”.
+> 4. Ship a customer update + changelog entry stating that plaintext is now confined to attested TEEs.
+
 #### Encryption & Search Pipeline
 1. Queue message arrives with tenant + mailbox identifiers.
 2. Worker in TEE requests `UnwrapKey(TMK, wrappedDek)`; attestation proof is automatically validated by Key Vault.

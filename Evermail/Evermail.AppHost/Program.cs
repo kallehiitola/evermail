@@ -30,9 +30,9 @@ var sqlPassword = builder.AddParameter("sql-password", secret: true);
 
 // Add SQL Server with database (runs locally in container, deploys to Azure SQL)
 var sql = builder.AddSqlServer("sql", password: sqlPassword)
-    .WithLifetime(ContainerLifetime.Persistent)  // Persist container between restarts
-    .WithDataVolume("evermail-sql-data")        // Persist data in named volume
-    .WithDockerfile("../../docker/sqlserver")   // Custom image with full-text search
+    .WithLifetime(ContainerLifetime.Persistent)
+    .WithDataVolume("evermail-sql-data")
+    .WithDockerfile("../../docker/sqlserver")
     .AddDatabase("evermaildb");
 
 // Add Azure Storage using connection strings (existing storage account)

@@ -206,7 +206,15 @@ builder.Services.AddSingleton(sp =>
     var connectionString = builder.Configuration.GetConnectionString("blobs");
     if (string.IsNullOrEmpty(connectionString))
     {
-        throw new InvalidOperationException("Blob storage connection string 'blobs' is not configured");
+        if (builder.Environment.IsDevelopment())
+        {
+            connectionString = "UseDevelopmentStorage=true";
+            Console.WriteLine("ℹ️  Using Azurite for blob storage (blobs connection string missing)");
+        }
+        else
+        {
+            throw new InvalidOperationException("Blob storage connection string 'blobs' is not configured");
+        }
     }
     return new Azure.Storage.Blobs.BlobServiceClient(connectionString);
 });
@@ -219,7 +227,15 @@ builder.Services.AddSingleton(sp =>
     var connectionString = builder.Configuration.GetConnectionString("queues");
     if (string.IsNullOrEmpty(connectionString))
     {
-        throw new InvalidOperationException("Queue storage connection string 'queues' is not configured");
+        if (builder.Environment.IsDevelopment())
+        {
+            connectionString = "UseDevelopmentStorage=true";
+            Console.WriteLine("ℹ️  Using Azurite for queue storage (queues connection string missing)");
+        }
+        else
+        {
+            throw new InvalidOperationException("Queue storage connection string 'queues' is not configured");
+        }
     }
     return new Azure.Storage.Queues.QueueServiceClient(connectionString);
 });

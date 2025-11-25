@@ -13,7 +13,10 @@ param(
 
     [string]$EnvironmentName = "evermail-confidential-env",
     [string]$ContainerAppName = "evermail-confidential-worker",
-    [string]$WorkloadProfileName = "confidential-profile",
+    [string]$WorkloadProfileName = "",
+    [string]$WorkloadProfileType = "",
+    [int]$WorkloadProfileMinNodes = 1,
+    [int]$WorkloadProfileMaxNodes = 3,
     [string]$ImageName = "evermail-ingestion-worker",
     [string]$ImageTag = "confidential",
     [string]$UserAssignedIdentityName = "evermail-conf-worker-mi",
@@ -43,7 +46,7 @@ function Ensure-AzCli {
 Ensure-AzCli
 
 $subscriptionId = az account show --query id -o tsv
-$fullImageName = "$AcrName.azurecr.io/$ImageName:$ImageTag"
+$fullImageName = "$AcrName.azurecr.io/${ImageName}:${ImageTag}"
 
 Write-Step "Building ingestion worker container image ($fullImageName)"
 az acr login --name $AcrName | Out-Null
@@ -77,19 +80,34 @@ az role assignment create `
 az role assignment create `
     --assignee-object-id $identity.principalId `
     --assignee-principal-type ServicePrincipal `
-    --role "Key Vault Crypto Service Release" `
+    --role "Key Vault Crypto Service Release User" `
     --scope $keyVaultScope `
     --only-show-errors `
     --output none
 
-Write-Step "Creating Confidential Container Apps environment $EnvironmentName"
-az containerapp env create `
-    --name $EnvironmentName `
-    --resource-group $ResourceGroup `
-    --location $Location `
-    --infrastructure-subnet-resource-id $SubnetResourceId `
-    --workload-profiles "[{'name':'$WorkloadProfileName','workloadProfileType':'Confidential','minimumCount':1,'maximumCount':3}]" `
-    --output none
+Write-Step "Creating Container Apps environment $EnvironmentName"
+$envArgs = @(
+    "containerapp","env","create",
+    "--name",$EnvironmentName,
+    "--resource-group",$ResourceGroup,
+    "--location",$Location,
+    "--infrastructure-subnet-resource-id",$SubnetResourceId
+)
+& az @envArgs | Out-Null
+
+if (-not [string]::IsNullOrWhiteSpace($WorkloadProfileName) -and -not [string]::IsNullOrWhiteSpace($WorkloadProfileType)) {
+    Write-Step "Adding workload profile $WorkloadProfileName ($WorkloadProfileType)"
+    $wpArgs = @(
+        "containerapp","env","workload-profile","add",
+        "--name",$EnvironmentName,
+        "--resource-group",$ResourceGroup,
+        "--workload-profile-name",$WorkloadProfileName,
+        "--workload-profile-type",$WorkloadProfileType,
+        "--min-nodes",$WorkloadProfileMinNodes,
+        "--max-nodes",$WorkloadProfileMaxNodes
+    )
+    & az @wpArgs | Out-Null
+}
 
 Write-Step "Fetching connection strings from Key Vault"
 $sqlConn = az keyvault secret show --vault-name $KeyVaultName --name $SqlSecretName --query value -o tsv
@@ -97,29 +115,34 @@ $blobConn = az keyvault secret show --vault-name $KeyVaultName --name $BlobSecre
 $queueConn = az keyvault secret show --vault-name $KeyVaultName --name $QueueSecretName --query value -o tsv
 
 Write-Step "Creating or updating container app $ContainerAppName"
-az containerapp create `
-    --name $ContainerAppName `
-    --resource-group $ResourceGroup `
-    --environment $EnvironmentName `
-    --image $fullImageName `
-    --workload-profile-name $WorkloadProfileName `
-    --ingress internal `
-    --target-port 8080 `
-    --min-replicas 1 `
-    --max-replicas 3 `
-    --registry-server "$AcrName.azurecr.io" `
-    --registry-identity $identity.id `
-    --secrets sql-conn="$sqlConn" blob-conn="$blobConn" queue-conn="$queueConn" `
-    --env-vars `
-        "ConnectionStrings__evermaildb=secretref:sql-conn" `
-        "ConnectionStrings__blobs=secretref:blob-conn" `
-        "ConnectionStrings__queues=secretref:queue-conn" `
-        "Parameters__key-vault-name=$KeyVaultName" `
-        "Parameters__key-vault-resource-group=$KeyVaultResourceGroup" `
-    --user-assigned $identity.id `
-    --revision-mode Single `
-    --only-show-errors `
-    --output none
+$containerArgs = @(
+    "containerapp","create",
+    "--name",$ContainerAppName,
+    "--resource-group",$ResourceGroup,
+    "--environment",$EnvironmentName,
+    "--image",$fullImageName,
+    "--ingress","internal",
+    "--target-port","8080",
+    "--min-replicas","1",
+    "--max-replicas","3",
+    "--registry-server","$AcrName.azurecr.io",
+    "--registry-identity",$identity.id,
+    "--secrets","sql-conn=$sqlConn","blob-conn=$blobConn","queue-conn=$queueConn",
+    "--env-vars",
+        "ConnectionStrings__evermaildb=secretref:sql-conn",
+        "ConnectionStrings__blobs=secretref:blob-conn",
+        "ConnectionStrings__queues=secretref:queue-conn",
+        "Parameters__key-vault-name=$KeyVaultName",
+        "Parameters__key-vault-resource-group=$KeyVaultResourceGroup",
+    "--user-assigned",$identity.id,
+    "--only-show-errors"
+)
+
+if (-not [string]::IsNullOrWhiteSpace($WorkloadProfileName)) {
+    $containerArgs += @("--workload-profile-name",$WorkloadProfileName)
+}
+
+& az @containerArgs | Out-Null
 
 Write-Step "Confidential worker provisioning complete."
 

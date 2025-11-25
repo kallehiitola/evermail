@@ -30,8 +30,19 @@ catch (Exception ex)
 }
 
 // Database connection
-var connectionString = builder.Configuration.GetConnectionString("evermaildb")
-    ?? throw new InvalidOperationException("Connection string 'evermaildb' is not configured");
+var connectionString = builder.Configuration.GetConnectionString("evermaildb");
+if (string.IsNullOrEmpty(connectionString))
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        connectionString = "Server=(localdb)\\MSSQLLocalDB;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true";
+        Console.WriteLine("ℹ️  Using localdb for ingestion worker (evermaildb connection string missing)");
+    }
+    else
+    {
+        throw new InvalidOperationException("Connection string 'evermaildb' is not configured");
+    }
+}
 
 builder.Services.Configure<OfflineByokOptions>(
     builder.Configuration.GetSection("OfflineByok"));
@@ -45,17 +56,39 @@ builder.Services.AddDbContext<EvermailDbContext>(options =>
 // Azure Blob Storage
 builder.Services.AddSingleton(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("blobs")
-        ?? throw new InvalidOperationException("Connection string 'blobs' is not configured");
-    return new BlobServiceClient(connectionString);
+    var blobsConnection = builder.Configuration.GetConnectionString("blobs");
+    if (string.IsNullOrEmpty(blobsConnection))
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            blobsConnection = "UseDevelopmentStorage=true";
+            Console.WriteLine("ℹ️  Using Azurite for blob storage (blobs connection string missing)");
+        }
+        else
+        {
+            throw new InvalidOperationException("Connection string 'blobs' is not configured");
+        }
+    }
+    return new BlobServiceClient(blobsConnection);
 });
 
 // Azure Queue Storage
 builder.Services.AddSingleton(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("queues")
-        ?? throw new InvalidOperationException("Connection string 'queues' is not configured");
-    return new QueueServiceClient(connectionString);
+    var queuesConnection = builder.Configuration.GetConnectionString("queues");
+    if (string.IsNullOrEmpty(queuesConnection))
+    {
+        if (builder.Environment.IsDevelopment())
+        {
+            queuesConnection = "UseDevelopmentStorage=true";
+            Console.WriteLine("ℹ️  Using Azurite for queue storage (queues connection string missing)");
+        }
+        else
+        {
+            throw new InvalidOperationException("Connection string 'queues' is not configured");
+        }
+    }
+    return new QueueServiceClient(queuesConnection);
 });
 
 // Services
