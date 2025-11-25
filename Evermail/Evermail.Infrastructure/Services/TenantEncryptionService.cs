@@ -1,5 +1,7 @@
 using System.Linq.Expressions;
 using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
 using Azure.Core;
 using Azure.Identity;
 using Azure.Security.KeyVault.Keys;
@@ -16,12 +18,14 @@ public class TenantEncryptionService : ITenantEncryptionService
     private const string ProviderAzureKeyVault = "AzureKeyVault";
     private const string ProviderAwsKms = "AwsKms";
     private const string ProviderEvermailManaged = "EvermailManaged";
+    private const string ProviderOffline = "Offline";
+    private const string DefaultAttestationProvider = "allowEvermailOps";
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
     private readonly EvermailDbContext _context;
     private readonly TokenCredential _credential;
     private readonly IAwsKmsConnector _awsKmsConnector;
-
-    private const string ProviderOffline = "Offline";
+    private readonly IOfflineByokKeyProtector _offlineByokKeyProtector;
 
     public TenantEncryptionService(
         EvermailDbContext context,
@@ -34,8 +38,6 @@ public class TenantEncryptionService : ITenantEncryptionService
         _awsKmsConnector = awsKmsConnector;
         _offlineByokKeyProtector = offlineByokKeyProtector;
     }
-
-    private readonly IOfflineByokKeyProtector _offlineByokKeyProtector;
 
     private static readonly Expression<Func<TenantEncryptionBundle, TenantEncryptionBundleDto>> MapBundleDtoExpression = bundle => new TenantEncryptionBundleDto(
         bundle.Id,
@@ -403,6 +405,100 @@ public class TenantEncryptionService : ITenantEncryptionService
         await _context.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<SecureKeyReleaseTemplateDto> GetSecureKeyReleaseTemplateAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+        var principalId = string.IsNullOrWhiteSpace(entity.ManagedIdentityObjectId)
+            ? "00000000-0000-0000-0000-000000000000"
+            : entity.ManagedIdentityObjectId.Trim();
+
+        var template = new
+        {
+            version = "1.0.0",
+            anyOf = new object[]
+            {
+                new
+                {
+                    authority = DefaultAttestationProvider,
+                    allOf = new object[]
+                    {
+                        new
+                        {
+                            claim = "x-ms-microsoft-identity-principal-id",
+                            equals = principalId
+                        }
+                    }
+                }
+            }
+        };
+
+        var json = JsonSerializer.Serialize(template, IndentedJson);
+        return new SecureKeyReleaseTemplateDto(json);
+    }
+
+    public async Task<SecureKeyReleasePolicyDto> GetSecureKeyReleasePolicyAsync(
+        Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+        return new SecureKeyReleasePolicyDto(
+            entity.SecureKeyReleasePolicyJson,
+            entity.SecureKeyReleasePolicyHash,
+            entity.SecureKeyReleaseConfiguredAt,
+            entity.AttestationProvider);
+    }
+
+    public async Task<SecureKeyReleasePolicyDto> ConfigureSecureKeyReleaseAsync(
+        Guid tenantId,
+        Guid userId,
+        ConfigureSecureKeyReleaseRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (request is null || string.IsNullOrWhiteSpace(request.Policy))
+        {
+            throw new InvalidOperationException("policy is required.");
+        }
+
+        var canonicalJson = CanonicalizePolicyJson(request.Policy);
+        var hash = ComputeSha256(canonicalJson);
+
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+        entity.SecureKeyReleasePolicyJson = canonicalJson;
+        entity.SecureKeyReleasePolicyHash = hash;
+        entity.IsSecureKeyReleaseConfigured = true;
+        entity.SecureKeyReleaseConfiguredAt = DateTime.UtcNow;
+        entity.SecureKeyReleaseConfiguredByUserId = userId;
+        entity.AttestationProvider = string.IsNullOrWhiteSpace(request.AttestationProvider)
+            ? DefaultAttestationProvider
+            : request.AttestationProvider.Trim();
+
+        await _context.SaveChangesAsync(cancellationToken);
+
+        return new SecureKeyReleasePolicyDto(
+            canonicalJson,
+            hash,
+            entity.SecureKeyReleaseConfiguredAt,
+            entity.AttestationProvider);
+    }
+
+    public async Task DeleteSecureKeyReleasePolicyAsync(
+        Guid tenantId,
+        Guid userId,
+        CancellationToken cancellationToken = default)
+    {
+        var entity = await GetOrCreateEntityAsync(tenantId, cancellationToken);
+        entity.SecureKeyReleasePolicyJson = null;
+        entity.SecureKeyReleasePolicyHash = null;
+        entity.IsSecureKeyReleaseConfigured = false;
+        entity.SecureKeyReleaseConfiguredAt = null;
+        entity.SecureKeyReleaseConfiguredByUserId = userId;
+        entity.AttestationProvider = null;
+
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
     private static byte[] DecryptOfflineBundle(OfflineByokUploadRequest request)
     {
         byte[] salt;
@@ -562,12 +658,33 @@ public class TenantEncryptionService : ITenantEncryptionService
             entity.CreatedAt,
             entity.LastUsedAt);
 
+    private static string CanonicalizePolicyJson(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(document.RootElement, IndentedJson);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException("Secure Key Release policy must be valid JSON.", ex);
+        }
+    }
+
+    private static string ComputeSha256(string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        var hash = SHA256.HashData(bytes);
+        return Convert.ToHexString(hash);
+    }
+
     private static TenantEncryptionSettingsDto MapToDto(TenantEncryptionSettings entity)
     {
         var secureKeyRelease = new SecureKeyReleaseDto(
             entity.IsSecureKeyReleaseConfigured,
             entity.SecureKeyReleaseConfiguredAt,
-            entity.AttestationProvider);
+            entity.AttestationProvider,
+            entity.SecureKeyReleasePolicyHash);
 
         var azure = string.Equals(entity.Provider, ProviderAzureKeyVault, StringComparison.OrdinalIgnoreCase)
             ? new AzureTenantEncryptionSettingsDto(

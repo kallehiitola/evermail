@@ -15,12 +15,10 @@ public static class OnboardingStatusCalculator
 
         return provider switch
         {
-            "AwsKms" => !string.IsNullOrWhiteSpace(settings.AwsKmsKeyArn) &&
-                        !string.IsNullOrWhiteSpace(settings.AwsIamRoleArn),
+            "AwsKms" => HasAwsSettings(settings) && settings.IsSecureKeyReleaseConfigured,
             "EvermailManaged" => true,
             "Offline" => !string.IsNullOrWhiteSpace(settings.OfflineMasterKeyCiphertext),
-            _ => !string.IsNullOrWhiteSpace(settings.KeyVaultUri) &&
-                 !string.IsNullOrWhiteSpace(settings.KeyVaultKeyName)
+            _ => HasAzureSettings(settings) && settings.IsSecureKeyReleaseConfigured
         };
     }
 
@@ -39,6 +37,14 @@ public static class OnboardingStatusCalculator
                encryptionConfigured &&
                hasMailbox;
     }
+
+    private static bool HasAzureSettings(TenantEncryptionSettings settings) =>
+        !string.IsNullOrWhiteSpace(settings.KeyVaultUri) &&
+        !string.IsNullOrWhiteSpace(settings.KeyVaultKeyName);
+
+    private static bool HasAwsSettings(TenantEncryptionSettings settings) =>
+        !string.IsNullOrWhiteSpace(settings.AwsKmsKeyArn) &&
+        !string.IsNullOrWhiteSpace(settings.AwsIamRoleArn);
 }
 
 

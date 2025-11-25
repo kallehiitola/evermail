@@ -10,11 +10,11 @@ internal sealed record RateLimitPlan(string Name, int PermitLimit, TimeSpan Wind
 
 internal static class RateLimitPlanCatalog
 {
-    private static readonly RateLimitPlan Free = new("Free", 300, TimeSpan.FromHours(1), 0);
-    private static readonly RateLimitPlan Pro = new("Pro", 2_000, TimeSpan.FromHours(1), 0);
-    private static readonly RateLimitPlan Team = new("Team", 20_000, TimeSpan.FromHours(1), 0);
+    private static readonly RateLimitPlan Free = new("Free", 5_000, TimeSpan.FromHours(1), 0);
+    private static readonly RateLimitPlan Pro = new("Pro", 25_000, TimeSpan.FromHours(1), 0);
+    private static readonly RateLimitPlan Team = new("Team", 100_000, TimeSpan.FromHours(1), 0);
     private static readonly RateLimitPlan Enterprise = new("Enterprise", 0, TimeSpan.FromHours(1), 0);
-    private static readonly RateLimitPlan Anonymous = new("Anonymous", 600, TimeSpan.FromMinutes(1), 0);
+    private static readonly RateLimitPlan Anonymous = new("Anonymous", 1_000, TimeSpan.FromMinutes(1), 0);
 
     public static RateLimitPlan Resolve(string? tier) =>
         (tier ?? string.Empty).Trim().ToLowerInvariant() switch

@@ -396,7 +396,71 @@
                     </div>
                 </div>
                 <div class="col-xl-5">
-                    <div class="card h-100 border-dashed">
+                    <div class="card h-100 mb-4">
+                        <div class="card-body d-flex flex-column gap-3">
+                            <div class="d-flex justify-content-between align-items-start gap-3">
+                                <div>
+                                    <h5 class="card-title mb-1">Secure Key Release policy</h5>
+                                    <p class="text-muted mb-0">
+                                        Stage the SKR JSON today so we can enforce attested workloads without re-onboarding later.
+                                    </p>
+                                </div>
+                                <div class="text-end small text-muted">
+                                    <div><strong>Hash:</strong> @SecureKeyReleaseHashDisplay</div>
+                                    <div><strong>Configured:</strong> @SecureKeyReleaseConfiguredAtDisplay</div>
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(_secureKeyReleaseError))
+                            {
+                                <div class="alert alert-danger mb-0" role="alert">@_secureKeyReleaseError</div>
+                            }
+                            @if (!string.IsNullOrEmpty(_secureKeyReleaseStatus))
+                            {
+                                <div class="alert alert-success mb-0" role="alert">@_secureKeyReleaseStatus</div>
+                            }
+
+                            <div>
+                                <label class="form-label fw-semibold d-flex align-items-center gap-2">
+                                    Policy JSON
+                                    @if (_isSecureKeyReleaseLoading)
+                                    {
+                                        <span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+                                    }
+                                </label>
+                                <InputTextArea class="form-control font-monospace"
+                                               Rows="10"
+                                               @bind-Value="_secureKeyReleaseEditor"
+                                               disabled="@_isSecureKeyReleaseLoading" />
+                                <div class="form-text">
+                                    Paste the exact policy you apply in Azure CLI/Portal. We store the canonical JSON + SHA-256 hash for auditing.
+                                </div>
+                            </div>
+
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button"
+                                        class="btn btn-outline-secondary btn-sm"
+                                        @onclick="LoadSecureKeyReleaseTemplateAsync"
+                                        disabled="@(_isSecureKeyReleaseLoading || _isSecureKeyReleaseSaving)">
+                                    <i class="bi bi-file-earmark-code"></i> Load template
+                                </button>
+                                <button type="button"
+                                        class="btn btn-primary btn-sm"
+                                        @onclick="SaveSecureKeyReleaseAsync"
+                                        disabled="@(_isSecureKeyReleaseLoading || _isSecureKeyReleaseSaving)">
+                                    @SecureKeyReleaseButtonText
+                                </button>
+                                <button type="button"
+                                        class="btn btn-outline-danger btn-sm"
+                                        @onclick="DeleteSecureKeyReleaseAsync"
+                                        disabled="@(!_secureKeyReleaseConfigured || _isSecureKeyReleaseLoading || _isSecureKeyReleaseSaving)">
+                                    Clear policy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card border-dashed">
                         <div class="card-body">
                             <h5 class="card-title">Need a custom key path?</h5>
                             <p class="text-muted">
@@ -435,6 +499,12 @@
     private bool _isHistoryLoading;
     private string? _historyError;
     private string _activeInstructionTab = "azure";
+    private bool _isSecureKeyReleaseLoading;
+    private bool _isSecureKeyReleaseSaving;
+    private string? _secureKeyReleaseStatus;
+    private string? _secureKeyReleaseError;
+    private string _secureKeyReleaseEditor = string.Empty;
+    private SecureKeyReleasePolicyDto? _secureKeyRelease;
 
     private bool IsAwsProvider => string.Equals(_form.Provider, AwsProvider, StringComparison.OrdinalIgnoreCase);
     private bool ShowAzureFields => !IsAwsProvider;
@@ -464,6 +534,11 @@
         _ => provider
     };
 
+    private bool _secureKeyReleaseConfigured => !string.IsNullOrWhiteSpace(_secureKeyRelease?.Hash);
+    private string SecureKeyReleaseHashDisplay => _secureKeyReleaseConfigured ? _secureKeyRelease!.Hash! : "Not staged";
+    private string SecureKeyReleaseConfiguredAtDisplay => _secureKeyRelease?.ConfiguredAt?.ToString("u") ?? "Never";
+    private string SecureKeyReleaseButtonText => _isSecureKeyReleaseSaving ? "Saving..." : "Save policy";
+
     private string _buttonText => _isSaving
         ? "Saving..."
         : (_settings?.IsConfigured == true ? "Update settings" : "Save settings");
@@ -475,6 +550,7 @@
         _isOnboardingFlow = string.Equals(query["onboarding"], "1", StringComparison.OrdinalIgnoreCase);
 
         await LoadSettingsAsync();
+        await LoadSecureKeyReleaseAsync();
         await LoadHistoryAsync();
     }
 
@@ -649,6 +725,181 @@
         finally
         {
             _isHistoryLoading = false;
+        }
+    }
+
+    private async Task LoadSecureKeyReleaseAsync()
+    {
+        _isSecureKeyReleaseLoading = true;
+        _secureKeyReleaseError = null;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/encryption/secure-key-release"));
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _secureKeyReleaseError = "Session expired. Please sign in again.";
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<SecureKeyReleasePolicyDto>>();
+            if (payload?.Success == true && payload.Data is not null)
+            {
+                _secureKeyRelease = payload.Data;
+                _secureKeyReleaseEditor = payload.Data.Policy ?? string.Empty;
+            }
+            else
+            {
+                _secureKeyRelease = new SecureKeyReleasePolicyDto(null, null, null, null);
+                _secureKeyReleaseEditor = string.Empty;
+                _secureKeyReleaseError = payload?.Error ?? "Unable to load Secure Key Release policy.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _secureKeyReleaseError = $"Failed to load Secure Key Release policy: {ex.Message}";
+        }
+        finally
+        {
+            _isSecureKeyReleaseLoading = false;
+        }
+    }
+
+    private async Task LoadSecureKeyReleaseTemplateAsync()
+    {
+        _secureKeyReleaseError = null;
+        _secureKeyReleaseStatus = null;
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/encryption/secure-key-release/template"));
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _secureKeyReleaseError = "Session expired. Please sign in again.";
+                return;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<SecureKeyReleaseTemplateDto>>();
+            if (payload?.Success == true && payload.Data is not null)
+            {
+                _secureKeyReleaseEditor = payload.Data.Policy;
+                _secureKeyReleaseStatus = "Template loaded. Customize claims as needed before saving.";
+            }
+            else
+            {
+                _secureKeyReleaseError = payload?.Error ?? "Unable to load template.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _secureKeyReleaseError = $"Failed to load template: {ex.Message}";
+        }
+    }
+
+    private async Task SaveSecureKeyReleaseAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_secureKeyReleaseEditor))
+        {
+            _secureKeyReleaseError = "Policy JSON cannot be empty.";
+            return;
+        }
+
+        _secureKeyReleaseError = null;
+        _secureKeyReleaseStatus = null;
+        _isSecureKeyReleaseSaving = true;
+
+        try
+        {
+            var requestDto = new ConfigureSecureKeyReleaseRequest(_secureKeyReleaseEditor, _settings?.SecureKeyRelease.AttestationProvider);
+            var request = new HttpRequestMessage(HttpMethod.Post, BuildApiUri("api/v1/tenants/encryption/secure-key-release"))
+            {
+                Content = JsonContent.Create(requestDto)
+            };
+
+            var response = await SendAuthorizedAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<SecureKeyReleasePolicyDto>>();
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _secureKeyReleaseError = "Session expired. Please sign in again.";
+            }
+            else if (payload?.Success == true && payload.Data is not null)
+            {
+                _secureKeyRelease = payload.Data;
+                _secureKeyReleaseEditor = payload.Data.Policy ?? _secureKeyReleaseEditor;
+                _secureKeyReleaseStatus = "Secure Key Release policy saved.";
+
+                if (_settings is not null)
+                {
+                    _settings = _settings with
+                    {
+                        SecureKeyRelease = new SecureKeyReleaseDto(
+                            true,
+                            payload.Data.ConfiguredAt,
+                            payload.Data.AttestationProvider,
+                            payload.Data.Hash)
+                    };
+                }
+            }
+            else
+            {
+                _secureKeyReleaseError = payload?.Error ?? "Failed to save policy.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _secureKeyReleaseError = $"Failed to save policy: {ex.Message}";
+        }
+        finally
+        {
+            _isSecureKeyReleaseSaving = false;
+        }
+    }
+
+    private async Task DeleteSecureKeyReleaseAsync()
+    {
+        _secureKeyReleaseError = null;
+        _secureKeyReleaseStatus = null;
+        _isSecureKeyReleaseSaving = true;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Delete, BuildApiUri("api/v1/tenants/encryption/secure-key-release"));
+            var response = await SendAuthorizedAsync(request);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _secureKeyReleaseError = "Session expired. Please sign in again.";
+            }
+            else if (response.IsSuccessStatusCode)
+            {
+                _secureKeyRelease = new SecureKeyReleasePolicyDto(null, null, null, null);
+                _secureKeyReleaseEditor = string.Empty;
+                _secureKeyReleaseStatus = "Secure Key Release policy cleared.";
+
+                if (_settings is not null)
+                {
+                    _settings = _settings with
+                    {
+                        SecureKeyRelease = new SecureKeyReleaseDto(false, null, null, null)
+                    };
+                }
+            }
+            else
+            {
+                var payload = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+                _secureKeyReleaseError = payload?.Error ?? "Failed to clear policy.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _secureKeyReleaseError = $"Failed to clear policy: {ex.Message}";
+        }
+        finally
+        {
+            _isSecureKeyReleaseSaving = false;
         }
     }
 

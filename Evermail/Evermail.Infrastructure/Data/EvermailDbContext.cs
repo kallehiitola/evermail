@@ -446,16 +446,19 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.TenantId, e.UserId });
+            entity.HasIndex(e => new { e.TenantId, e.RequestedByUserId });
             entity.HasIndex(e => new { e.TenantId, e.Status });
             entity.Property(e => e.Status).HasMaxLength(32);
             entity.Property(e => e.BlobPath).HasMaxLength(500);
             entity.Property(e => e.ErrorMessage).HasMaxLength(1000);
+            entity.Property(e => e.Sha256).HasMaxLength(128);
         });
 
         modelBuilder.Entity<UserDeletionJob>(entity =>
         {
             entity.HasKey(j => j.Id);
             entity.HasIndex(j => new { j.TenantId, j.UserId });
+            entity.HasIndex(j => new { j.TenantId, j.RequestedByUserId });
             entity.Property(j => j.Status).HasMaxLength(32);
             entity.Property(j => j.Notes).HasMaxLength(1000);
         });

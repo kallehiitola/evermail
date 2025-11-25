@@ -255,6 +255,159 @@ DELETE /api/v1/tenants/encryption/bundles/f1a75bea-8b54-4f09-8357-9e9c2265b2ed
 204 No Content
 ```
 
+### GET /tenants/encryption/secure-key-release/template
+Returns the Secure Key Release (SKR) JSON template for the current tenant. The template already contains the tenant’s managed-identity object ID and a placeholder attestation clause (`allowEvermailOps`) so administrators only need to paste it into the Azure CLI/portal before Phase 2 lands.
+
+```json
+{
+  "success": true,
+  "data": {
+    "policy": "{\n  \"version\": \"1.0.0\",\n  \"anyOf\": [\n    {\n      \"authority\": \"allowEvermailOps\",\n      \"allOf\": [\n        { \"claim\": \"x-ms-microsoft-identity-principal-id\", \"equals\": \"5a5c2c0f-...\" }\n      ]\n    }\n  ]\n}"
+  }
+}
+```
+
+### GET /tenants/encryption/secure-key-release
+Returns the currently stored policy JSON (only visible to the owning tenant) plus metadata describing when it was staged.
+
+```json
+{
+  "success": true,
+  "data": {
+    "policy": "{\n  \"version\": \"1.0.0\",\n  \"anyOf\": [...]\n}",
+    "hash": "08C47E6F4DF9A3E0B30205E0E7C97868AB500D27C0A951C2967A8D5F5949D6F6",
+    "configuredAt": "2025-11-24T10:15:00Z",
+    "attestationProvider": "allowEvermailOps"
+  }
+}
+```
+
+### POST /tenants/encryption/secure-key-release
+Stores (or replaces) the tenant’s SKR JSON. The backend validates that the payload is valid JSON, canonicalizes spacing, hashes it with SHA-256, and updates `TenantEncryptionSettings`. A successful save flips `secureKeyRelease.isConfigured` to `true` in subsequent `GET /tenants/encryption` responses.
+
+```json
+{
+  "policy": "{ \"version\": \"1.0.0\", \"anyOf\": [{ \"authority\": \"allowEvermailOps\", \"allOf\": [{ \"claim\": \"x-ms-microsoft-identity-principal-id\", \"equals\": \"5a5c2c0f-...\" }] }] }",
+  "attestationProvider": "allowEvermailOps"
+}
+```
+
+**Response (200 OK)**:
+
+```json
+{
+  "success": true,
+  "data": {
+    "policy": "{\n  \"version\": \"1.0.0\",\n  \"anyOf\": [...]\n}",
+    "hash": "08C47E6F4DF9A3E0B30205E0E7C97868AB500D27C0A951C2967A8D5F5949D6F6",
+    "configuredAt": "2025-11-24T10:15:00Z",
+    "attestationProvider": "allowEvermailOps"
+  }
+}
+```
+
+### DELETE /tenants/encryption/secure-key-release
+Clears the stored SKR JSON/hash so the tenant can upload a revised policy. After deletion `secureKeyRelease.isConfigured` becomes `false` until another policy is posted.
+
+```
+DELETE /api/v1/tenants/encryption/secure-key-release
+204 No Content
+```
+
+> **UI expectation**: These SKR endpoints are only invoked by the admin portal’s buttons. Tenants never download scripts nor edit JSON manually—the UI performs the POST/DELETE calls and simply shows the resulting hash + timestamp.
+
+### GET /audit/logs
+Returns paginated audit entries for the current tenant. Filters are optional; omitting them returns the latest 50 rows.
+
+| Query | Type | Description |
+|-------|------|-------------|
+| `page` | int (default 1) | 1-based page number |
+| `pageSize` | int (default 50, max 200) | Page size |
+| `startUtc` | ISO 8601 | Filter `Timestamp >= startUtc` |
+| `endUtc` | ISO 8601 | Filter `Timestamp <= endUtc` |
+| `action` | string | Exact match on `Action` |
+| `userId` | guid | Filter by actor |
+| `resourceType` | string | Exact match on `ResourceType` |
+
+**Response**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "f1a7...",
+        "timestamp": "2025-11-24T10:11:00Z",
+        "action": "MailboxDeleted",
+        "userId": "7aa3...",
+        "userEmail": "ops@acme.com",
+        "resourceType": "Mailbox",
+        "resourceId": "2c4f...",
+        "ipAddress": "203.0.113.42",
+        "userAgent": "Mozilla/5.0 ...",
+        "details": "{\"mailboxId\":\"2c4f...\",\"reason\":\"GDPR\"}"
+      }
+    ],
+    "total": 5421,
+    "page": 1,
+    "pageSize": 50
+  }
+}
+```
+
+### GET /audit/logs/export
+Streams a CSV (UTF-8, RFC 4180) containing up to 10 000 audit rows that match the supplied filters (same query parameters as the list endpoint). The response sets `Content-Disposition: attachment; filename="evermail-audit-2025-11-24.csv"` and includes `X-Export-Hash` (SHA-256 of the CSV body) for integrity.
+
+```
+GET /api/v1/audit/logs/export?startUtc=2025-11-01T00:00:00Z&action=MailboxDeleted
+```
+
+**Response**
+
+```
+HTTP/1.1 200 OK
+Content-Type: text/csv
+X-Export-Hash: 08C47E6F4DF9A3E0B30205E0E7C97868AB500D27C0A951C2967A8D5F5949D6F6
+
+timestamp,action,userEmail,resourceType,resourceId,ipAddress,details
+2025-11-24T10:11:00Z,MailboxDeleted,ops@acme.com,Mailbox,2c4f...,203.0.113.42,"{""mailboxId"":""2c4f..."",""reason"":""GDPR""}"
+```
+
+### GET /compliance/gdpr-jobs
+Lists the tenant’s recent GDPR exports and deletion jobs so admins can verify status.
+
+```json
+{
+  "success": true,
+  "data": {
+    "exports": [
+      {
+        "id": "af25...",
+        "requestedBy": "dpo@acme.com",
+        "requestedAt": "2025-11-22T09:00:00Z",
+        "completedAt": "2025-11-22T09:04:30Z",
+        "status": "Completed",
+        "downloadUrl": "https://localhost:7136/api/v1/users/me/exports/af25.../download",
+        "sha256": "6F6A..."
+      }
+    ],
+    "deletions": [
+      {
+        "id": "ad91...",
+        "targetUserEmail": "former.user@acme.com",
+        "requestedBy": "dpo@acme.com",
+        "requestedAt": "2025-11-18T11:12:13Z",
+        "completedAt": "2025-11-18T11:30:50Z",
+        "status": "Completed"
+      }
+    ]
+  }
+}
+```
+
+> **UI expectation**: These compliance endpoints are invoked exclusively by the admin portal’s buttons/chips. Results are read-only; CSV downloads and GDPR job links are surfaced as standard browser downloads without exposing SAS tokens or requiring CLI steps.
+
 ### GET /tenants/plans
 Returns every active subscription plan so the onboarding wizard and admin screens can render pricing cards.
 

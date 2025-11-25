@@ -454,6 +454,20 @@ Implementation highlights:
 3. **Cross-plane integration** – Aspire still orchestrates the rest of the estate (queues, SQL, Blob, WebApp). Queue payloads contain the wrapped DEK identifier; confidential workers fetch the message, perform MAA attestation, call SKR, and process data entirely inside the TEE. Responses returned to the public API remain encrypted unless the caller presents a tenant-scoped token.
 4. **Operational tooling** – Azure Confidential Ledger (priced at ~$3/day per ledger instance per the [official announcement](https://techcommunity.microsoft.com/blog/azureconfidentialcomputingblog/price-reduction-and-upcoming-features-for-azure-confidential-ledger/4387491)) stores append-only proofs that a given DEK was unwrapped, by which container revision, and for what purpose.
 
+##### Phase 1 concrete architecture (current sprint)
+
+- **SecureKeyReleaseService** (lives inside `TenantEncryptionService`) exposes three new flows:
+  1. `SecureKeyReleaseTemplateGenerator` emits SKR JSON with a permissive `allowEvermailOps` attestation rule plus the tenant’s managed-identity object ID. The generator is deterministic, so identical tenants always receive the same template (handy for diffing).
+  2. `ConfigureSecureKeyReleaseAsync` canonicalizes the uploaded JSON (parses → `JsonDocument` → writes with `JsonSerializerOptions { WriteIndented = true }`), computes a SHA-256 hash, updates the `TenantEncryptionSettings` record, and stamps `SecureKeyReleaseConfiguredAt/By`.
+  3. `ResetSecureKeyReleaseAsync` clears the JSON/hash flags so tenants can rotate or switch providers.
+
+- **DTO and API contract** – `TenantEncryptionSettingsDto.SecureKeyRelease` now includes the policy hash and configured timestamp. Dedicated endpoints expose the full JSON only to the owning tenant. The UI never stores drafts server-side; admins edit locally then submit the final JSON so we maintain a clean audit trail of approved policies.
+
+- **Onboarding dependencies** – `OnboardingStatusCalculator` marks Azure/AWS BYOK as “configured” only when both the provider metadata and `IsSecureKeyReleaseConfigured` are true. The wizard highlights SKR as the final checkbox once keys are saved.
+- **UI-only workflow** – The admin encryption page drives every SKR action through buttons and status chips; we never ask tenants to download scripts or edit JSON manually. “Generate & apply” posts the template automatically, while “Clear policy” calls the delete endpoint in one click.
+
+- **Aspire integration** – The Aspire AppHost keeps orchestrating WebApp + Worker, but the SKR services run inside the same solution so developers can iterate with `dotnet run Evermail.AppHost`. No new Azure resources are required in Phase 1; the Key Vault policies still point at the managed identity associated with the AppHost deployment.
+
 This layer allows us to advertise zero-trust guarantees: decrypt operations run only in measured hardware, tenant keys never leave customer control, and staff-level access provides observability/operations without exposure to message content.
 
 ### 4. External Integrations
@@ -754,6 +768,30 @@ public class AuditLog
 | Blob storage outage | Can't upload/download | GRS replication, failover to secondary region |
 | Stripe webhook failure | Payment not reflected | Webhook retry logic, manual reconciliation dashboard |
 
+### Compliance console (admin UI)
+
+The admin area gains a dedicated compliance workspace that folds the raw `AuditLogs` table and GDPR job entities into a friendly MudBlazor experience:
+
+1. **Data flow**
+   - `AuditLogQueryService` (new application service) projects filtered logs via EF Core, applying tenant-scoped filters and pagination.
+   - `GET /api/v1/audit/logs` returns a `PagedResult<AuditLogDto>` that the MudBlazor table consumes via server-side data mode.
+   - `GET /api/v1/audit/logs/export` re-runs the same filter but streams a CSV (`text/csv`) with up to 10 k rows and a SHA-256 hash header for tamper evidence.
+   - `GET /api/v1/compliance/gdpr-jobs` aggregates `UserDataExports` + `UserDeletionJobs` so the UI can render status chips and download buttons.
+
+2. **UI components**
+   - `Admin/AuditLogs.razor` hosts the grid, filter panel, anomaly summaries, and export button. It subscribes to the global rate-limit notifier/toast service so 429s remain understandable even while reviewing logs.
+   - `AuditLogDetailsDrawer.razor` renders the selected row’s metadata, prettifying JSON in the `Details` column and flagging mismatched IP → geo lookups (future enhancement).
+   - `GdprJobTimeline.razor` reuses the existing user-export DTOs but scopes them to the tenant, listing requester, timestamps, status, and SAS download links (read-only).
+
+3. **Aspire considerations**
+   - Everything stays inside the current Aspire solution—no extra services to orchestrate. The APIs sit in the WebApp project; the UI is another Blazor page.
+   - Exports stream directly from the WebApp container, so no Az Functions or storage staging is required. Long-running exports reuse the existing background `UserDataExport` infrastructure if we later need asynchronous dumps.
+
+4. **Security**
+   - Endpoints are `[Authorize(Roles = "Admin")]` and reuse `TenantContext` so tenants never leak data across workspaces.
+   - CSV download links never expose signed URLs; instead we send the file inline with `Content-Disposition: attachment`.
+   - Every export action writes a second audit entry (`AuditLogCsvExported`) to prove evidence packs were generated.
+
 ## Cost Model
 
 ### Infrastructure Costs (Monthly, Estimated)
@@ -838,7 +876,7 @@ public class AuditLog
 
 ---
 
-**Last Updated**: 2025-11-20  
+**Last Updated**: 2025-11-24  
 **Document Owner**: CTO  
 **Review Frequency**: Monthly or after major architectural changes
 

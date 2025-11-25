@@ -35,6 +35,10 @@ public static class TenantEndpoints
         encryption.MapGet("/bundles", GetEncryptionBundlesAsync);
         encryption.MapPost("/bundles", CreateEncryptionBundleAsync);
         encryption.MapDelete("/bundles/{bundleId:guid}", DeleteEncryptionBundleAsync);
+        encryption.MapGet("/secure-key-release/template", GetSecureKeyReleaseTemplateAsync);
+        encryption.MapGet("/secure-key-release", GetSecureKeyReleaseAsync);
+        encryption.MapPost("/secure-key-release", ConfigureSecureKeyReleaseAsync);
+        encryption.MapDelete("/secure-key-release", DeleteSecureKeyReleaseAsync);
 
         group.MapGet("/plans", GetSubscriptionPlansAsync)
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
@@ -225,6 +229,80 @@ public static class TenantEndpoints
         {
             return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
         }
+    }
+
+    private static async Task<IResult> GetSecureKeyReleaseTemplateAsync(
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var dto = await service.GetSecureKeyReleaseTemplateAsync(tenantContext.TenantId, cancellationToken);
+        return Results.Ok(new ApiResponse<SecureKeyReleaseTemplateDto>(true, dto));
+    }
+
+    private static async Task<IResult> GetSecureKeyReleaseAsync(
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        var dto = await service.GetSecureKeyReleasePolicyAsync(tenantContext.TenantId, cancellationToken);
+        return Results.Ok(new ApiResponse<SecureKeyReleasePolicyDto>(true, dto));
+    }
+
+    private static async Task<IResult> ConfigureSecureKeyReleaseAsync(
+        ConfigureSecureKeyReleaseRequest request,
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Policy))
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "policy is required"));
+        }
+
+        try
+        {
+            var dto = await service.ConfigureSecureKeyReleaseAsync(
+                tenantContext.TenantId,
+                tenantContext.UserId,
+                request,
+                cancellationToken);
+
+            return Results.Ok(new ApiResponse<SecureKeyReleasePolicyDto>(true, dto));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, ex.Message));
+        }
+    }
+
+    private static async Task<IResult> DeleteSecureKeyReleaseAsync(
+        ITenantEncryptionService service,
+        TenantContext tenantContext,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        await service.DeleteSecureKeyReleasePolicyAsync(tenantContext.TenantId, tenantContext.UserId, cancellationToken);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> GetOnboardingStatusAsync(

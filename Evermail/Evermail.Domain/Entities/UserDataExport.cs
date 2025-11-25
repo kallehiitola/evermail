@@ -26,6 +26,12 @@ public class UserDataExport
 
     [MaxLength(1000)]
     public string? ErrorMessage { get; set; }
+
+    [Required, MaxLength(64)]
+    public Guid RequestedByUserId { get; set; }
+
+    [MaxLength(128)]
+    public string? Sha256 { get; set; }
 }
 
 

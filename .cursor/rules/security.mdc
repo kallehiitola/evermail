@@ -5,6 +5,13 @@ alwaysApply: true
 
 # Security Best Practices
 
+## Tenant-Facing UX Requirements
+
+- 🔒 **No CLI or JSON handoffs.** Any tenant/admin security flow (BYOK, SKR, offline bundles, etc.) must be handled entirely inside the Blazor UI with buttons/wizards. Never require users to copy scripts, run CLI commands, or edit JSON manually.
+- ✅ The UI should call the necessary endpoints directly (e.g., “Generate & Apply” SKR button) and only surface read-only status such as hashes, timestamps, or badges for confirmation.
+- 🧭 If additional guidance is needed, show inline tooltips or checklists inside the UI—not textual instructions that ask the tenant to leave the product.
+- 🧾 **Exception – guarded recovery bundles.** The only time we surface raw material (JSON, mnemonic words, sealed blobs) is when offering an optional “download recovery bundle” flow. That screen must (a) keep the payload read-only, (b) require an explicit “I understand Evermail cannot recover this” acknowledgement, and (c) remind users to store it offline before the download button activates.
+
 ## Authentication
 
 ### ASP.NET Core Identity

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Evermail.Domain.Entities;
@@ -49,6 +50,7 @@ public sealed class GdprExportService : IGdprExportService
             Id = Guid.NewGuid(),
             TenantId = tenantId,
             UserId = userId,
+            RequestedByUserId = userId,
             Status = "Pending",
             RequestedAt = DateTime.UtcNow
         };
@@ -72,6 +74,8 @@ public sealed class GdprExportService : IGdprExportService
                 await archiveStream.FlushAsync(cancellationToken);
                 if (archiveStream.CanSeek)
                 {
+                    archiveStream.Seek(0, SeekOrigin.Begin);
+                    export.Sha256 = Convert.ToHexString(SHA256.HashData(archiveStream));
                     archiveStream.Seek(0, SeekOrigin.Begin);
                 }
 

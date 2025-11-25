@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-23  
+> **Last Updated**: 2025-11-24  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -325,6 +325,13 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - 📦 Created `TenantEncryptionBundles` + new admin APIs (`GET/POST/DELETE /tenants/encryption/bundles`) so multiple admins can register offline BYOK bundles; the onboarding inline component now lists bundles, tracks creation/use timestamps, and lets admins prune stale copies.
 - 🛠️ Updated `Upload.razor`, zero-access JS, `MailboxProcessingService`, and API DTOs to track encryption metadata (`IsClientEncrypted`, `EncryptionScheme`, `EncryptionKeyFingerprint`, token salts) so zero-access archives skip ingestion immediately yet surface rich status in `/mailboxes`.
 - 📚 Synced `Documentation/Security.md`, `Architecture.md`, and `API.md` with the encrypted upload workflow, deterministic token strategy (phase 1 – mailbox tags), and bundle registry design so future encrypted-search work builds on the documented contract.
+
+### 2025-11-24 - Secure Key Release scaffolding (Phase 1)
+- 🧾 Added new `/api/v1/tenants/encryption/secure-key-release/*` endpoints so admins can fetch the SKR template, upload their finalized JSON, and reset it if needed. Policies are canonicalized, hashed with SHA-256, and timestamped in `TenantEncryptionSettings`.
+- 🧩 Extended the admin encryption page with a dedicated SKR card (editor + template loader) plus status chips showing the active hash and attestation provider. The onboarding calculator now requires SKR to be staged before Azure/AWS BYOK tenants are considered “configured”.
+- 🧠 `TenantEncryptionService` now exposes typed helpers for generating templates, persisting policies, and returning the stored JSON/hash back to the UI. Documentation (`Security.md`, `Architecture.md`, `API.md`) was updated first to lock in the contract.
+- 📜 Delivered the compliance console: `/api/v1/audit/logs`, `/api/v1/audit/logs/export`, and `/api/v1/compliance/gdpr-jobs` back the new admin page that lists every tenant-scoped audit event, raises anomaly chips, and streams CSV evidence packs without CLI handoffs. Added `RequestedByUserId` + `Sha256` columns to GDPR job tables with migrations so export/deletion tiles can show requester email, timestamps, download links, and bundle hashes.
+- ⚙️ Containerized `Evermail.IngestionWorker` and introduced `scripts/provision-confidential-worker.ps1`, plus fresh guidance in `Documentation/Deployment.md`, so ops can publish the worker into an Azure Confidential Container Apps environment (confidential workload profile, user-assigned identity, SKR-ready permissions) without hand-editing CLI commands.
 
 ### 2025-11-20 - Search UI Detail Polish
 - 🎨 Rewrote the `Documentation/Architecture.md#search-experience-enhancements` section to spell out the new card layout, match-strength badges, saved-filter chips, skeleton loaders, and floating match navigator so future slices know exactly which components to extend.

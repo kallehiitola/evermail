@@ -110,6 +110,18 @@ These logs power compliance exports (“show me who deleted mailbox X”), anoma
 - 🚧 **In progress**: Deterministic token expansion to per-email metadata, deterministic download manifests for chunk-level streaming, and the Confidential Compute/Secure Key Release rollout (Phase 1). The audit log UX/export surface is also pending.
 - 📝 **Tracked follow-ups**: Stripe integration, encrypted search UX polish, and audit log reporting remain in the `Next Steps` section of `Documentation/ProgressReports/ProgressReport.md`.
 
+##### Compliance console (audit trail UX + exports)
+
+To make the existing audit pipeline actionable we are adding a tenant-facing **Compliance Console** inside the admin area:
+
+1. **Timeline grid** – A MudBlazor data grid lists `AuditLog` entries with virtualized scrolling. Filters on the left let admins scope by date range, action (`MailboxDeleted`, `GdprExportRequested`, etc.), actor (user), and resource type. Badges call out anomalies (e.g., >10 destructive actions inside 5 minutes) using simple heuristics computed client-side.
+2. **Inline details** – Selecting a row shows a drawer with the structured metadata we store today (IP address, user agent, `Details` JSON rendered as a key/value list). Nothing editable—read-only transparency only.
+3. **CSV export** – A “Download filtered CSV” button calls the new `/api/v1/audit/logs/export` endpoint with the currently selected filters. The export runs server-side, streams a short-lived CSV (max 10 k rows), and is automatically audited as `AuditLogCsvExported`. No manual CLI or SQL access required.
+4. **GDPR job monitor** – The same page surfaces `UserDataExports` and `UserDeletionJobs` history so compliance teams can prove when a user-requested export/deletion completed. Cards show status chips, start/end timestamps, and the blob download links (still protected by SAS tokens).
+5. **Zero-CLI UX** – All interactions are button-only. The UI never exposes the raw CSV URL; instead it triggers a browser file download directly from the authenticated API response. If a recovery bundle or hash needs to be shown we reuse the guarded pattern (acknowledgement checkbox + persistent warning).
+
+Administrators can now satisfy “who touched what” audits, deliver CSV evidence packs, and monitor GDPR jobs without Evermail staff involvement, reinforcing the zero-trust posture described throughout this document.
+
 ##### Offline key custody prototype (Browser BYOK)
 
 Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment with client-side key handling before enabling full zero-access ingestion:
@@ -598,6 +610,33 @@ await _emailStore.SaveAsync(ciphertextBody, token, ...);
 | --- | --- | --- |
 | **Phase 1 – BYOK enrollment (MVP)** | Tenant onboarding wizard provisions or links an Azure Key Vault/Managed HSM key, marks it exportable, uploads the public portion, and grants Evermail’s managed identity `release` permission. Queue/worker schema now stores `WrappedDekId`, rotation metadata, and proof that Secure Key Release policy JSON has been staged. Plaintext still executes in standard Container Apps, so documentation and contracts explicitly note that superadmins retain break-glass visibility until Phase 2 finishes. | [Secret & key management for confidential computing](https://learn.microsoft.com/en-us/azure/confidential-computing/secret-key-management) |
 | **Phase 2 – Attested TEEs** | Ingestion/search/AI workers are redeployed to Azure Confidential Container Apps or AKS confidential node pools ([deployment models](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-computing-deployment-models), [confidential containers overview](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-containers)). Secure Key Release policies require Microsoft Azure Attestation (MAA) claims that match each container image ([SKR + attestation workflow](https://learn.microsoft.com/en-us/azure/confidential-computing/concept-skr-attestation)). Key Vault will now refuse to unwrap DEKs for any context outside the signed TEE, which gives us the “we can’t read your mail” guarantee. |
+
+##### Phase 1 – Secure Key Release onboarding flow
+
+**Goal:** Before we migrate workers into TEEs we still need per-tenant Secure Key Release (SKR) policies so that the move to attested workloads is a switch-flip instead of a re-onboarding exercise. Phase 1 therefore focuses on capturing, validating, and auditing SKR JSON even though the policy currently references a permissive attestation placeholder (`allowEvermailOps`). Once TEEs are deployed we only need to swap the placeholder claims with Microsoft Azure Attestation (MAA) evidence.
+
+**Implementation summary**
+
+1. **New tenant endpoints**
+   - `GET /api/v1/tenants/encryption/secure-key-release/template` returns a signed JSON template with the required `anyOf/allOf` grammar, the tenant’s managed-identity object ID, and placeholder attestation claims. The admin UI calls this endpoint behind a single button so tenants never have to edit JSON themselves.
+   - `POST /api/v1/tenants/encryption/secure-key-release` accepts the completed policy JSON plus an optional `attestationProvider` label. The backend validates the payload with `JsonDocument.Parse`, re-serializes it with canonical indentation, computes a SHA-256 hash, and stores both the JSON and the hash inside `TenantEncryptionSettings`.
+   - `GET /api/v1/tenants/encryption/secure-key-release` returns the stored JSON (redacted to the current tenant) so admins can review/edit in the UI.
+   - `DELETE /api/v1/tenants/encryption/secure-key-release` resets the policy if a tenant wants to rotate claims or switch providers.
+
+2. **Data model hooks**
+   - `TenantEncryptionSettings` already exposes `SecureKeyReleasePolicyJson`, `SecureKeyReleasePolicyHash`, `IsSecureKeyReleaseConfigured`, `SecureKeyReleaseConfiguredAt`, and `SecureKeyReleaseConfiguredByUserId`. Phase 1 now actively maintains those fields whenever an admin uploads or resets SKR JSON.
+   - `MailboxEncryptionState` entries record the `ProviderKeyVersion`, `WrapRequestId`, and `LastUnwrapRequestId` for every DEK lifecycle so later compliance exports can prove that only policies with staged SKR JSON produced ciphertext.
+
+3. **UI + onboarding guardrail**
+   - `/admin/encryption` now contains a “Secure Key Release policy” card with an editor, template loader, and status chips that surface the current hash + timestamp.
+   - `OnboardingStatusCalculator` requires SKR to be configured before it treats Azure Key Vault or AWS KMS providers as “done”. This keeps the wizard from marking encryption complete until both the key metadata and the placeholder SKR policy exist.
+   - **No CLI/JSON handoffs** – Tenants never see raw JSON or command snippets. The admin portal provides “generate & apply” buttons that call the SKR endpoints directly and only surfaces read-only status (hash, timestamp) for transparency.
+
+4. **Auditability**
+   - Every `POST/DELETE` call runs through `AuditLoggingMiddleware` and captures the tenant, user, and endpoint path.
+   - The SHA-256 hash is included in the `TenantEncryptionSettingsDto.SecureKeyRelease` payload so administrators can confirm which policy revision is active without exposing the whole JSON blob.
+
+Once a tenant uploads their policy, Aspire propagates it via configuration to the ingestion worker and future confidential containers. When we implement Phase 2 we only need to update the attestation clauses that the template generates.
 
 ##### Phase 1 implementation tasks
 1. **Tenant wizard** – Guides admins through creating/importing a RSA-HSM or EC-HSM key, setting `exportable=true`, and capturing the Key Vault URI.

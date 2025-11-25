@@ -327,6 +327,7 @@ public static class UserEndpoints
             Id = Guid.NewGuid(),
             TenantId = tenantContext.TenantId,
             UserId = tenantContext.UserId,
+            RequestedByUserId = tenantContext.UserId,
             RequestedAt = DateTime.UtcNow,
             Status = "Pending"
         };

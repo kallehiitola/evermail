@@ -286,6 +286,99 @@ azd env get-values
 curl https://evermail-webapp-<hash>.azurecontainerapps.io/health
 ```
 
+### Confidential worker provisioning (Azure Confidential Container Apps)
+
+Phase 1 locks in Secure Key Release and BYOK metadata; this step brings the ingestion worker into an attested compute plane so Key Vault can enforce SKR policies. We deploy the existing `Evermail.IngestionWorker` image into a dedicated Azure Container Apps environment configured with the *Confidential* workload profile.
+
+> **Current Azure inventory (queried via `az resource list` on 2025‑11‑24)**
+> - Production resource group: `evermail-prod` (West Europe)
+> - Development resource group: `evermail-dev`
+> - Key Vaults: `evermail-prod-kv`, `evermail-dev-kv`
+> - Storage: `evermaildevstorage`
+
+#### Prerequisites
+
+- Register the Container Apps resource provider once per subscription (already done for `8e14c1ce-c216-4ac4-b274-2df2da25aa6f`, but safe to repeat):
+
+  ```powershell
+  az provider register -n Microsoft.App --wait
+  ```
+
+- Azure Container Registry (ACR) seeded via `azd provision` (typically `evermailacr`).
+- If your subscription does **not** yet contain an ACR, create one in the prod resource group:
+
+  ```powershell
+  az acr create `
+    --name evermailacr `
+    --resource-group evermail-prod `
+    --location westeurope `
+    --sku Premium
+  ```
+
+- Virtual network + subnet prepared for confidential workloads. Microsoft requires a delegated subnet for Container Apps (`Microsoft.App/environments`). Record the subnet resource ID, e.g. `/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/virtualNetworks/evermail-secure-vnet/subnets/container-apps-conf`.
+  - If missing, create a dedicated VNet + subnet (adjust address space to match your landing zone):
+
+    ```powershell
+    az network vnet create `
+      --name evermail-secure-vnet `
+      --resource-group evermail-prod `
+      --location westeurope `
+      --address-prefixes 10.20.0.0/22 `
+      --subnet-name container-apps-conf `
+      --subnet-prefix 10.20.0.0/24
+
+    az network vnet subnet update `
+      --name container-apps-conf `
+      --resource-group evermail-prod `
+      --vnet-name evermail-secure-vnet `
+      --delegations Microsoft.App/environments
+    ```
+
+- Key Vault already contains the connection strings (`ConnectionStrings--evermaildb`, `ConnectionStrings--blobs`, `ConnectionStrings--queues`) produced by `azd provision`.
+- Azure CLI 2.51+ and Docker installed locally.
+
+#### Build + provision via script
+
+We ship `scripts/provision-confidential-worker.ps1` to automate image publishing, identity creation, RBAC assignment, and Container App deployment:
+
+```powershell
+pwsh ./scripts/provision-confidential-worker.ps1 `
+  -ResourceGroup evermail-prod `
+  -Location westeurope `
+  -AcrName evermailacr `
+  -SubnetResourceId "/subscriptions/<sub>/resourceGroups/evermail-net/providers/Microsoft.Network/virtualNetworks/evermail-secure-vnet/subnets/confidential-apps" `
+  -EnvironmentName evermail-conf-env `
+  -ContainerAppName evermail-conf-worker `
+  -KeyVaultName evermail-prod-kv `
+  -KeyVaultResourceGroup evermail-prod
+```
+
+What the script does:
+
+1. Builds `Evermail.IngestionWorker/Dockerfile` and pushes `evermail-ingestion-worker:confidential` to the specified ACR.
+2. Creates (or updates) a user-assigned managed identity and grants it **Key Vault Secrets User** + **Key Vault Crypto Service Release** over `evermail-prod-kv`.
+3. Creates a Container Apps environment with the *Confidential* workload profile bound to the provided subnet.
+4. Creates a confidential Container App named `evermail-conf-worker`, disables ingress, attaches the managed identity, injects the SQL/blob/queue connection strings as secrets, and sets the Key Vault parameters needed by `AddAzureKeyVaultSecrets`.
+
+After the script completes:
+
+- Add the new managed identity to your Secure Key Release policy (the `Configure Secure Key Release` UI already exposes the hash for auditors).
+- Update observability: tag the container app logs in Application Insights or Log Analytics so “DekUnwrapped” events can be correlated with revisions.
+- (Optional) Scale out by adjusting `--min-replicas`/`--max-replicas` or KEDA rules once we switch queue processing to event-driven mode.
+
+#### Quick execution checklist
+
+1. `az login` and `az account set -s 8e14c1ce-c216-4ac4-b274-2df2da25aa6f` (the “Evermail” subscription, if needed).
+2. Ensure Microsoft.App is registered (command above).
+3. `az acr login --name evermailacr` so Docker can push the worker image.
+4. Run the script with the concrete values:  
+   `pwsh ./scripts/provision-confidential-worker.ps1 -ResourceGroup evermail-prod -Location westeurope -AcrName evermailacr -SubnetResourceId "/subscriptions/8e14c1ce-c216-4ac4-b274-2df2da25aa6f/resourceGroups/evermail-prod/providers/Microsoft.Network/virtualNetworks/evermail-secure-vnet/subnets/container-apps-conf" -EnvironmentName evermail-conf-env -ContainerAppName evermail-conf-worker -KeyVaultName evermail-prod-kv -KeyVaultResourceGroup evermail-prod`
+5. Verify the container app exists: `az containerapp show --name evermail-conf-worker --resource-group evermail-prod`.
+6. Update the tenant SKR policy to include the new managed identity if not already covered.
+7. Tail logs to ensure the worker starts cleanly:  
+   `az containerapp logs show --name evermail-conf-worker --resource-group evermail-prod --follow`.
+8. Run a test mailbox ingestion to confirm the confidential worker drains queue messages successfully.
+
 ### Option 2: Manual Bicep/ARM Deployment
 
 #### 1. Create Resource Group

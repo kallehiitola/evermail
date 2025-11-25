@@ -1,0 +1,676 @@
+@page "/admin/audit"
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Admin,SuperAdmin")]
+@using System.Net.Http.Headers
+@using System.Net.Http.Json
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Audit
+@using Evermail.WebApp.Services
+@using Evermail.WebApp.Services.Notifications
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
+@inject IToastService Toasts
+@inject IJSRuntime JS
+
+<PageTitle>Compliance Console - Evermail</PageTitle>
+
+<AuthorizeView Roles="Admin,SuperAdmin" Context="authState">
+    <Authorized>
+        <div class="container mt-4 compliance-console">
+            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+                <div>
+                    <h1 class="mb-1">Compliance console</h1>
+                    <p class="text-muted mb-0">Search every sensitive action, flag anomalies, and download CSV evidence packs.</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" @onclick="ResetFilters" disabled="@_isLoading">
+                        <i class="bi bi-arrow-counterclockwise"></i> Reset filters
+                    </button>
+                    <button class="btn btn-primary" @onclick="DownloadCsvAsync" disabled="@(_isLoading || _isExporting)">
+                        @if (_isExporting)
+                        {
+                            <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                        }
+                        <i class="bi bi-download"></i> Download filtered CSV
+                    </button>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_errorMessage))
+            {
+                <div class="alert alert-danger" role="alert">
+                    @_errorMessage
+                </div>
+            }
+
+            <div class="row g-4">
+                <div class="col-12 col-xl-8">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <div>
+                                    <h5 class="card-title mb-0">
+                                        Activity timeline
+                                    </h5>
+                                    <small class="text-muted">Showing @_logs.Count of @_paged?.Total ?? 0 events</small>
+                                </div>
+                                @if (_isLoading)
+                                {
+                                    <span class="spinner-border text-primary" role="status"></span>
+                                }
+                            </div>
+
+                            @if (_logs.Count == 0 && !_isLoading)
+                            {
+                                <p class="text-muted mb-0">No audit entries match the current filters.</p>
+                            }
+                            else
+                            {
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th scope="col">Timestamp</th>
+                                                <th scope="col">Action</th>
+                                                <th scope="col">Actor</th>
+                                                <th scope="col">Resource</th>
+                                                <th scope="col">IP</th>
+                                                <th scope="col">Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @if (_isLoading)
+                                            {
+                                                <tr>
+                                                    <td colspan="6" class="text-center text-muted">
+                                                        <span class="spinner-border spinner-border-sm me-2"></span>
+                                                        Loading audit entries…
+                                                    </td>
+                                                </tr>
+                                            }
+                                            else
+                                            {
+                                                @foreach (var entry in _logs)
+                                                {
+                                                    <tr>
+                                                        <td class="text-nowrap">
+                                                            @entry.Timestamp.ToLocalTime().ToString("u")
+                                                        </td>
+                                                        <td>
+                                                            <span class="badge bg-light text-dark">@entry.Action</span>
+                                                        </td>
+                                                        <td>
+                                                            @if (!string.IsNullOrWhiteSpace(entry.UserEmail))
+                                                            {
+                                                                <span>@entry.UserEmail</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">system</span>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            @if (!string.IsNullOrWhiteSpace(entry.ResourceType))
+                                                            {
+                                                                <span>@entry.ResourceType</span>
+                                                                @if (entry.ResourceId.HasValue)
+                                                                {
+                                                                    <div class="text-muted small">
+                                                                        <code>@ShortId(entry.ResourceId.Value)</code>
+                                                                    </div>
+                                                                }
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">—</span>
+                                                            }
+                                                        </td>
+                                                        <td>
+                                                            @if (!string.IsNullOrWhiteSpace(entry.IpAddress))
+                                                            {
+                                                                <span>@entry.IpAddress</span>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">—</span>
+                                                            }
+                                                        </td>
+                                                        <td class="text-break">
+                                                            @if (!string.IsNullOrWhiteSpace(entry.Details))
+                                                            {
+                                                                <button class="btn btn-link btn-sm p-0"
+                                                                        @onclick='@(() => ShowDetails(entry))'>
+                                                                    View
+                                                                </button>
+                                                            }
+                                                            else
+                                                            {
+                                                                <span class="text-muted">—</span>
+                                                            }
+                                                        </td>
+                                                    </tr>
+                                                }
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                @if (_paged is not null && _paged.Total > _paged.PageSize)
+                                {
+                                    <div class="d-flex justify-content-between align-items-center mt-3">
+                                        <div class="text-muted small">
+                                            Page @_paged.Page of @TotalPages
+                                        </div>
+                                        <div class="btn-group">
+                                            <button class="btn btn-outline-secondary btn-sm"
+                                                    @onclick="@(() => ChangePage(_paged.Page - 1))"
+                                                    disabled="@(_paged.Page <= 1 || _isLoading)">
+                                                Previous
+                                            </button>
+                                            <button class="btn btn-outline-secondary btn-sm"
+                                                    @onclick="@(() => ChangePage(_paged.Page + 1))"
+                                                    disabled="@(_paged.Page >= TotalPages || _isLoading)">
+                                                Next
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-xl-4">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title mb-3">Filters</h5>
+                            <EditForm Model="_filter" OnValidSubmit="ApplyFiltersAsync">
+                                <div class="mb-3">
+                                    <label class="form-label">Action</label>
+                                    <InputText class="form-control" @bind-Value="_filter.Action" placeholder="MailboxDeleted" />
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Resource type</label>
+                                    <InputText class="form-control" @bind-Value="_filter.ResourceType" placeholder="Mailbox" />
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Actor (User ID)</label>
+                                    <InputText class="form-control" @bind-Value="_userIdText" placeholder="GUID" />
+                                    <div class="form-text">Paste the user ID from an audit row to filter.</div>
+                                </div>
+                                <div class="row g-3">
+                                    <div class="col">
+                                        <label class="form-label">Start</label>
+                                        <InputDate DateTime? class="form-control" @bind-Value="_filter.StartUtc" />
+                                    </div>
+                                    <div class="col">
+                                        <label class="form-label">End</label>
+                                        <InputDate DateTime? class="form-control" @bind-Value="_filter.EndUtc" />
+                                    </div>
+                                </div>
+                                <div class="mt-3 d-flex gap-2">
+                                    <button class="btn btn-primary" type="submit" disabled="@_isLoading">
+                                        Apply
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="ResetFilters" disabled="@_isLoading">
+                                        Clear
+                                    </button>
+                                </div>
+                            </EditForm>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title mb-2">Anomaly monitor</h5>
+                            @if (_anomalies.Count == 0)
+                            {
+                                <p class="text-muted mb-0">No unusual activity detected on this page.</p>
+                            }
+                            else
+                            {
+                                <ul class="list-unstyled mb-0">
+                                    @foreach (var anomaly in _anomalies)
+                                    {
+                                        <li class="mb-2">
+                                            <span class="badge bg-warning text-dark me-2">@anomaly.Severity</span>
+                                            <strong>@anomaly.Title:</strong>
+                                            <span class="text-muted">@anomaly.Description</span>
+                                        </li>
+                                    }
+                                </ul>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-2">
+                <div class="card-body">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-3">
+                        <div>
+                            <h5 class="card-title mb-0">GDPR jobs</h5>
+                            <small class="text-muted">User exports and deletion workflows recorded for this tenant.</small>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm" @onclick="LoadComplianceAsync" disabled="@_isComplianceLoading">
+                            @if (_isComplianceLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                            }
+                            Refresh
+                        </button>
+                    </div>
+
+                    <div class="row g-4">
+                        <div class="col-12 col-lg-6">
+                            <h6 class="text-uppercase text-muted small mb-2">Data exports</h6>
+                            @if (_exportJobs.Count == 0 && !_isComplianceLoading)
+                            {
+                                <p class="text-muted">No exports requested yet.</p>
+                            }
+                            else if (_isComplianceLoading)
+                            {
+                                <p class="text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Loading exports…
+                                </p>
+                            }
+                            else
+                            {
+                                <div class="list-group small">
+                                    @foreach (var job in _exportJobs)
+                                    {
+                                        <div class="list-group-item">
+                                            <div class="d-flex justify-content-between">
+                                                <div>
+                                                    <div class="fw-semibold">@job.TargetUserEmail</div>
+                                                    <div class="text-muted">Requested by @job.RequestedByEmail</div>
+                                                </div>
+                                                <span class="badge bg-light text-dark">@job.Status</span>
+                                            </div>
+                                            <div class="text-muted mt-2 d-flex flex-wrap gap-3">
+                                                <span>Requested @job.RequestedAt.ToLocalTime().ToString("g")</span>
+                                                @if (job.CompletedAt is not null)
+                                                {
+                                                    <span>Completed @job.CompletedAt.Value.ToLocalTime().ToString("g")</span>
+                                                }
+                                            </div>
+                                            <div class="d-flex flex-wrap gap-2 align-items-center mt-2">
+                                                @if (!string.IsNullOrWhiteSpace(job.DownloadUrl))
+                                                {
+                                                    <a class="btn btn-sm btn-outline-primary"
+                                                       href="@job.DownloadUrl"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer">
+                                                        <i class="bi bi-cloud-arrow-down"></i> Download bundle
+                                                    </a>
+                                                }
+                                                @if (!string.IsNullOrWhiteSpace(job.Sha256))
+                                                {
+                                                    <span class="badge bg-light text-dark">
+                                                        SHA-256: <span class="font-monospace">@ShortHash(job.Sha256)</span>
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <div class="col-12 col-lg-6">
+                            <h6 class="text-uppercase text-muted small mb-2">Deletion jobs</h6>
+                            @if (_deletionJobs.Count == 0 && !_isComplianceLoading)
+                            {
+                                <p class="text-muted">No deletion jobs have run yet.</p>
+                            }
+                            else if (_isComplianceLoading)
+                            {
+                                <p class="text-muted">
+                                    <span class="spinner-border spinner-border-sm me-2"></span>
+                                    Loading deletions…
+                                </p>
+                            }
+                            else
+                            {
+                                <div class="list-group small">
+                                    @foreach (var job in _deletionJobs)
+                                    {
+                                        <div class="list-group-item">
+                                            <div class="d-flex justify-content-between">
+                                                <div>
+                                                    <div class="fw-semibold">@job.TargetUserEmail</div>
+                                                    <div class="text-muted">Requested by @job.RequestedByEmail</div>
+                                                </div>
+                                                <span class="badge bg-light text-dark">@job.Status</span>
+                                            </div>
+                                            <div class="text-muted mt-2 d-flex flex-wrap gap-3">
+                                                <span>Requested @job.RequestedAt.ToLocalTime().ToString("g")</span>
+                                                @if (job.CompletedAt is not null)
+                                                {
+                                                    <span>Completed @job.CompletedAt.Value.ToLocalTime().ToString("g")</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </Authorized>
+</AuthorizeView>
+
+@code {
+    private readonly AuditFilter _filter = new();
+    private string _userIdText = string.Empty;
+    private bool _isLoading;
+    private bool _isExporting;
+    private bool _isComplianceLoading;
+    private string? _errorMessage;
+    private PagedAuditLogsResponse? _paged;
+    private readonly List<AuditLogDto> _logs = new();
+    private readonly List<AuditAnomaly> _anomalies = new();
+    private IReadOnlyList<GdprExportJobDto> _exportJobs = Array.Empty<GdprExportJobDto>();
+    private IReadOnlyList<GdprDeletionJobDto> _deletionJobs = Array.Empty<GdprDeletionJobDto>();
+
+    private static readonly HashSet<string> SensitiveActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "MailboxDeleted",
+        "MailboxPurged",
+        "UserDeletionRequested",
+        "TenantEncryptionChanged",
+        "GdprExportRequested"
+    };
+
+    private int TotalPages => _paged is null || _paged.PageSize == 0
+        ? 1
+        : (int)Math.Ceiling((double)_paged.Total / _paged.PageSize);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Task.WhenAll(LoadAuditLogsAsync(), LoadComplianceAsync());
+    }
+
+    private async Task LoadAuditLogsAsync()
+    {
+        _isLoading = true;
+        _errorMessage = null;
+
+        try
+        {
+            var uri = BuildAuditUri();
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
+            await AttachTokenAsync(request);
+            var response = await Http.SendAsync(request);
+
+            if (response.IsSuccessStatusCode)
+            {
+                var payload = await response.Content.ReadFromJsonAsync<ApiResponse<PagedAuditLogsResponse>>();
+                if (payload?.Success == true && payload.Data is not null)
+                {
+                    _paged = payload.Data;
+                    _logs.Clear();
+                    _logs.AddRange(payload.Data.Items);
+                    RecalculateAnomalies();
+                }
+                else
+                {
+                    _errorMessage = payload?.Error ?? "Failed to load audit entries.";
+                }
+            }
+            else
+            {
+                var payload = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+                _errorMessage = payload?.Error ?? $"Failed to load audit entries ({response.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Failed to load audit entries: {ex.Message}";
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private async Task ApplyFiltersAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_userIdText))
+        {
+            if (Guid.TryParse(_userIdText, out var parsed))
+            {
+                _filter.UserId = parsed;
+            }
+            else
+            {
+                Toasts.Error("Enter a valid GUID for the actor filter.");
+                return;
+            }
+        }
+        else
+        {
+            _filter.UserId = null;
+        }
+
+        _filter.Page = 1;
+        await LoadAuditLogsAsync();
+    }
+
+    private async Task ChangePage(int newPage)
+    {
+        if (_paged is null || newPage < 1 || newPage > TotalPages)
+        {
+            return;
+        }
+
+        _filter.Page = newPage;
+        await LoadAuditLogsAsync();
+    }
+
+    private void ResetFilters()
+    {
+        if (_isLoading)
+        {
+            return;
+        }
+
+        _filter.Reset();
+        _userIdText = string.Empty;
+        _ = LoadAuditLogsAsync();
+    }
+
+    private async Task DownloadCsvAsync()
+    {
+        _isExporting = true;
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+            Toasts.Error("You must be signed in to export audit logs.");
+                return;
+            }
+
+            var url = BuildAuditUri(forExport: true);
+            await JS.InvokeVoidAsync("attachmentDownload.download", url.PathAndQuery, token);
+            Toasts.Info("CSV export started — check your downloads folder.");
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"Failed to export logs: {ex.Message}");
+        }
+        finally
+        {
+            _isExporting = false;
+        }
+    }
+
+    private async Task LoadComplianceAsync()
+    {
+        _isComplianceLoading = true;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, BuildComplianceUri());
+            await AttachTokenAsync(request);
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                var payload = await response.Content.ReadFromJsonAsync<ApiResponse<ComplianceGdprJobsResponse>>();
+                if (payload?.Success == true && payload.Data is not null)
+                {
+                    _exportJobs = payload.Data.Exports;
+                    _deletionJobs = payload.Data.Deletions;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Toasts.Error($"Failed to load GDPR jobs: {ex.Message}");
+        }
+        finally
+        {
+            _isComplianceLoading = false;
+        }
+    }
+
+    private void RecalculateAnomalies()
+    {
+        _anomalies.Clear();
+        if (_logs.Count == 0)
+        {
+            return;
+        }
+
+        var destructive = _logs.Count(l => SensitiveActions.Contains(l.Action));
+        if (destructive >= 5)
+        {
+            _anomalies.Add(new AuditAnomaly(
+                "Spike in destructive actions",
+                $"Detected {destructive} high-risk events on this page.",
+                "High"));
+        }
+
+        var recentWindow = _logs
+            .Where(l => l.Timestamp >= DateTime.UtcNow.AddMinutes(-15))
+            .ToList();
+        if (recentWindow.Count >= 10)
+        {
+            _anomalies.Add(new AuditAnomaly(
+                "Busy window",
+                $"{recentWindow.Count} actions recorded in the last 15 minutes.",
+                "Medium"));
+        }
+    }
+
+    private void ShowDetails(AuditLogDto entry)
+    {
+        if (string.IsNullOrWhiteSpace(entry.Details))
+        {
+            return;
+        }
+
+        var display = entry.Details.Length > 800
+            ? entry.Details[..800] + "…"
+            : entry.Details;
+
+        Toasts.Info($"{entry.Action} details", display);
+    }
+
+    private Uri BuildAuditUri(bool forExport = false)
+    {
+        var builder = new UriBuilder(new Uri(Navigation.BaseUri))
+        {
+            Path = forExport ? "api/v1/audit/logs/export" : "api/v1/audit/logs"
+        };
+
+        var query = new List<string>
+        {
+            $"page={_filter.Page}",
+            $"pageSize={_filter.PageSize}"
+        };
+
+        if (_filter.StartUtc.HasValue)
+        {
+            query.Add($"startUtc={Uri.EscapeDataString(_filter.StartUtc.Value.ToString("o"))}");
+        }
+
+        if (_filter.EndUtc.HasValue)
+        {
+            query.Add($"endUtc={Uri.EscapeDataString(_filter.EndUtc.Value.ToString("o"))}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_filter.Action))
+        {
+            query.Add($"action={Uri.EscapeDataString(_filter.Action)}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(_filter.ResourceType))
+        {
+            query.Add($"resourceType={Uri.EscapeDataString(_filter.ResourceType)}");
+        }
+
+        if (_filter.UserId.HasValue)
+        {
+            query.Add($"userId={_filter.UserId.Value}");
+        }
+
+        builder.Query = string.Join('&', query);
+        return builder.Uri;
+    }
+
+    private Uri BuildComplianceUri()
+    {
+        var builder = new UriBuilder(new Uri(Navigation.BaseUri))
+        {
+            Path = "api/v1/compliance/gdpr-jobs"
+        };
+        return builder.Uri;
+    }
+
+    private async Task AttachTokenAsync(HttpRequestMessage request)
+    {
+        var token = await AuthStateService.GetTokenAsync();
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            throw new InvalidOperationException("Authentication token is missing.");
+        }
+
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+    }
+
+    private static string ShortId(Guid id) => id.ToString("N")[..8];
+    private static string ShortHash(string hash) => hash.Length <= 8 ? hash : hash[..8];
+
+    private sealed class AuditFilter
+    {
+        public int Page { get; set; } = 1;
+        public int PageSize { get; set; } = 50;
+        public DateTime? StartUtc { get; set; }
+        public DateTime? EndUtc { get; set; }
+        public string? Action { get; set; }
+        public string? ResourceType { get; set; }
+        public Guid? UserId { get; set; }
+
+        public void Reset()
+        {
+            Page = 1;
+            PageSize = 50;
+            StartUtc = null;
+            EndUtc = null;
+            Action = null;
+            ResourceType = null;
+            UserId = null;
+        }
+    }
+
+    private sealed record AuditAnomaly(string Title, string Description, string Severity);
+}
+

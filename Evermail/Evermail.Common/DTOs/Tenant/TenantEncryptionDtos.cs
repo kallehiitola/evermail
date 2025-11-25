@@ -16,6 +16,19 @@ public record TenantEncryptionSettingsDto(
 public record SecureKeyReleaseDto(
     bool IsConfigured,
     DateTime? ConfiguredAt,
+    string? AttestationProvider,
+    string? PolicyHash);
+
+public record SecureKeyReleasePolicyDto(
+    string? Policy,
+    string? Hash,
+    DateTime? ConfiguredAt,
+    string? AttestationProvider);
+
+public record SecureKeyReleaseTemplateDto(string Policy);
+
+public record ConfigureSecureKeyReleaseRequest(
+    string Policy,
     string? AttestationProvider);
 
 public record AzureTenantEncryptionSettingsDto(

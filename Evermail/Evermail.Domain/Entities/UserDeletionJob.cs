@@ -12,6 +12,9 @@ public class UserDeletionJob
     [Required, MaxLength(64)]
     public Guid UserId { get; set; }
 
+    [Required, MaxLength(64)]
+    public Guid RequestedByUserId { get; set; }
+
     [Required, MaxLength(32)]
     public string Status { get; set; } = "Pending";
 

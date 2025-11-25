@@ -18,6 +18,7 @@ using Evermail.WebApp.Services.Onboarding;
 using Evermail.Common.DTOs;
 using Evermail.WebApp.Services.Gdpr;
 using Evermail.WebApp.Services.RateLimiting;
+using Evermail.WebApp.Services.Notifications;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -241,10 +242,14 @@ builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<ThemeService>();
 builder.Services.AddScoped<UserPreferencesService>();
 builder.Services.AddMudServices();
+builder.Services.AddSingleton<IRateLimitNotifier, RateLimitNotifier>();
+builder.Services.AddScoped<IToastService, MudToastService>();
 builder.Services.AddScoped<IDateFormatService, DateFormatService>();
 builder.Services.AddScoped<IOnboardingStatusService, OnboardingStatusService>();
 builder.Services.AddScoped<IAuditLogger, AuditLogger>();
 builder.Services.AddScoped<IGdprExportService, GdprExportService>();
+builder.Services.AddScoped<IAuditLogQueryService, AuditLogQueryService>();
+builder.Services.AddTransient<RateLimitAwareHttpMessageHandler>();
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -320,7 +325,8 @@ builder.Services.AddHttpClient("EverMailAPI", (sp, client) =>
 {
     // BaseAddress will be set by the component when NavigationManager is available
     // For now, use relative URLs in API calls
-});
+})
+.AddHttpMessageHandler<RateLimitAwareHttpMessageHandler>();
 
 // Also add a default HttpClient for backward compatibility
 builder.Services.AddScoped(sp => sp.GetRequiredService<IHttpClientFactory>().CreateClient("EverMailAPI"));
@@ -377,6 +383,8 @@ api.MapGroup("/emails").MapEmailEndpoints().RequireAuthorization();
 api.MapGroup("/attachments").MapAttachmentEndpoints().RequireAuthorization();
 api.MapGroup("/tenants").MapTenantEndpoints();
 api.MapGroup("/users").MapUserEndpoints().RequireAuthorization();
+api.MapGroup("/audit").MapAuditEndpoints();
+api.MapGroup("/compliance").MapComplianceEndpoints();
 
 // Development-only endpoints (disabled in production)
 if (app.Environment.IsDevelopment())

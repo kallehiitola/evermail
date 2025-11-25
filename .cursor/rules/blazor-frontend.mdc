@@ -6,6 +6,13 @@ alwaysApply: false
 
 # Blazor Frontend Patterns
 
+## Admin Wizards & Automation
+
+- 🖱️ **Point-and-click only.** Tenant/admin UX must never instruct users to copy JSON, run CLI commands, or leave the product. Buttons/wizards should call the secure endpoints directly.
+- 🧭 **Guide inside the UI.** Use inline steps, tooltips, and status chips (hashes, timestamps) to confirm security actions like BYOK/SKR without exposing raw payloads.
+- ⚠️ **No raw payload editors.** If a payload must be shown for transparency, keep it read-only and always provide a one-click “Generate & Apply” action that performs the real work server-side.
+- 🔐 **Recovery bundle exception.** When offering optional key backups (mnemonics, sealed blobs, JSON), keep them read-only, gate the download behind an “I understand Evermail can’t recover this” acknowledgement, and show a persistent warning to store it offline.
+
 ## Render Modes Standard (.NET 10)
 
 **IMPORTANT**: All components in Evermail MUST follow these render mode guidelines to maintain consistency and avoid confusion.
