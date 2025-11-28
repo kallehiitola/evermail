@@ -382,6 +382,143 @@ After the script completes:
 > **When the confidential workload profile becomes available**  
 > Update `scripts/provision-confidential-worker.ps1` with `-WorkloadProfileName confidential-profile -WorkloadProfileType Confidential` (or the official SKU name) before step 4, uncomment the workload-profile block inside the script, and re-run the provisioning flow. Afterwards swap the SKR policy from the placeholder `allowEvermailOps` claim to the Microsoft Azure Attestation claims for the new workload.
 
+#### Post-deployment configuration (Key Vault + worker secrets)
+
+The worker expects the Key Vault URI and the Offline BYOK protector to arrive via configuration. After the initial `containerapp create`, run the following once:
+
+```powershell
+# Let AddAzureKeyVaultSecrets resolve the vault automatically
+az containerapp update `
+  --name evermail-conf-worker `
+  --resource-group evermail-prod `
+  --set-env-vars ConnectionStrings__key-vault=https://evermail-prod-kv.vault.azure.net/
+
+# Generate a 256-bit offline protector and store it in Key Vault
+$offlineKey = [Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Max 256 }))
+az keyvault secret set `
+  --vault-name evermail-prod-kv `
+  --name OfflineByok--MasterKey `
+  --value $offlineKey
+
+# Mirror that secret into the Container App and expose it to the worker
+az containerapp secret set `
+  --name evermail-conf-worker `
+  --resource-group evermail-prod `
+  --secrets offline-master=$offlineKey
+
+az containerapp update `
+  --name evermail-conf-worker `
+  --resource-group evermail-prod `
+  --set-env-vars OfflineByok__MasterKey=secretref:offline-master
+```
+
+> _Why keep the value in both Key Vault and Container Apps?_  
+> Key Vault remains the source of truth (for rotation/auditing) while the Container App needs a local secret reference because ACA cannot fetch Key Vault secrets dynamically without an additional sidecar.
+
+#### Production smoke test (pilot ingestion)
+
+Before onboarding paying tenants, run a full roundtrip to prove the managed SQL + Storage + worker pipeline is healthy:
+
+1. **Generate IDs + sample `.mbox`**
+
+   ```powershell
+   pwsh -NoProfile -Command @'
+$ids = [ordered]@{
+    tenantId          = [guid]::NewGuid()
+    userId            = [guid]::NewGuid()
+    mailboxId         = [guid]::NewGuid()
+    uploadId          = [guid]::NewGuid()
+    encryptionStateId = [guid]::NewGuid()
+}
+$blobPath = \"{0}/{1}/sample.mbox\" -f $ids.tenantId, $ids.mailboxId
+$body = @\"
+From MAILER-DAEMON Fri Nov 25 09:20:00 2025
+From: Alice <alice@example.com>
+To: Bob <bob@example.com>
+Subject: Ingestion smoke test
+Date: $(Get-Date -Format \"ddd, dd MMM yyyy HH:mm:ss +0000\")
+
+Hello Evermail! This is an automated ingestion test.
+\"@
+New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+Set-Content -Path artifacts/sample.mbox -Value $body -Encoding ascii
+$ids | ConvertTo-Json | Set-Content artifacts/ingest-ids.json -Encoding utf8
+\"@
+   ```
+
+2. **Upload the blob**
+
+   ```powershell
+   $ids = Get-Content artifacts/ingest-ids.json | ConvertFrom-Json
+   az storage blob upload `
+     --account-name evermailprodstg `
+     --account-key <storage-key> `
+     --container-name mailbox-archives `
+     --name \"${($ids.tenantId)}/${($ids.mailboxId)}/sample.mbox\" `
+     --file artifacts/sample.mbox `
+     --overwrite
+   ```
+
+3. **Seed SQL rows** – run the snippet below with `sqlcmd` (replace the GUIDs/path if you used different values). Make sure `SET ANSI_*` options are enabled.
+
+   ```sql
+   SET NUMERIC_ROUNDABORT OFF;
+   SET ANSI_PADDING ON;
+   SET ANSI_WARNINGS ON;
+   SET ANSI_NULLS ON;
+   SET QUOTED_IDENTIFIER ON;
+   SET CONCAT_NULL_YIELDS_NULL ON;
+
+   DECLARE @TenantId UNIQUEIDENTIFIER = 'f5f4f25b-3688-4e48-b0f4-fe4d3f3fce54';
+   DECLARE @UserId UNIQUEIDENTIFIER = '459b1344-4736-4f40-8937-6e1d0ac2ba11';
+   DECLARE @MailboxId UNIQUEIDENTIFIER = '6b274181-b4db-420e-9bfd-97cc92d24f0d';
+   DECLARE @UploadId UNIQUEIDENTIFIER = '5ae7494d-67e1-42c4-9136-30e53c610efb';
+   DECLARE @EncStateId UNIQUEIDENTIFIER = '4adf2433-7473-4bdb-a81c-8757069b17f8';
+   DECLARE @BlobPath NVARCHAR(2000) = 'f5f4f25b-3688-4e48-b0f4-fe4d3f3fce54/6b274181-b4db-420e-9bfd-97cc92d24f0d/sample.mbox';
+
+   IF NOT EXISTS (SELECT 1 FROM Tenants WHERE Id = @TenantId)
+   INSERT INTO Tenants (Id, Name, Slug, CreatedAt, SubscriptionTier, MaxStorageGB, MaxUsers, IsActive, SecurityPreference)
+   VALUES (@TenantId, 'Pilot Tenant', 'pilot-f5f4f25b', SYSUTCDATETIME(), 'Pro', 5, 5, 1, 'QuickStart');
+
+   IF NOT EXISTS (SELECT 1 FROM AspNetUsers WHERE Id = @UserId)
+   INSERT INTO AspNetUsers (Id, TenantId, FirstName, LastName, CreatedAt, IsActive, UserName, NormalizedUserName, Email, NormalizedEmail, EmailConfirmed, PasswordHash, SecurityStamp, ConcurrencyStamp, PhoneNumberConfirmed, TwoFactorEnabled, LockoutEnabled, AccessFailedCount)
+   VALUES (@UserId, @TenantId, 'Pilot', 'User', SYSUTCDATETIME(), 1, 'pilot@demo.local', 'PILOT@DEMO.LOCAL', 'pilot@demo.local', 'PILOT@DEMO.LOCAL', 1, '', NEWID(), NEWID(), 0, 0, 0, 0);
+
+   IF NOT EXISTS (SELECT 1 FROM Mailboxes WHERE Id = @MailboxId)
+   INSERT INTO Mailboxes (Id, TenantId, UserId, FileName, FileSizeBytes, BlobPath, Status, TotalEmails, ProcessedEmails, FailedEmails, CreatedAt, ProcessedBytes, DisplayName, SourceFormat, NormalizedSizeBytes, IsClientEncrypted)
+   VALUES (@MailboxId, @TenantId, @UserId, 'sample.mbox', 309, @BlobPath, 'Queued', 0, 0, 0, SYSUTCDATETIME(), 0, 'Pilot Import', 'mbox', 309, 0);
+
+   IF NOT EXISTS (SELECT 1 FROM MailboxUploads WHERE Id = @UploadId)
+   INSERT INTO MailboxUploads (Id, TenantId, MailboxId, UploadedByUserId, FileName, FileSizeBytes, BlobPath, Status, TotalEmails, ProcessedEmails, FailedEmails, ProcessedBytes, KeepEmails, CreatedAt, SourceFormat, NormalizedSizeBytes, IsClientEncrypted)
+   VALUES (@UploadId, @TenantId, @MailboxId, @UserId, 'sample.mbox', 309, @BlobPath, 'Queued', 0, 0, 0, 0, 1, SYSUTCDATETIME(), 'mbox', 309, 0);
+
+   UPDATE Mailboxes SET LatestUploadId = @UploadId WHERE Id = @MailboxId;
+
+   IF NOT EXISTS (SELECT 1 FROM TenantEncryptionSettings WHERE TenantId = @TenantId)
+   INSERT INTO TenantEncryptionSettings (TenantId, Provider, EncryptionPhase, CreatedAt, IsSecureKeyReleaseConfigured)
+   VALUES (@TenantId, 'EvermailManaged', 'EvermailManaged', SYSUTCDATETIME(), 0);
+
+   IF NOT EXISTS (SELECT 1 FROM MailboxEncryptionStates WHERE Id = @EncStateId)
+   INSERT INTO MailboxEncryptionStates (Id, TenantId, MailboxId, MailboxUploadId, Algorithm, WrappedDek, DekVersion, TenantKeyVersion, CreatedByUserId, CreatedAt, Provider, ProviderKeyVersion, WrapRequestId)
+   VALUES (@EncStateId, @TenantId, @MailboxId, @UploadId, 'AES-256-GCM', 'dGVzdGRlay==', 'v1', 'local', @UserId, SYSUTCDATETIME(), 'EvermailManaged', 'local', 'seed');
+   ```
+
+4. **Enqueue the ingestion job**
+
+   ```powershell
+   az storage message put `
+     --account-name evermailprodstg `
+     --account-key <storage-key> `
+     --queue-name mailbox-ingestion `
+     --content '{\"MailboxId\":\"6b274181-b4db-420e-9bfd-97cc92d24f0d\",\"UploadId\":\"5ae7494d-67e1-42c4-9136-30e53c610efb\",\"EncryptionStateId\":\"4adf2433-7473-4bdb-a81c-8757069b17f8\",\"EnqueuedAt\":\"2025-11-25T13:45:00Z\"}'
+   ```
+
+5. **Watch the worker** – `az containerapp logs show --name evermail-conf-worker --resource-group evermail-prod --follow --tail 100`. You should see the ingestion log line `Completed processing mailbox ... 1 emails processed, 0 failed`.
+
+6. **Verify the records** – run `SELECT Status, ProcessedEmails FROM Mailboxes` (expect `Completed/1`) and `SELECT COUNT(*) FROM EmailMessages` (should match the sample size).
+
+Document every run (ticket number, operator, time) so we can prove operational readiness to security reviewers.
+
 ### Azure SQL Database (serverless, production)
 
 To eliminate the local SQL dependency, we provision a cost-conscious serverless database in the same `evermail-prod` resource group. This keeps idle costs ~€30/month and can jump to more vCores later.
@@ -863,6 +1000,6 @@ az sql server firewall-rule list \
 
 ---
 
-**Last Updated**: 2025-11-11  
+**Last Updated**: 2025-11-25  
 **Next Review**: Before major infrastructure changes
 

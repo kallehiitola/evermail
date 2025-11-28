@@ -542,6 +542,8 @@ List all mailboxes for the current user.
 - `status` (optional): Filter by status (`Pending`, `Processing`, `Completed`, `Failed`)
 - `page` (default: 1): Page number
 - `pageSize` (default: 20): Items per page
+- `tagToken` (optional, repeatable): Deterministic hash of a mailbox tag. Clients derive the hash locally using the zero-access HKDF/HMAC helper before calling the API.
+- `fromToken` / `toToken` / `ccToken` / `subjectToken` (optional, repeatable): Deterministic hashes generated from sender addresses, recipient addresses, CC addresses, and subject lines that the browser extracted during an encrypted upload. Passing one or more of these parameters returns only the encrypted mailboxes whose header token sets contain every supplied hash.
 
 > Each mailbox object now includes `normalizedSizeBytes`. When zero, only the original upload size is known; once the ingestion worker finishes normalization, this field reflects the uncompressed `.mbox` size used for progress bars and storage calculations.
 **Response (200 OK)**:
@@ -824,6 +826,19 @@ Finish a zero-access upload after the ciphertext has been committed. The browser
         "D7if5gKN7Qq6yGwq/3qTwcHOGH3R7pV8r1p4t7SqU8g=",
         "Mk3Z9bYsi/6YQM4tI8MkU7gVn1o5grquR7pMtybFstA="
       ]
+    },
+    {
+      "tokenType": "from",
+      "tokens": [
+        "wEyjv/4alw4Bt6z4uhgYV38kI8vv0F+n6nxXQhYKqNA=",
+        "hDkLk0kboZoAJn1Xy4QdNPpXkKsdn9rxB2KpUN7TnEY="
+      ]
+    },
+    {
+      "tokenType": "subject",
+      "tokens": [
+        "b8ANYKz0B7YrHp4KZZ2n8IWlg6lvrgP4f0gE7u8w7Vg="
+      ]
     }
   ]
 }
@@ -841,14 +856,17 @@ Finish a zero-access upload after the ciphertext has been committed. The browser
 }
 ```
 
-`tokenSets.tokens` are Base64 HMAC-SHA256 strings derived client-side using the DEK, the `tokenSalt`, and HKDF per the zero-access spec. The server stores them but cannot reverse them.
+`tokenSets.tokens` are Base64 HMAC-SHA256 strings derived client-side using the DEK, the `tokenSalt`, and HKDF per the zero-access spec. The same algorithm powers mailbox tags as well as the new `from` / `to` / `cc` / `subject` header indexes. The server stores the opaque hashes but cannot reverse them or distinguish their plaintext values.
 
 ### GET /mailboxes?tagToken=...
 Filter the mailbox list by deterministic tag tokens (supply multiple `tagToken` query parameters for AND semantics). Clients hash the plaintext tag locally before calling this endpoint.
 
 ```
 GET /api/v1/mailboxes?tagToken=D7if5gKN7Qq6yGwq%2F3qTwcHOGH3R7pV8r1p4t7SqU8g%3D
+GET /api/v1/mailboxes?fromToken=wEyjv%2F4alw4Bt6z4uhgYV38kI8vv0F%2Bn6nxXQhYKqNA%3D&subjectToken=b8ANYKz0B7YrHp4KZZ2n8IWlg6lvrgP4f0gE7u8w7Vg%3D
 ```
+
+> 💡 **Deriving header tokens**: The zero-access upload page already hashes these values for you. When building custom tooling, import the same HKDF/HMAC routine documented in `zero-access-upload.js` so every client produces identical Base64 tokens for a given plaintext value.
 
 ## Emails
 

@@ -162,8 +162,46 @@
         };
     }
 
-    async function deriveTagTokens(bundle, tokenSaltBase64, tags) {
-        if (!bundle || !bundle.keyBase64 || !tokenSaltBase64 || !Array.isArray(tags) || tags.length === 0) {
+    function ensureFileInput() {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+            throw new Error('No file selected');
+        }
+        return fileInput.files[0];
+    }
+
+    function isMboxLikeFile(file) {
+        const name = (file.name || '').toLowerCase();
+        return name.endsWith('.mbox') || name.endsWith('.mbx');
+    }
+
+    function normalizeSubject(value) {
+        if (!value) {
+            return '';
+        }
+        return value
+            .toLowerCase()
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 200);
+    }
+
+    function extractAddresses(value) {
+        if (!value) {
+            return [];
+        }
+        const matches = value.match(/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g);
+        if (!matches) {
+            return [];
+        }
+        return matches
+            .map(addr => addr.toLowerCase())
+            .map(addr => addr.trim())
+            .filter(Boolean);
+    }
+
+    async function deriveDeterministicTokens(bundle, tokenSaltBase64, items) {
+        if (!bundle || !bundle.keyBase64 || !tokenSaltBase64 || !Array.isArray(items) || items.length === 0) {
             return [];
         }
 
@@ -197,8 +235,8 @@
         );
 
         const results = [];
-        for (const originalTag of tags) {
-            const normalized = (originalTag ?? '').trim().toLowerCase();
+        for (const originalValue of items) {
+            const normalized = (originalValue ?? '').trim().toLowerCase();
             if (!normalized) {
                 continue;
             }
@@ -213,6 +251,216 @@
         }
 
         return results;
+    }
+
+    async function deriveTagTokens(bundle, tokenSaltBase64, tags) {
+        return deriveDeterministicTokens(bundle, tokenSaltBase64, tags);
+    }
+
+    async function scanHeaderTokens(options) {
+        let file;
+        try {
+            file = ensureFileInput();
+        } catch {
+            return { success: false, reason: 'no-file' };
+        }
+
+        if (!isMboxLikeFile(file)) {
+            return { success: false, reason: 'unsupported-format' };
+        }
+
+        const limits = {
+            maxMessages: options?.maxMessages ?? 2000,
+            maxTokensPerType: options?.maxTokensPerType ?? 512
+        };
+
+        return await parseMboxHeaders(file, limits);
+    }
+
+    async function parseMboxHeaders(file, limits) {
+        const reader = file.stream().getReader();
+        const decoder = new TextDecoder('utf-8');
+        const sets = {
+            from: new Set(),
+            to: new Set(),
+            cc: new Set(),
+            subject: new Set()
+        };
+        const capped = {
+            from: false,
+            to: false,
+            cc: false,
+            subject: false
+        };
+
+        const addValue = (type, value) => {
+            if (!value) {
+                return;
+            }
+            if (sets[type].has(value)) {
+                return;
+            }
+            if (sets[type].size >= limits.maxTokensPerType) {
+                capped[type] = true;
+                return;
+            }
+            sets[type].add(value);
+        };
+
+        let leftover = '';
+        let inHeaders = false;
+        let currentHeaders = [];
+        let messageCount = 0;
+        let shouldStop = false;
+
+        const finalizeHeaders = () => {
+            if (currentHeaders.length === 0) {
+                inHeaders = false;
+                currentHeaders = [];
+                return;
+            }
+
+            messageCount += 1;
+            const unfolded = [];
+            for (const line of currentHeaders) {
+                if (/^\s/.test(line) && unfolded.length > 0) {
+                    unfolded[unfolded.length - 1] += ` ${line.trim()}`;
+                } else {
+                    unfolded.push(line);
+                }
+            }
+
+            const headerMap = {};
+            for (const line of unfolded) {
+                const separatorIndex = line.indexOf(':');
+                if (separatorIndex < 0) {
+                    continue;
+                }
+                const name = line.slice(0, separatorIndex).trim().toLowerCase();
+                const value = line.slice(separatorIndex + 1).trim();
+                if (!headerMap[name]) {
+                    headerMap[name] = [];
+                }
+                headerMap[name].push(value);
+            }
+
+            if (headerMap['from']) {
+                for (const entry of headerMap['from']) {
+                    extractAddresses(entry).forEach(addr => addValue('from', addr));
+                }
+            }
+            if (headerMap['to']) {
+                for (const entry of headerMap['to']) {
+                    extractAddresses(entry).forEach(addr => addValue('to', addr));
+                }
+            }
+            if (headerMap['cc']) {
+                for (const entry of headerMap['cc']) {
+                    extractAddresses(entry).forEach(addr => addValue('cc', addr));
+                }
+            }
+            if (headerMap['subject'] && headerMap['subject'][0]) {
+                const normalizedSubject = normalizeSubject(headerMap['subject'][0]);
+                if (normalizedSubject) {
+                    addValue('subject', normalizedSubject);
+                }
+            }
+
+            currentHeaders = [];
+            inHeaders = false;
+        };
+
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) {
+                    leftover += decoder.decode();
+                    break;
+                }
+
+                leftover += decoder.decode(value, { stream: true });
+                let newlineIndex;
+
+                while ((newlineIndex = leftover.indexOf('\n')) >= 0) {
+                    let line = leftover.slice(0, newlineIndex);
+                    leftover = leftover.slice(newlineIndex + 1);
+                    if (line.endsWith('\r')) {
+                        line = line.slice(0, -1);
+                    }
+
+                    if (line.startsWith('From ') && !line.startsWith('From :')) {
+                        if (inHeaders) {
+                            finalizeHeaders();
+                        }
+                        if (messageCount >= limits.maxMessages) {
+                            shouldStop = true;
+                            break;
+                        }
+                        inHeaders = true;
+                        currentHeaders = [];
+                        continue;
+                    }
+
+                    if (inHeaders) {
+                        if (line.length === 0) {
+                            finalizeHeaders();
+                            if (messageCount >= limits.maxMessages) {
+                                shouldStop = true;
+                                break;
+                            }
+                        } else {
+                            currentHeaders.push(line);
+                        }
+                    }
+                }
+
+                if (shouldStop) {
+                    break;
+                }
+            }
+        } finally {
+            try {
+                await reader.cancel();
+            } catch {
+                // ignore cancellation errors
+            }
+        }
+
+        if (inHeaders && !shouldStop) {
+            finalizeHeaders();
+        }
+
+        return {
+            success: true,
+            values: {
+                from: Array.from(sets.from),
+                to: Array.from(sets.to),
+                cc: Array.from(sets.cc),
+                subject: Array.from(sets.subject)
+            },
+            stats: {
+                scannedMessages: messageCount,
+                cappedTypes: capped
+            }
+        };
+    }
+
+    async function hashHeaderTokens(bundle, tokenSaltBase64, headerMap) {
+        if (!bundle || !tokenSaltBase64 || !headerMap) {
+            return {};
+        }
+
+        const result = {};
+        for (const [type, values] of Object.entries(headerMap)) {
+            if (!Array.isArray(values) || values.length === 0) {
+                continue;
+            }
+            const hashed = await deriveDeterministicTokens(bundle, tokenSaltBase64, values);
+            if (hashed.length > 0) {
+                result[type] = hashed;
+            }
+        }
+        return result;
     }
 
     function downloadBundle(bundle) {
@@ -238,7 +486,9 @@
         encryptAndUpload,
         downloadBundle,
         copyToClipboard,
-        deriveTagTokens
+        deriveTagTokens,
+        scanHeaderTokens,
+        hashHeaderTokens
     };
 })();
 

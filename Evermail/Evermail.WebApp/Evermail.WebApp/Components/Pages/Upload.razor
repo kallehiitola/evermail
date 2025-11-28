@@ -223,6 +223,80 @@
                             We hash these tags in your browser so you can filter encrypted mailboxes later. Never send plaintext labels to Evermail.
                         </small>
                     </div>
+
+                    <div class="mt-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <label class="form-label fw-semibold mb-0">Header indexing</label>
+                            <button class="btn btn-outline-secondary btn-sm"
+                                    type="button"
+                                    disabled="@(_selectedFile is null || _isHeaderScanRunning)"
+                                    @onclick="RescanHeadersAsync">
+                                <i class="bi bi-arrow-clockwise me-1"></i>Rescan
+                            </button>
+                        </div>
+
+                        @switch (_headerIndexStatus.State)
+                        {
+                            case HeaderIndexState.Hidden:
+                                <p class="text-muted small mb-0">
+                                    Header indexing runs for .mbox/.mbx uploads when client-side encryption is enabled.
+                                </p>
+                                break;
+                            case HeaderIndexState.Running:
+                                <p class="text-muted small mb-0">
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                    Scanning message headers…
+                                </p>
+                                break;
+                            case HeaderIndexState.Completed:
+                                <div class="zero-access-header-summary mt-2">
+                                    <p class="text-muted small mb-1">
+                                        @_headerIndexStatus.ScannedMessages message@(_headerIndexStatus.ScannedMessages == 1 ? string.Empty : "s") sampled.
+                                    </p>
+                                    <ul class="list-unstyled small mb-0">
+                                        <li>
+                                            <strong>From</strong>: @GetHeaderTokenCount("from")
+                                            @if (IsHeaderTokenCapped("from"))
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning-emphasis ms-1">capped</span>
+                                            }
+                                        </li>
+                                        <li>
+                                            <strong>To</strong>: @GetHeaderTokenCount("to")
+                                            @if (IsHeaderTokenCapped("to"))
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning-emphasis ms-1">capped</span>
+                                            }
+                                        </li>
+                                        <li>
+                                            <strong>Cc</strong>: @GetHeaderTokenCount("cc")
+                                            @if (IsHeaderTokenCapped("cc"))
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning-emphasis ms-1">capped</span>
+                                            }
+                                        </li>
+                                        <li>
+                                            <strong>Subjects</strong>: @GetHeaderTokenCount("subject")
+                                            @if (IsHeaderTokenCapped("subject"))
+                                            {
+                                                <span class="badge bg-warning-subtle text-warning-emphasis ms-1">capped</span>
+                                            }
+                                        </li>
+                                    </ul>
+                                </div>
+                                break;
+                            case HeaderIndexState.Skipped:
+                                <div class="alert alert-warning mt-2 mb-0" role="alert">
+                                    @_headerIndexStatus.Message
+                                </div>
+                                break;
+                            case HeaderIndexState.Error:
+                                <div class="alert alert-danger mt-2 mb-0" role="alert">
+                                    @_headerIndexStatus.Message
+                                </div>
+                                break;
+                        }
+                    </div>
                 }
             </section>
         }
@@ -269,6 +343,10 @@
     private bool _useZeroAccess;
     private ZeroAccessKeyBundleModel? _zeroAccessBundle;
     private string _zeroAccessTagInput = string.Empty;
+    private ZeroAccessHeaderIndexStatus _headerIndexStatus = ZeroAccessHeaderIndexStatus.Hidden();
+    private Dictionary<string, string[]>? _headerPreviewValues;
+    private Dictionary<string, IReadOnlyList<string>>? _headerHashedTokens;
+    private bool _isHeaderScanRunning;
 
     private string DropzoneCssClass => _selectedFile is null
         ? _isDragOver ? "upload-dropzone upload-dropzone--drag" : "upload-dropzone"
@@ -367,6 +445,11 @@
         if (_useZeroAccess)
         {
             await EnsureZeroAccessBundleAsync();
+            await ScanZeroAccessHeadersAsync();
+        }
+        else
+        {
+            ResetZeroAccessHeaderState();
         }
     }
 
@@ -425,12 +508,16 @@
         await JS.InvokeVoidAsync("zeroAccessUpload.downloadBundle", bundle);
     }
 
-    private void HandleFileSelected(InputFileChangeEventArgs e)
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
     {
         if (e.File != null)
         {
             ApplySelectedFile(e.File);
             _isDragOver = false;
+            if (_useZeroAccess)
+            {
+            await ScanZeroAccessHeadersAsync();
+            }
         }
     }
 
@@ -445,6 +532,7 @@
         _uploadComplete = false;
         _uploadProgress = 0;
         _formatHint = GuessFormatFromExtension(Path.GetExtension(_fileName)?.ToLowerInvariant());
+        ResetZeroAccessHeaderState();
     }
 
     private void ClearSelection()
@@ -456,6 +544,7 @@
         _totalGB = 0;
         _isDragOver = false;
         _formatHint = null;
+        ResetZeroAccessHeaderState();
     }
 
     private void HandleDrop(DragEventArgs _)
@@ -578,10 +667,7 @@
                     return;
                 }
 
-                var tagTokens = await BuildZeroAccessTagTokensAsync(tokenSalt);
-                IReadOnlyList<DeterministicTokenSetDto>? tokenSets = tagTokens.Count > 0
-                    ? new[] { new DeterministicTokenSetDto("tag", tagTokens) }
-                    : null;
+                var tokenSets = await BuildDeterministicTokenSetsAsync(tokenSalt);
 
                 var zeroAccessUrl = $"{Navigation.BaseUri}api/v1/mailboxes/encrypted-upload/complete";
                 var zeroAccessRequest = new HttpRequestMessage(HttpMethod.Post, zeroAccessUrl);
@@ -784,6 +870,166 @@
         }
     }
 
+    private async Task<Dictionary<string, IReadOnlyList<string>>?> BuildZeroAccessHeaderTokensAsync(string tokenSaltBase64)
+    {
+        if (_zeroAccessBundle is null)
+        {
+            return null;
+        }
+
+        if (_headerPreviewValues is null || _headerPreviewValues.Count == 0)
+        {
+            await ScanZeroAccessHeadersAsync();
+        }
+
+        if (_headerPreviewValues is null || _headerPreviewValues.Count == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var hashed = await JS.InvokeAsync<Dictionary<string, string[]>>(
+                "zeroAccessUpload.hashHeaderTokens",
+                _zeroAccessBundle,
+                tokenSaltBase64,
+                _headerPreviewValues);
+
+            if (hashed is null || hashed.Count == 0)
+            {
+                return null;
+            }
+
+            var result = hashed.ToDictionary(
+                kvp => kvp.Key,
+                kvp => (IReadOnlyList<string>)kvp.Value,
+                StringComparer.OrdinalIgnoreCase);
+            _headerHashedTokens = result;
+            return result;
+        }
+        catch (JSException jsEx)
+        {
+            _headerIndexStatus = ZeroAccessHeaderIndexStatus.Error($"Failed to hash header tokens: {jsEx.Message}");
+            return null;
+        }
+    }
+
+    private async Task<IReadOnlyList<DeterministicTokenSetDto>?> BuildDeterministicTokenSetsAsync(string tokenSaltBase64)
+    {
+        var deterministicSets = new List<DeterministicTokenSetDto>();
+
+        var tagTokens = await BuildZeroAccessTagTokensAsync(tokenSaltBase64);
+        if (tagTokens.Count > 0)
+        {
+            deterministicSets.Add(new DeterministicTokenSetDto("tag", tagTokens));
+        }
+
+        var headerTokens = await BuildZeroAccessHeaderTokensAsync(tokenSaltBase64);
+        if (headerTokens is not null)
+        {
+            foreach (var kvp in headerTokens)
+            {
+                if (kvp.Value is { Count: > 0 })
+                {
+                    deterministicSets.Add(new DeterministicTokenSetDto(kvp.Key, kvp.Value));
+                }
+            }
+        }
+
+        return deterministicSets.Count > 0 ? deterministicSets : null;
+    }
+
+    private async Task ScanZeroAccessHeadersAsync()
+    {
+        if (!_useZeroAccess || _selectedFile is null)
+        {
+            ResetZeroAccessHeaderState();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (_isHeaderScanRunning)
+        {
+            return;
+        }
+
+        _isHeaderScanRunning = true;
+        _headerIndexStatus = ZeroAccessHeaderIndexStatus.Running("Scanning message headers…");
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            var result = await JS.InvokeAsync<ZeroAccessHeaderScanResult>(
+                "zeroAccessUpload.scanHeaderTokens",
+                new { maxMessages = 2000, maxTokensPerType = 512 });
+
+            if (!result.Success)
+            {
+                _headerPreviewValues = null;
+                _headerIndexStatus = ZeroAccessHeaderIndexStatus.Skipped(DescribeHeaderScanReason(result.Reason));
+                return;
+            }
+
+            var preview = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+            if (result.Values is not null)
+            {
+                foreach (var pair in result.Values)
+                {
+                    preview[pair.Key] = pair.Value ?? Array.Empty<string>();
+                }
+            }
+
+            _headerPreviewValues = preview;
+
+            var counts = preview.ToDictionary(
+                pair => pair.Key,
+                pair => pair.Value.Length,
+                StringComparer.OrdinalIgnoreCase);
+
+            var capped = result.Stats?.CappedTypes is not null
+                ? new Dictionary<string, bool>(result.Stats.CappedTypes, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+
+            var scanned = result.Stats?.ScannedMessages ?? counts.Values.Sum();
+            _headerIndexStatus = ZeroAccessHeaderIndexStatus.Completed(scanned, counts, capped);
+        }
+        catch (JSException jsEx)
+        {
+            _headerPreviewValues = null;
+            _headerIndexStatus = ZeroAccessHeaderIndexStatus.Error($"Header indexing failed: {jsEx.Message}");
+        }
+        finally
+        {
+            _isHeaderScanRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private string DescribeHeaderScanReason(string? reason) => reason switch
+    {
+        "unsupported-format" => "Header indexing currently supports .mbox/.mbx uploads only. Tags still work as usual.",
+        "no-file" => "Select a .mbox/.mbx file to build header indexes.",
+        _ => "Header indexing skipped for this upload."
+    };
+
+    private void ResetZeroAccessHeaderState(string? message = null)
+    {
+        _headerPreviewValues = null;
+        _headerHashedTokens = null;
+        _isHeaderScanRunning = false;
+        _headerIndexStatus = ZeroAccessHeaderIndexStatus.Hidden(message);
+    }
+
+    private Task RescanHeadersAsync() => ScanZeroAccessHeadersAsync();
+
+    private int GetHeaderTokenCount(string tokenType) =>
+        _headerIndexStatus.TokenCounts.TryGetValue(tokenType, out var count)
+            ? count
+            : 0;
+
+    private bool IsHeaderTokenCapped(string tokenType) =>
+        _headerIndexStatus.CappedTypes.TryGetValue(tokenType, out var capped) && capped;
+
     private sealed record ZeroAccessKeyBundleModel
     {
         public string KeyBase64 { get; init; } = string.Empty;
@@ -797,6 +1043,63 @@
         public string MetadataJson { get; init; } = string.Empty;
         public long CipherSizeBytes { get; init; }
     };
+
+    private sealed record ZeroAccessHeaderIndexStatus(
+        HeaderIndexState State,
+        string? Message,
+        int ScannedMessages,
+        IReadOnlyDictionary<string, int> TokenCounts,
+        IReadOnlyDictionary<string, bool> CappedTypes)
+    {
+        public static ZeroAccessHeaderIndexStatus Hidden(string? message = null) =>
+            new(HeaderIndexState.Hidden, message, 0,
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase));
+
+        public static ZeroAccessHeaderIndexStatus Running(string? message = null) =>
+            new(HeaderIndexState.Running, message, 0,
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase));
+
+        public static ZeroAccessHeaderIndexStatus Completed(
+            int scannedMessages,
+            IReadOnlyDictionary<string, int> counts,
+            IReadOnlyDictionary<string, bool> cappedTypes) =>
+            new(HeaderIndexState.Completed, null, scannedMessages, counts, cappedTypes);
+
+        public static ZeroAccessHeaderIndexStatus Skipped(string? message) =>
+            new(HeaderIndexState.Skipped, message, 0,
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase));
+
+        public static ZeroAccessHeaderIndexStatus Error(string? message) =>
+            new(HeaderIndexState.Error, message, 0,
+                new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private enum HeaderIndexState
+    {
+        Hidden,
+        Running,
+        Completed,
+        Skipped,
+        Error
+    }
+
+    private sealed class ZeroAccessHeaderScanResult
+    {
+        public bool Success { get; set; }
+        public string? Reason { get; set; }
+        public Dictionary<string, string[]>? Values { get; set; }
+        public ZeroAccessHeaderScanStats? Stats { get; set; }
+    }
+
+    private sealed class ZeroAccessHeaderScanStats
+    {
+        public int ScannedMessages { get; set; }
+        public Dictionary<string, bool>? CappedTypes { get; set; }
+    }
 
     [JSInvokable]
     public async Task HandleUploadError(string title, string message, string? technicalDetails)

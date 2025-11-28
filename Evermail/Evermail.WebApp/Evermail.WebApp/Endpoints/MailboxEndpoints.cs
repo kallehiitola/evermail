@@ -45,7 +45,11 @@ public static class MailboxEndpoints
         string? status = null,
         int page = 1,
         int pageSize = 20,
-        IEnumerable<string>? tagToken = null)
+        IEnumerable<string>? tagToken = null,
+        IEnumerable<string>? fromToken = null,
+        IEnumerable<string>? toToken = null,
+        IEnumerable<string>? ccToken = null,
+        IEnumerable<string>? subjectToken = null)
     {
         // Validate tenant is authenticated
         if (tenantContext.TenantId == Guid.Empty)
@@ -63,21 +67,11 @@ public static class MailboxEndpoints
             query = query.Where(m => m.Status == status);
         }
 
-        if (tagToken is not null)
-        {
-            var tokens = tagToken
-                .Where(t => !string.IsNullOrWhiteSpace(t))
-                .Select(t => t.Trim())
-                .Where(t => t.Length > 0)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
-
-            if (tokens.Length > 0)
-            {
-                query = query.Where(m => context.ZeroAccessMailboxTokens
-                    .Any(z => z.MailboxId == m.Id && tokens.Contains(z.TokenValue)));
-            }
-        }
+        query = ApplyDeterministicTokenFilter(query, context, tagToken, "tag");
+        query = ApplyDeterministicTokenFilter(query, context, fromToken, "from");
+        query = ApplyDeterministicTokenFilter(query, context, toToken, "to");
+        query = ApplyDeterministicTokenFilter(query, context, ccToken, "cc");
+        query = ApplyDeterministicTokenFilter(query, context, subjectToken, "subject");
 
         // Get total count
         var totalCount = await query.CountAsync();
@@ -135,6 +129,39 @@ public static class MailboxEndpoints
                 pageSize
             )
         ));
+    }
+
+    private static IQueryable<Mailbox> ApplyDeterministicTokenFilter(
+        IQueryable<Mailbox> query,
+        EvermailDbContext context,
+        IEnumerable<string>? rawTokens,
+        string tokenType)
+    {
+        if (rawTokens is null)
+        {
+            return query;
+        }
+
+        var normalizedTokens = rawTokens
+            .Where(t => !string.IsNullOrWhiteSpace(t))
+            .Select(t => t.Trim())
+            .Where(t => t.Length > 0)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (normalizedTokens.Length == 0)
+        {
+            return query;
+        }
+
+        foreach (var token in normalizedTokens)
+        {
+            var currentToken = token;
+            query = query.Where(m => context.ZeroAccessMailboxTokens
+                .Any(z => z.MailboxId == m.Id && z.TokenType == tokenType && z.TokenValue == currentToken));
+        }
+
+        return query;
     }
 
     private static async Task<IResult> GetMailboxByIdAsync(

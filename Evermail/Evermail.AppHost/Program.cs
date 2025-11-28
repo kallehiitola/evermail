@@ -1,3 +1,4 @@
+using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Docker;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -13,13 +14,6 @@ var keyVaultResourceGroup = builder.ExecutionContext.IsPublishMode ? "evermail-p
 var keyVaultNameParam = builder.AddParameter("key-vault-name", secret: false);
 var keyVaultResourceGroupParam = builder.AddParameter("key-vault-resource-group", secret: false);
 
-// Set default values in user secrets for local dev (optional - can override via env vars)
-if (!builder.ExecutionContext.IsPublishMode)
-{
-    // These are set in user secrets, but we provide defaults
-    // User can override via: dotnet user-secrets set "Parameters:key-vault-name" "custom-name"
-}
-
 var keyVault = builder.AddAzureKeyVault("key-vault")
     .AsExisting(keyVaultNameParam, keyVaultResourceGroupParam);
 
@@ -28,12 +22,22 @@ var keyVault = builder.AddAzureKeyVault("key-vault")
 // Password can come from Key Vault or user secrets (for local dev)
 var sqlPassword = builder.AddParameter("sql-password", secret: true);
 
-// Add SQL Server with database (runs locally in container, deploys to Azure SQL)
-var sql = builder.AddSqlServer("sql", password: sqlPassword)
-    .WithLifetime(ContainerLifetime.Persistent)
-    .WithDataVolume("evermail-sql-data")
-    .WithDockerfile("../../docker/sqlserver")
-    .AddDatabase("evermaildb");
+// Add SQL Server locally; in publish mode we rely on the Key Vault connection string
+IResourceBuilder<IResourceWithConnectionString> sql;
+
+if (builder.ExecutionContext.IsPublishMode)
+{
+    sql = builder.AddConnectionString("evermaildb");
+}
+else
+{
+    var sqlServer = builder.AddSqlServer("sql", password: sqlPassword)
+        .WithLifetime(ContainerLifetime.Persistent)
+        .WithDataVolume("evermail-sql-data")
+        .WithDockerfile("../../docker/sqlserver");
+
+    sql = sqlServer.AddDatabase("evermaildb");
+}
 
 // Add Azure Storage using connection strings (existing storage account)
 // This avoids auto-provisioning and RBAC role assignment issues

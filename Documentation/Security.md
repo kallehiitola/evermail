@@ -70,6 +70,18 @@ Completion payload fields:
 - Querying: clients hash the search tag with the same token key and call `GET /api/v1/mailboxes?tagToken=<base64>` to limit responses to matching mailboxes. Once the client downloads/decrypts the archive it performs full-text search locally.
 - Future phases will extend the same mechanism to per-email fields (from/to/subject tokens) as the WASM parser graduates to full message-level extraction.
 
+##### Deterministic tokens – Phase 2 (header indexes)
+
+- **Scope**: the upload UI now derives deterministic tokens for the most common per-message headers—`from`, `to`, `cc`, and `subject`—in addition to the manual tag list. This lets tenants filter their encrypted mailboxes without downloading gigabytes of ciphertext just to find “all mail from alice@example.com”.
+- **Client-side parsing**: before streaming chunks to Azure Blob Storage, `zero-access-upload.js` walks the `.mbox/.mbx` file via a streaming parser, detects the RFC 5322 header block for each message, and extracts the normalized header values. PST/OST/ZIP uploads currently skip this phase (we plan to reuse the browser-based normalizer once it lands); the UI surfaces a warning when header tokens cannot be generated.
+- **Normalization rules**:
+  - Addresses → lowercase, trim, extract the email portion inside `< >` when present, drop display names, collapse whitespace, and cap at 254 chars.
+  - Subjects → convert to lowercase, trim, collapse repeated whitespace, and truncate at 200 characters so the resulting token set stays bounded.
+- **Resource limits**: to avoid locking the browser UI on multi-gigabyte archives we (a) inspect the first 2 000 messages per upload, (b) cap each token type at 512 unique values, and (c) deduplicate in-memory before deriving hashes. These limits are configurable constants in `zero-access-upload.js` and documented for tenants who need to plan around them.
+- **Derivation & storage**: once the plaintext sets are assembled the browser runs the same HKDF + HMAC flow as Phase 1, but now emits token sets such as `{ tokenType: "from", tokens: [...] }`. The WebApp persists them in `ZeroAccessMailboxTokens` alongside the legacy `tag` entries so the database schema does not change.
+- **Query surface**: `/api/v1/mailboxes` accepts `fromToken`, `toToken`, and `subjectToken` query parameters (multi-value). Clients hash the user-entered value with the token key and supply it as `fromToken=base64` to pre-filter encrypted mailboxes.
+- **UX**: the encrypted upload wizard now shows a “Header indexing” callout that reports how many unique senders/recipients/subjects were captured (or why it was skipped). Future client-side search views will reuse the same hashing helper to keep the UX consistent.
+
 ##### Multi-admin BYOK bundle registry
 
 - New entity `TenantEncryptionBundle` stores *wrapped* DEKs (never plaintext) per admin with labels, checksums, and timestamps so multiple administrators can maintain their own recovery bundles.
@@ -141,6 +153,7 @@ Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment w
 **Warnings surfaced in the UI and reiterated here:**
 - Lose the downloaded bundle or passphrase → Evermail cannot restore access.
 - Evermail only stores the DEK encrypted with the Offline BYOK master key provided by operators. Compromise of the SQL row does **not** reveal the tenant key unless the operator also compromises the host-level protector.
+- The master key itself lives in Azure Key Vault as `OfflineByok--MasterKey` (base64-encoded 256-bit). During deployment we mirror it into the ingestion worker via `offline-master`/`OfflineByok__MasterKey=secretref:offline-master` so Confidential Container Apps can unwrap tenant bundles without keeping plaintext keys on disk.
 - Do **not** paste the plaintext key anywhere else—treat it like a hardware token.
 - Bundle format is versioned (`"version": "offline-byok/v1"`); future releases will maintain backward compatibility or provide a migration tool.
 

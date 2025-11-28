@@ -323,6 +323,8 @@ public static class UploadEndpoints
         ));
     }
 
+    private const int MaxDeterministicTokensPerType = 512;
+
     private static async Task PersistZeroAccessTokensAsync(
         Guid mailboxId,
         TenantContext tenantContext,
@@ -357,6 +359,8 @@ public static class UploadEndpoints
 
             tokenType = tokenType.Length > 50 ? tokenType[..50] : tokenType;
 
+            var uniqueTokens = new HashSet<string>(StringComparer.Ordinal);
+
             foreach (var token in set.Tokens)
             {
                 if (string.IsNullOrWhiteSpace(token))
@@ -364,7 +368,18 @@ public static class UploadEndpoints
                     continue;
                 }
 
-                var normalizedToken = token.Length > 512 ? token[..512] : token;
+                var normalizedToken = token.Trim();
+                if (normalizedToken.Length == 0)
+                {
+                    continue;
+                }
+
+                normalizedToken = normalizedToken.Length > 512 ? normalizedToken[..512] : normalizedToken;
+
+                if (!uniqueTokens.Add(normalizedToken))
+                {
+                    continue;
+                }
 
                 context.ZeroAccessMailboxTokens.Add(new ZeroAccessMailboxToken
                 {
@@ -375,6 +390,11 @@ public static class UploadEndpoints
                     TokenValue = normalizedToken,
                     CreatedAt = DateTime.UtcNow
                 });
+
+                if (uniqueTokens.Count >= MaxDeterministicTokensPerType)
+                {
+                    break;
+                }
             }
         }
     }

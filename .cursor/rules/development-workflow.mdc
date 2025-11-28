@@ -231,6 +231,12 @@ public class UnauthorizedException : Exception
 
 ## Testing Strategy
 
+### AI assistant test handoff
+
+- 🔁 After completing **every** task or feature slice, the AI assistant must include a short “Test Checklist” in its final message.
+- ✅ Each checklist item should be a simple manual step the user can run (e.g., “Upload a zero-access mailbox and verify header tags appear under Filters”), not generic advice.
+- 🧪 Focus on the behaviors that changed in that task; aim for 2‑5 concrete items covering happy path + obvious edge cases.
+
 ### Unit Tests
 
 ```csharp
