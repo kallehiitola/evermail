@@ -1,0 +1,699 @@
+@page "/tenants"
+@attribute [Authorize(Policy = "SuperAdminOnly")]
+@using Evermail.AdminApp.Auth
+@using Microsoft.EntityFrameworkCore
+@inject Evermail.Infrastructure.Data.EvermailDbContext Db
+@inject IJSRuntime Js
+@inject IWebHostEnvironment Env
+@inject Microsoft.AspNetCore.Identity.UserManager<Evermail.Domain.Entities.ApplicationUser> UserManager
+
+<PageTitle>Tenants & Users - Evermail</PageTitle>
+
+<div class="admin-page">
+
+<div class="page-hero">
+    <div>
+        <div class="hero-eyebrow">Evermail</div>
+        <h1>Tenants & Users</h1>
+        <p class="text-muted">Cross-tenant overview and operational controls (SuperAdmin only).</p>
+    </div>
+</div>
+
+<div class="stat-grid tenants-stats">
+    <div class="stat-card modern-card">
+        <div class="stat-label">Tenants</div>
+        <div class="stat-value">@_tenants.Count</div>
+    </div>
+    <div class="stat-card modern-card">
+        <div class="stat-label">Users</div>
+        <div class="stat-value">@_tenants.Sum(t => t.UserCount)</div>
+    </div>
+    <div class="stat-card modern-card">
+        <div class="stat-label">Mailboxes</div>
+        <div class="stat-value">@_tenants.Sum(t => t.MailboxCount)</div>
+    </div>
+</div>
+
+<div class="modern-card">
+    <h2 class="h5 mb-3">Tenants</h2>
+
+    @if (_isLoading)
+    {
+        <div class="text-muted">Loading…</div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="table data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Slug</th>
+                        <th>Tier</th>
+                        <th>Users</th>
+                        <th>Mailboxes</th>
+                        <th>Status</th>
+                        <th style="width: 260px;">Actions</th>
+                        <th>Created</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var t in _tenants)
+                    {
+                        <tr>
+                            <td>@t.Name</td>
+                            <td><code>@t.Slug</code></td>
+                            <td>@t.SubscriptionTier</td>
+                            <td>@t.UserCount</td>
+                            <td>@t.MailboxCount</td>
+                            <td>
+                                <span class="badge @(t.PlanConfirmed ? "bg-success" : "bg-secondary") me-1">Plan</span>
+                                <span class="badge @(t.PaymentAcknowledged ? "bg-success" : "bg-secondary") me-1">Payment</span>
+                                <span class="badge @(t.EncryptionConfigured ? "bg-success" : "bg-secondary") me-1">Encrypt</span>
+                                <span class="badge @(t.HasMailbox ? "bg-success" : "bg-secondary")">Mailbox</span>
+                            </td>
+                            <td>
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-primary"
+                                            disabled="@_isMutating"
+                                            title="Cross-tenant: view users in this tenant"
+                                            @onclick="() => ToggleUsersAsync(t.Id, t.Name)">
+                                        Users
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-secondary"
+                                            disabled="@(!Env.IsDevelopment() || _isMutating)"
+                                            title="Dev-only: clears plan/payment/encryption state"
+                                            @onclick="() => ResetOnboardingAsync(t.Id, t.Name)">
+                                        Reset onboarding
+                                    </button>
+                                    <button type="button"
+                                            class="btn btn-sm btn-outline-warning"
+                                            disabled="@_isMutating"
+                                            title="Production-safe: disables tenant without deleting data"
+                                            @onclick="() => DeactivateTenantAsync(t.Id, t.Name)">
+                                        Deactivate
+                                    </button>
+                                </div>
+                                @if (Env.IsDevelopment())
+                                {
+                                    <details class="mt-2">
+                                        <summary class="text-danger small">Danger</summary>
+                                        <button type="button"
+                                                class="btn btn-sm btn-danger mt-2"
+                                                disabled="@_isMutating"
+                                                @onclick="() => DeleteTenantAsync(t.Id, t.Name)">
+                                            Delete tenant
+                                        </button>
+                                    </details>
+                                }
+                            </td>
+                            <td>@t.CreatedAt.ToString("yyyy-MM-dd")</td>
+                        </tr>
+
+                        @if (_expandedTenantId == t.Id)
+                        {
+                            <tr>
+                                <td colspan="8">
+                                    <div class="modern-card mt-3">
+                                        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                                            <div>
+                                                <div class="text-muted small">Tenant users</div>
+                                                <div class="h6 mb-0">@_expandedTenantName</div>
+                                            </div>
+                                            <div class="d-flex gap-2 flex-wrap">
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" disabled="@_usersLoading" @onclick="RefreshUsersAsync">
+                                                    Refresh
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CollapseUsers">
+                                                    Close
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        @if (!string.IsNullOrWhiteSpace(_usersError))
+                                        {
+                                            <div class="alert alert-danger mb-3">@_usersError</div>
+                                        }
+
+                                        @if (_usersLoading)
+                                        {
+                                            <div class="text-muted">Loading users…</div>
+                                        }
+                                        else if (_expandedUsers.Count == 0)
+                                        {
+                                            <div class="text-muted">No users found for this tenant.</div>
+                                        }
+                                        else
+                                        {
+                                            <div class="table-responsive">
+                                                <table class="table table-sm data-table">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Name</th>
+                                                            <th>Email</th>
+                                                            <th>Status</th>
+                                                            <th>2FA</th>
+                                                            <th>Created</th>
+                                                            <th>Last login</th>
+                                                            <th style="width: 260px;">Actions</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var u in _expandedUsers)
+                                                        {
+                                                            <tr>
+                                                                <td>@u.DisplayName</td>
+                                                                <td><code>@u.Email</code></td>
+                                                                <td>
+                                                                    <span class="badge @(u.IsActive ? "bg-success" : "bg-secondary")">@((u.IsActive) ? "Active" : "Inactive")</span>
+                                                                </td>
+                                                                <td>
+                                                                    <span class="badge @(u.TwoFactorEnabled ? "bg-success" : "bg-secondary")">@((u.TwoFactorEnabled) ? "On" : "Off")</span>
+                                                                </td>
+                                                                <td>@u.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                                                <td>@(u.LastLoginAt?.ToString("yyyy-MM-dd") ?? "—")</td>
+                                                                <td>
+                                                                    <div class="d-flex gap-2 flex-wrap">
+                                                                        <button type="button"
+                                                                                class="btn btn-sm btn-outline-secondary"
+                                                                                disabled="@_isMutating"
+                                                                                title="Loads roles in the Role tools section below"
+                                                                                @onclick="() => SetRoleEmailAndCheckAsync(u.Email)">
+                                                                            Check roles
+                                                                        </button>
+                                                                        @if (u.IsActive)
+                                                                        {
+                                                                            <button type="button"
+                                                                                    class="btn btn-sm btn-outline-warning"
+                                                                                    disabled="@_isMutating"
+                                                                                    @onclick="() => SetUserActiveAsync(u.Id, u.Email, isActive: false)">
+                                                                                Deactivate
+                                                                            </button>
+                                                                        }
+                                                                        else
+                                                                        {
+                                                                            <button type="button"
+                                                                                    class="btn btn-sm btn-outline-success"
+                                                                                    disabled="@_isMutating"
+                                                                                    @onclick="() => SetUserActiveAsync(u.Id, u.Email, isActive: true)">
+                                                                                Activate
+                                                                            </button>
+                                                                        }
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="modern-card">
+    <h2 class="h5 mb-3">Role tools</h2>
+    <p class="text-muted mb-4">Promote internal users for testing and operations. This changes ASP.NET Identity roles in SQL.</p>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="modern-card">
+                <h3 class="h6 mb-2">Grant roles</h3>
+                <div class="mb-3">
+                    <label class="form-label">User email</label>
+                    <input class="form-control" type="email" placeholder="user@example.com" @bind="_roleEmail" />
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button type="button" class="btn btn-outline-primary" disabled="@_isRoleProcessing" @onclick="() => AddRoleAsync(_roleEmail, AdminAuthPolicy.SuperAdminRole, includeAdmin: true)">
+                        Make SuperAdmin
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" disabled="@_isRoleProcessing" @onclick='() => AddRoleAsync(_roleEmail, "Admin")'>
+                        Make Admin
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" disabled="@_isRoleProcessing" @onclick="CheckRolesAsync">
+                        Check roles
+                    </button>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_roleMessage))
+                {
+                    <div class="alert @(_roleIsError ? "alert-danger" : "alert-success") mt-3 mb-0">@_roleMessage</div>
+                }
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="modern-card">
+                <h3 class="h6 mb-2">Current roles</h3>
+                @if (_currentRoles.Count == 0)
+                {
+                    <div class="text-muted">No roles loaded. Use “Check roles”.</div>
+                }
+                else
+                {
+                    <div class="d-flex flex-wrap gap-2">
+                        @foreach (var role in _currentRoles)
+                        {
+                            <span class="badge bg-primary">@role</span>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private bool _isMutating;
+    private List<TenantRow> _tenants = new();
+
+    private bool _isRoleProcessing;
+    private string _roleEmail = "kalle.hiitola@gmail.com";
+    private string? _roleMessage;
+    private bool _roleIsError;
+    private List<string> _currentRoles = new();
+
+    private Guid? _expandedTenantId;
+    private string _expandedTenantName = string.Empty;
+    private bool _usersLoading;
+    private string? _usersError;
+    private List<UserRow> _expandedUsers = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+
+        _tenants = await Db.Tenants
+            .AsNoTracking()
+            .OrderByDescending(t => t.CreatedAt)
+            .Select(t => new TenantRow(
+                t.Id,
+                t.Name,
+                t.Slug,
+                t.SubscriptionTier,
+                Db.Users.Count(u => u.TenantId == t.Id),
+                Db.Mailboxes.Count(m => m.TenantId == t.Id),
+                t.OnboardingPlanConfirmedAt != null,
+                t.PaymentAcknowledgedAt != null,
+                t.EncryptionSettings != null && t.EncryptionSettings.EncryptionPhase != "NotConfigured",
+                Db.Mailboxes.Any(m => m.TenantId == t.Id),
+                t.CreatedAt))
+            .ToListAsync();
+
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ResetOnboardingAsync(Guid tenantId, string tenantName)
+    {
+        if (!Env.IsDevelopment())
+        {
+            return;
+        }
+
+        if (_isMutating) return;
+        _isMutating = true;
+        try
+        {
+            var confirmed = await Js.InvokeAsync<bool>("confirm",
+                $"Reset onboarding for '{tenantName}'? This clears plan confirmation, payment acknowledgement, and encryption settings.");
+            if (!confirmed) return;
+
+            var tenant = await Db.Tenants
+                .Include(t => t.EncryptionSettings)
+                .FirstOrDefaultAsync(t => t.Id == tenantId);
+
+            if (tenant is null) return;
+
+            tenant.OnboardingPlanConfirmedAt = null;
+            tenant.PaymentAcknowledgedAt = null;
+            tenant.PaymentAcknowledgedByUserId = null;
+            tenant.SecurityPreference = "QuickStart";
+
+            if (tenant.EncryptionSettings is not null)
+            {
+                Db.Remove(tenant.EncryptionSettings);
+            }
+
+            await Db.SaveChangesAsync();
+        }
+        finally
+        {
+            _isMutating = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task DeactivateTenantAsync(Guid tenantId, string tenantName)
+    {
+        if (_isMutating) return;
+        _isMutating = true;
+        try
+        {
+            var confirmed = await Js.InvokeAsync<bool>("confirm",
+                $"Deactivate tenant '{tenantName}'? This will prevent sign-in/usage but keep all data.");
+            if (!confirmed) return;
+
+            var tenant = await Db.Tenants.FirstOrDefaultAsync(t => t.Id == tenantId);
+            if (tenant is null) return;
+
+            tenant.IsActive = false;
+            tenant.SuspensionReason = "Deactivated by SuperAdmin";
+            tenant.UpdatedAt = DateTime.UtcNow;
+
+            await Db.SaveChangesAsync();
+        }
+        finally
+        {
+            _isMutating = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task ToggleUsersAsync(Guid tenantId, string tenantName)
+    {
+        if (_expandedTenantId == tenantId)
+        {
+            CollapseUsers();
+            return;
+        }
+
+        _expandedTenantId = tenantId;
+        _expandedTenantName = tenantName;
+        await LoadUsersAsync(tenantId);
+    }
+
+    private void CollapseUsers()
+    {
+        _expandedTenantId = null;
+        _expandedTenantName = string.Empty;
+        _expandedUsers.Clear();
+        _usersError = null;
+        _usersLoading = false;
+    }
+
+    private async Task RefreshUsersAsync()
+    {
+        if (_expandedTenantId is null) return;
+        await LoadUsersAsync(_expandedTenantId.Value);
+    }
+
+    private async Task LoadUsersAsync(Guid tenantId)
+    {
+        _usersLoading = true;
+        _usersError = null;
+        StateHasChanged();
+
+        try
+        {
+            _expandedUsers = await Db.Users
+                .AsNoTracking()
+                .Where(u => u.TenantId == tenantId)
+                .OrderBy(u => u.Email)
+                .Select(u => new UserRow(
+                    u.Id,
+                    u.Email ?? string.Empty,
+                    (u.FirstName + " " + u.LastName).Trim(),
+                    u.IsActive,
+                    u.TwoFactorEnabled,
+                    u.CreatedAt,
+                    u.LastLoginAt))
+                .ToListAsync();
+
+            foreach (var u in _expandedUsers)
+            {
+                if (string.IsNullOrWhiteSpace(u.DisplayName))
+                {
+                    u.DisplayName = u.Email;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _usersError = ex.Message;
+        }
+        finally
+        {
+            _usersLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SetRoleEmailAndCheckAsync(string email)
+    {
+        _roleEmail = email;
+        await CheckRolesAsync();
+    }
+
+    private async Task SetUserActiveAsync(Guid userId, string email, bool isActive)
+    {
+        if (_isMutating) return;
+
+        var verb = isActive ? "activate" : "deactivate";
+        var confirmed = await Js.InvokeAsync<bool>("confirm", $"Are you sure you want to {verb} '{email}'?");
+        if (!confirmed) return;
+
+        _isMutating = true;
+        StateHasChanged();
+
+        try
+        {
+            var user = await Db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user is null) return;
+
+            user.IsActive = isActive;
+            await Db.SaveChangesAsync();
+
+            await RefreshUsersAsync();
+        }
+        finally
+        {
+            _isMutating = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeleteTenantAsync(Guid tenantId, string tenantName)
+    {
+        if (!Env.IsDevelopment())
+        {
+            return;
+        }
+
+        if (_isMutating) return;
+        _isMutating = true;
+        try
+        {
+            var confirmed = await Js.InvokeAsync<bool>("confirm",
+                $"DELETE tenant '{tenantName}'? This is destructive and removes tenant data from SQL (users, mailboxes, emails, audit logs). Continue?");
+            if (!confirmed) return;
+
+            // Match WebApp DevEndpoints delete ordering to avoid FK constraint issues.
+            await using var tx = await Db.Database.BeginTransactionAsync();
+            try
+            {
+                var commands = new (string Sql, object[] Parameters)[]
+                {
+                    ("DELETE FROM Attachments WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM EmailRecipients WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM MailboxEncryptionStates WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM MailboxDeletionQueue WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM MailboxUploads WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM EmailMessages WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM Mailboxes WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM EmailThreads WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM AuditLogs WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM RefreshTokens WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM TenantEncryptionSettings WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM Subscriptions WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM AspNetUserTokens WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[] { tenantId }),
+                    ("DELETE FROM AspNetUserLogins WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[] { tenantId }),
+                    ("DELETE FROM AspNetUserClaims WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[] { tenantId }),
+                    ("DELETE FROM AspNetUserRoles WHERE UserId IN (SELECT Id FROM AspNetUsers WHERE TenantId = {0})", new object[] { tenantId }),
+                    ("DELETE FROM AspNetUsers WHERE TenantId = {0}", new object[] { tenantId }),
+                    ("DELETE FROM Tenants WHERE Id = {0}", new object[] { tenantId }),
+                };
+
+                foreach (var (sql, parameters) in commands)
+                {
+                    await Db.Database.ExecuteSqlRawAsync(sql, parameters);
+                }
+
+                await tx.CommitAsync();
+            }
+            catch
+            {
+                await tx.RollbackAsync();
+                throw;
+            }
+        }
+        finally
+        {
+            _isMutating = false;
+            await LoadAsync();
+        }
+    }
+
+    private async Task AddRoleAsync(string email, string roleName, bool includeAdmin = false)
+    {
+        _isRoleProcessing = true;
+        _roleMessage = null;
+        _roleIsError = false;
+        _currentRoles.Clear();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                _roleIsError = true;
+                _roleMessage = "Please enter an email address.";
+                return;
+            }
+
+            var user = await UserManager.FindByEmailAsync(email);
+            if (user is null)
+            {
+                _roleIsError = true;
+                _roleMessage = $"User '{email}' not found. Register the user in WebApp first.";
+                return;
+            }
+
+            if (includeAdmin)
+            {
+                await UserManager.AddToRoleAsync(user, "Admin");
+            }
+
+            var result = await UserManager.AddToRoleAsync(user, roleName);
+            if (!result.Succeeded)
+            {
+                // Ignore "already in role" as success UX
+                if (result.Errors.Any(e => string.Equals(e.Code, "UserAlreadyInRole", StringComparison.OrdinalIgnoreCase)))
+                {
+                    _roleIsError = false;
+                    _roleMessage = $"User '{email}' already has role {roleName}.";
+                }
+                else
+                {
+                    _roleIsError = true;
+                    _roleMessage = "Failed: " + string.Join("; ", result.Errors.Select(e => e.Description));
+                }
+
+                _currentRoles = (await UserManager.GetRolesAsync(user)).ToList();
+                return;
+            }
+
+            _currentRoles = (await UserManager.GetRolesAsync(user)).ToList();
+            _roleIsError = false;
+            _roleMessage = $"Updated roles for '{email}': {string.Join(", ", _currentRoles)}";
+        }
+        catch (Exception ex)
+        {
+            _roleIsError = true;
+            _roleMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isRoleProcessing = false;
+        }
+    }
+
+    private async Task CheckRolesAsync()
+    {
+        _isRoleProcessing = true;
+        _roleMessage = null;
+        _roleIsError = false;
+        _currentRoles.Clear();
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_roleEmail))
+            {
+                _roleIsError = true;
+                _roleMessage = "Please enter an email address.";
+                return;
+            }
+
+            var user = await UserManager.FindByEmailAsync(_roleEmail);
+            if (user is null)
+            {
+                _roleIsError = true;
+                _roleMessage = $"User '{_roleEmail}' not found.";
+                return;
+            }
+
+            _currentRoles = (await UserManager.GetRolesAsync(user)).ToList();
+            _roleMessage = _currentRoles.Count == 0
+                ? $"User '{_roleEmail}' has no roles."
+                : $"Found {_currentRoles.Count} role(s) for '{_roleEmail}'.";
+        }
+        catch (Exception ex)
+        {
+            _roleIsError = true;
+            _roleMessage = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            _isRoleProcessing = false;
+        }
+    }
+
+    private sealed record TenantRow(
+        Guid Id,
+        string Name,
+        string Slug,
+        string SubscriptionTier,
+        int UserCount,
+        int MailboxCount,
+        bool PlanConfirmed,
+        bool PaymentAcknowledged,
+        bool EncryptionConfigured,
+        bool HasMailbox,
+        DateTime CreatedAt);
+
+    private sealed class UserRow
+    {
+        public UserRow(
+            Guid id,
+            string email,
+            string displayName,
+            bool isActive,
+            bool twoFactorEnabled,
+            DateTime createdAt,
+            DateTime? lastLoginAt)
+        {
+            Id = id;
+            Email = email;
+            DisplayName = displayName;
+            IsActive = isActive;
+            TwoFactorEnabled = twoFactorEnabled;
+            CreatedAt = createdAt;
+            LastLoginAt = lastLoginAt;
+        }
+
+        public Guid Id { get; }
+        public string Email { get; }
+        public string DisplayName { get; set; }
+        public bool IsActive { get; }
+        public bool TwoFactorEnabled { get; }
+        public DateTime CreatedAt { get; }
+        public DateTime? LastLoginAt { get; }
+    }
+}
+
+

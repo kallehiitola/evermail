@@ -1,3 +1,4 @@
+@page "/settings/encryption"
 @page "/admin/encryption"
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
@@ -31,7 +32,7 @@
                     </div>
                     <ol class="mb-0 ps-3">
                         <li>Pick your provider (Azure Key Vault or AWS KMS) and fill in the connection details.</li>
-                        <li>Run the helper script / IAM template to grant Evermail access to your TMK.</li>
+                        <li>Grant Evermail access to wrap keys (we’ll add an in-app guided connector; for now use your cloud console).</li>
                         <li>Click <strong>Test connection</strong> until you see a ✅ success message.</li>
                     </ol>
                 </div>
@@ -114,7 +115,7 @@
                                     <div class="mb-3">
                                         <label class="form-label">Azure AD tenant ID</label>
                                         <InputText class="form-control" @bind-Value="_form.Azure.KeyVaultTenantId" />
-                                        <div class="form-text">Output of <code>az account show --query tenantId -o tsv</code>.</div>
+                                        <div class="form-text">Your Entra tenant GUID (found in the Azure portal).</div>
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label">Managed identity object ID (optional)</label>

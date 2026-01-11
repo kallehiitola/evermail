@@ -77,7 +77,9 @@ public record TenantOnboardingStatusDto(
     string SecurityPreference,
     bool PaymentAcknowledged,
     DateTime? PaymentAcknowledgedAt,
-    string? IdentityProvider);
+    string? IdentityProvider,
+    string SecurityLevel,
+    bool SecurityLevelReady);
 
 public record SubscriptionPlanDto(
     string Name,
@@ -102,6 +104,10 @@ public record PaymentAcknowledgementRequest(bool Acknowledged);
 public record SecurityPreferenceResponse(string SecurityPreference);
 
 public record PaymentAcknowledgementResponse(DateTime? PaymentAcknowledgedAt);
+
+public record SetSecurityLevelRequest(string SecurityLevel);
+
+public record SecurityLevelResponse(string SecurityLevel);
 
 public record OfflineByokUploadRequest(
     string Version,

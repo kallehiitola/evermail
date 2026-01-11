@@ -14,10 +14,11 @@ Evermail is a **Freemium SaaS** with tiered subscriptions. Users can start free 
 | Feature | Free | Pro | Team | Enterprise |
 |---------|------|-----|------|-----------|
 | **Price** | €0/month | €9/month | €29/month | €99/month |
-| **Max Storage** | 1 GB | 5 GB | 50 GB | 500 GB |
+| **Max Storage** | 1 GB | 5 GB | **500 GB** | **2 TB** |
 | **Max Users** | 1 | 1 | 5 | 50 |
 | **Max Mailboxes** ⭐ | **1 only** | **Unlimited** | **Unlimited** | **Unlimited** |
 | **Data Retention** | 30 days | 1 year | 2 years | Configurable (1-10 years) |
+| **Max file size (single upload)** ⭐ | **1 GB** | **5 GB** | **10 GB** | **100 GB** |
 | **Full-Text Search** | ✅ Basic | ✅ Advanced | ✅ Advanced | ✅ Advanced |
 | **AI-Powered Search** | ❌ | ✅ | ✅ | ✅ |
 | **Email Summaries** | ❌ | ✅ (50/month) | ✅ (500/month) | ✅ Unlimited |
@@ -27,6 +28,25 @@ Evermail is a **Freemium SaaS** with tiered subscriptions. Users can start free 
 | **API Access** | ❌ | ❌ | ✅ Limited | ✅ Full |
 | **Priority Support** | ❌ | ❌ | ❌ | ✅ |
 | **SLA** | None | None | 99.5% | 99.9% |
+
+### Security levels & pricing (per-mailbox)
+
+Evermail will support **three security levels** selectable **per mailbox upload** (tenant has a default):
+
+1. **Full Service** (default): best search/AI; Evermail services can decrypt during processing (audited).
+2. **Confidential Processing**: same capabilities, but decryption is restricted to attested confidential compute with SKR gating.
+3. **Zero-Access**: client-side encryption; Evermail stores ciphertext only; server-side capabilities are limited.
+
+**Pricing direction (not final numbers yet):**
+- **Full Service** is included in the base subscription tiers above.
+- **Confidential Processing** is priced as a premium add-on (either:
+  - **per mailbox** (e.g., “Confidential mailbox”), or
+  - **per processed GB/month** (aligns with higher compute cost of TEEs)).
+- **Zero-Access** can be:
+  - included (it reduces server compute), or
+  - priced as a “privacy mode” add-on (it increases UX/support surface and client-side compute expectations).
+
+We will finalize pricing once we validate the real-world cost envelope for confidential compute in EU regions (see `Documentation/Deployment.md`).
 
 ## Detailed Tier Breakdown
 

@@ -557,6 +557,13 @@ namespace Evermail.Infrastructure.Migrations
                     b.Property<DateTime?>("PurgeAfter")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("SecurityLevel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("FullService");
+
                     b.Property<DateTime?>("SoftDeletedAt")
                         .HasColumnType("datetime2");
 
@@ -831,6 +838,13 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<DateTime?>("PurgeAfter")
                         .HasColumnType("datetime2");
+
+                    b.Property<string>("SecurityLevel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("FullService");
 
                     b.Property<string>("SourceFormat")
                         .IsRequired()
@@ -1180,6 +1194,13 @@ namespace Evermail.Infrastructure.Migrations
 
                     b.Property<Guid?>("PaymentAcknowledgedByUserId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("SecurityLevel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("FullService");
 
                     b.Property<string>("SecurityPreference")
                         .IsRequired()

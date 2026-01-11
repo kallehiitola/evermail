@@ -34,7 +34,7 @@ public class Worker(
         catch (Exception ex)
         {
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            activity?.RecordException(ex);
+            activity?.AddException(ex);
             logger.LogError(ex, "❌ Failed to apply database migrations");
             throw;
         }

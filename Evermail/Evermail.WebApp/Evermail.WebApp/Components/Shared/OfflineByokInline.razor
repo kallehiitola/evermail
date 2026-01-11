@@ -15,8 +15,10 @@
             <div>
                 <p class="hero-eyebrow text-uppercase mb-1">Offline BYOK lab</p>
                 <h5 class="mb-1">Need a tenant key right now?</h5>
-                <p class="text-muted mb-0">Generate a wrapped DEK bundle entirely in your browser. Nothing is sent to
-                    Evermail.</p>
+                <p class="text-muted mb-0">
+                    Generate a wrapped DEK bundle entirely in your browser. The plaintext key never leaves your device.
+                    (To enable BYOK for this tenant, we upload the wrapped bundle + passphrase once; the passphrase is not stored.)
+                </p>
             </div>
             <span class="badge bg-warning text-dark text-uppercase">Prototype</span>
         </div>
@@ -67,7 +69,7 @@
                     }
                     Generate offline key
                 </button>
-                <button class="btn btn-outline-secondary" type="button" disabled="@(_bundle is null || _isGenerating)"
+                <button class="btn btn-outline-secondary" type="button" disabled="@(_bundle is null || _isGenerating || !_ackRecovery)"
                     @onclick="DownloadBundleAsync">
                     <i class="bi bi-download me-2"></i>Download bundle
                 </button>
@@ -78,21 +80,33 @@
         {
             <div class="inline-byok__result mt-3">
                 <div class="alert alert-warning small mb-3">
-                    <strong>Reminder:</strong> Copy the plaintext key to a password manager immediately. Evermail will never
-                    see it again.
+                    <strong>Reminder:</strong> Store this recovery bundle offline. Evermail cannot recover it if you lose it.
+                </div>
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="ackInlineRecovery" @bind="_ackRecovery" />
+                    <label class="form-check-label" for="ackInlineRecovery">
+                        I understand Evermail cannot recover this bundle or passphrase.
+                    </label>
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Plaintext DEK (Base64)</label>
                     <div class="input-group">
-                        <input class="form-control" readonly value="@_bundle.PlaintextDek" />
-                        <button class="btn btn-outline-secondary" type="button" @onclick="CopyPlaintextAsync">
+                        <input class="form-control" readonly value="@(_ackRecovery ? _bundle.PlaintextDek : "••••••••••••••••")" />
+                        <button class="btn btn-outline-secondary" type="button" disabled="@(!_ackRecovery)" @onclick="CopyPlaintextAsync">
                             <i class="bi bi-clipboard"></i>
                         </button>
                     </div>
                 </div>
                 <div class="mb-3">
                     <label class="form-label fw-semibold">Bundle preview (wrapped)</label>
-                    <pre class="inline-byok__preview"><code>@_bundlePreview</code></pre>
+                    @if (_ackRecovery)
+                    {
+                        <pre class="inline-byok__preview"><code>@_bundlePreview</code></pre>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info small mb-0">Acknowledge the recovery warning to view/copy bundle material.</div>
+                    }
                 </div>
                 <div class="mb-0">
                     <label class="form-label fw-semibold">Checksum</label>
@@ -158,6 +172,7 @@
     private readonly OfflineByokForm _form = new();
     private bool _isGenerating;
     private bool _isUploadingBundle;
+    private bool _ackRecovery;
     private string? _errorMessage;
     private string? _statusMessage;
     private OfflineByokBundle? _bundle;

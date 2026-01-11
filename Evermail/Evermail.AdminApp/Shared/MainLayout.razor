@@ -1,19 +1,88 @@
 ﻿@inherits LayoutComponentBase
+@using System.Security.Claims
+@using Evermail.AdminApp.Auth
+@inject NavigationManager Nav
+@inject IWebHostEnvironment Env
 
-<PageTitle>Evermail.AdminApp</PageTitle>
+<PageTitle>Evermail Admin</PageTitle>
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<div class="app-shell">
+    <AuthorizeView>
+        <Authorized>
+            <aside class="app-shell__sidebar">
+                <NavMenu />
+            </aside>
+        </Authorized>
+    </AuthorizeView>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://docs.microsoft.com/aspnet/" target="_blank">About</a>
+    <main class="app-shell__main">
+        <div class="admin-topbar-wrap">
+            <header class="admin-topbar">
+                <div class="admin-topbar__inner">
+                    <div class="admin-topbar__left">
+                        <div class="admin-topbar__kicker">Evermail</div>
+                        <div class="admin-topbar__title">@GetCurrentTitle()</div>
+                    </div>
+                    <div class="admin-topbar__right">
+                        <span class="admin-pill">@Env.EnvironmentName</span>
+
+                        <AuthorizeView>
+                            <Authorized Context="ctx">
+                                <span class="admin-pill admin-pill--user" title="@GetEmail(ctx.User)">
+                                    <span class="admin-pill__dot">@GetInitials(ctx.User)</span>
+                                    <span class="admin-pill__text">@GetEmail(ctx.User)</span>
+                                </span>
+                                <form method="post" action="/auth/logout" class="admin-topbar__signout">
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i>Sign out
+                                    </button>
+                                </form>
+                            </Authorized>
+                        </AuthorizeView>
+                        <ThemeToggle />
+                    </div>
+                </div>
+            </header>
         </div>
 
-        <article class="content px-4">
+        <div class="app-shell__content">
             @Body
-        </article>
+        </div>
     </main>
 </div>
+
+@code {
+    private string GetCurrentTitle()
+    {
+        var path = Nav.ToBaseRelativePath(Nav.Uri);
+        path = path.Split('?', '#')[0].Trim('/');
+
+        return path switch
+        {
+            "" => "Ops Console",
+            "tenants" => "Tenants & Users",
+            "business" => "Business Dashboard",
+            _ => "Admin"
+        };
+    }
+
+    private static string GetEmail(ClaimsPrincipal user) =>
+        AdminAuthPolicy.GetEmail(user) ?? user.Identity?.Name ?? "Unknown";
+
+    private static string GetInitials(ClaimsPrincipal user)
+    {
+        var email = GetEmail(user);
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return "A";
+        }
+
+        var left = email.Split('@')[0];
+        if (left.Length >= 2)
+        {
+            return $"{char.ToUpperInvariant(left[0])}{char.ToUpperInvariant(left[1])}";
+        }
+
+        return char.ToUpperInvariant(left[0]).ToString();
+    }
+}

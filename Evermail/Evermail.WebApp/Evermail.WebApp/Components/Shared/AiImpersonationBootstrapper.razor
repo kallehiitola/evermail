@@ -43,9 +43,10 @@
         {
             var triggerKey = aiOptions.TriggerQueryKey;
             var triggerValue = aiOptions.TriggerValue ?? "1";
-            var endpoint = $"/api/v1/dev/ai-auth?{triggerKey}={Uri.EscapeDataString(triggerValue)}";
+            var endpoint = $"api/v1/dev/ai-auth?{triggerKey}={Uri.EscapeDataString(triggerValue)}";
+            var apiUri = new Uri(new Uri(Navigation.BaseUri), endpoint);
 
-            var response = await Http.GetFromJsonAsync<ApiResponse<AuthResponse>>(endpoint);
+            var response = await Http.GetFromJsonAsync<ApiResponse<AuthResponse>>(apiUri);
 
             if (response?.Success == true && response.Data is not null)
             {

@@ -1,0 +1,47 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+<button type="button"
+        class="theme-toggle btn btn-sm btn-outline-secondary"
+        title="@Title"
+        @onclick="ToggleAsync">
+    <i class="bi @Icon" aria-hidden="true"></i>
+    <span class="visually-hidden">@Title</span>
+</button>
+
+@code {
+    private string _theme = "light";
+
+    private string Icon => _theme == "dark" ? "bi-sun" : "bi-moon-stars";
+    private string Title => _theme == "dark" ? "Switch to light mode" : "Switch to dark mode";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        try
+        {
+            _theme = await JS.InvokeAsync<string>("EvermailTheme.getTheme");
+            StateHasChanged();
+        }
+        catch
+        {
+            // If JS isn't ready, keep default.
+        }
+    }
+
+    private async Task ToggleAsync()
+    {
+        try
+        {
+            _theme = await JS.InvokeAsync<string>("EvermailTheme.toggleTheme");
+            StateHasChanged();
+        }
+        catch
+        {
+            // Ignore JS failures.
+        }
+    }
+}
+
+

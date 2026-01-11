@@ -13,6 +13,9 @@ namespace Evermail.WebApp.Endpoints;
 
 public static class TenantEndpoints
 {
+    private static readonly HashSet<string> AllowedSecurityLevels =
+        new(StringComparer.OrdinalIgnoreCase) { "FullService", "Confidential", "ZeroAccess" };
+
     public static RouteGroupBuilder MapTenantEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/onboarding/status", GetOnboardingStatusAsync)
@@ -22,6 +25,9 @@ public static class TenantEndpoints
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
         group.MapPut("/onboarding/payment", AcknowledgePaymentAsync)
+            .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
+
+        group.MapPut("/security-level", SetSecurityLevelAsync)
             .RequireAuthorization(policy => policy.RequireRole("Admin", "SuperAdmin"));
 
         var encryption = group.MapGroup("/encryption")
@@ -351,6 +357,9 @@ public static class TenantEndpoints
         var paymentAcknowledgedAt = tenant.PaymentAcknowledgedAt;
         var identityProvider = ResolveIdentityProvider(httpContext.User);
 
+        var securityLevel = NormalizeSecurityLevel(tenant.SecurityLevel);
+        var securityLevelReady = IsSecurityLevelReady(securityLevel, encryptionConfigured, securityPreference);
+
         var dto = new TenantOnboardingStatusDto(
             HasAdmin: hasAdmin,
             EncryptionConfigured: encryptionConfigured,
@@ -360,11 +369,57 @@ public static class TenantEndpoints
             SecurityPreference: securityPreference,
             PaymentAcknowledged: paymentAcknowledgedAt.HasValue,
             PaymentAcknowledgedAt: paymentAcknowledgedAt,
-            IdentityProvider: identityProvider);
+            IdentityProvider: identityProvider,
+            SecurityLevel: securityLevel,
+            SecurityLevelReady: securityLevelReady);
 
         return Results.Ok(new ApiResponse<TenantOnboardingStatusDto>(
             Success: true,
             Data: dto));
+    }
+
+    private static async Task<IResult> SetSecurityLevelAsync(
+        SetSecurityLevelRequest request,
+        EvermailDbContext context,
+        TenantContext tenantContext,
+        IOnboardingStatusService onboardingStatusService,
+        CancellationToken cancellationToken)
+    {
+        if (tenantContext.TenantId == Guid.Empty)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (request is null || string.IsNullOrWhiteSpace(request.SecurityLevel))
+        {
+            return Results.BadRequest(new ApiResponse<object>(false, null, "securityLevel is required"));
+        }
+
+        var normalized = NormalizeSecurityLevel(request.SecurityLevel);
+        if (!AllowedSecurityLevels.Contains(normalized))
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: $"Unsupported securityLevel '{request.SecurityLevel}'. Allowed: FullService, Confidential, ZeroAccess"));
+        }
+
+        var tenant = await context.Tenants
+            .FirstOrDefaultAsync(t => t.Id == tenantContext.TenantId, cancellationToken);
+
+        if (tenant is null)
+        {
+            return Results.NotFound(new ApiResponse<object>(false, null, "Tenant not found."));
+        }
+
+        tenant.SecurityLevel = normalized;
+        tenant.UpdatedAt = DateTime.UtcNow;
+        await context.SaveChangesAsync(cancellationToken);
+
+        onboardingStatusService.Invalidate(tenantContext.TenantId);
+
+        return Results.Ok(new ApiResponse<SecurityLevelResponse>(
+            Success: true,
+            Data: new SecurityLevelResponse(normalized)));
     }
 
     private static async Task<IResult> SetSecurityPreferenceAsync(
@@ -400,6 +455,49 @@ public static class TenantEndpoints
             Success: true,
             Data: new SecurityPreferenceResponse(normalized)));
     }
+
+    private static string NormalizeSecurityLevel(string? level)
+    {
+        if (string.IsNullOrWhiteSpace(level))
+        {
+            return "FullService";
+        }
+
+        var trimmed = level.Trim();
+        if (trimmed.Equals("full", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("fullservice", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("full_service", StringComparison.OrdinalIgnoreCase))
+        {
+            return "FullService";
+        }
+
+        if (trimmed.Equals("confidential", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("confidentialprocessing", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("confidential_processing", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Confidential";
+        }
+
+        if (trimmed.Equals("zeroaccess", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("zero-access", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("zero_access", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ZeroAccess";
+        }
+
+        return trimmed;
+    }
+
+    private static bool IsSecurityLevelReady(string securityLevel, bool encryptionConfigured, string securityPreference)
+        => securityLevel switch
+        {
+            "FullService" => true,
+            // For now, Confidential readiness piggybacks on the existing “encryption configured” checks (provider + SKR).
+            "Confidential" => encryptionConfigured,
+            // For now, Zero-Access readiness follows the existing upload gating: BYOK + encryption configured.
+            "ZeroAccess" => encryptionConfigured && string.Equals(securityPreference, "BYOK", StringComparison.OrdinalIgnoreCase),
+            _ => true
+        };
 
     private static async Task<IResult> AcknowledgePaymentAsync(
         PaymentAcknowledgementRequest request,

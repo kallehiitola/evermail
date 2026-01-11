@@ -55,6 +55,19 @@ Evermail is a cloud-based SaaS platform that enables users to upload, view, sear
   - Email search interface with full-text and AI-powered search
   - Email viewer with HTML rendering and attachment download
   - Account settings and billing portal (Stripe)
+
+##### Security levels (service capability vs cryptographic isolation)
+
+Evermail’s product surface intentionally supports **three security levels** (see `Documentation/Security.md` for guarantees):
+
+1. **Full Service** — server-side ingestion + full search + AI (highest capability).
+2. **Confidential Processing** — same capabilities, but decryption happens only in attested confidential compute (TEE) with Secure Key Release.
+3. **Zero-Access** — client-side encryption; Evermail stores ciphertext only (lowest capability on the server, strongest key custody).
+
+**Architectural consequence**: any feature that requires plaintext (parsing, indexing, AI) must be executed either:
+- on standard compute (Full Service),
+- inside confidential compute (Confidential Processing), or
+- inside the client (Zero-Access).
 - **Deployment**: Azure Static Web Apps or served from WebApp API
 
 ##### Product UI & UX Principles (November 2025 refresh)
@@ -102,11 +115,17 @@ Apply these rules whenever you touch the Blazor surface so future prompts inheri
 Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth, settings) visually cohesive and future AI prompts can extend the system without guesswork.
 
 ##### Guided Onboarding Wizard (Dec 2025 rollout)
-- **Entry point**: After account creation/OAuth we redirect to `/onboarding` instead of `/admin/encryption`. The wizard is also linked from the dashboard banner (`/onboarding?step=security`) so admins can jump straight to unfinished work.
-- **Steps & data flow**:
-  1. **Choose plan** – `GET /api/v1/tenants/plans` returns every active `SubscriptionPlan` (pricing, limits, features). Selecting one calls `PUT /api/v1/tenants/subscription`, which updates `Tenant.SubscriptionTier`, max limits, and stamps `Tenant.OnboardingPlanConfirmedAt`. Staying on the Free plan simply re-posts the same tier so we still record confirmation.
-  2. **Secure tenant** – Surfaces the encryption status from `GET /api/v1/tenants/onboarding/status` plus shortcuts to `/admin/encryption?onboarding=1` and the offline BYOK lab. A “Refresh status” button re-queries the endpoint once the admin finishes SKR/AWS wiring.
-  3. **Upload mailbox** – Links to `/upload`, reminds the user of their plan limits, and offers sample data instructions so they can exercise ingestion immediately.
+- **Entry point**: After account creation/OAuth we redirect to `/onboarding` instead of deep-linking into Settings. The wizard is also linked from the dashboard banner (`/onboarding?step=security`) so admins can jump straight to unfinished work.
+- **Steps & data flow** (target with 3 security levels):
+  1. **Choose plan** – `GET /api/v1/tenants/plans` returns every active `SubscriptionPlan` (pricing, limits, features). Selecting one calls `PUT /api/v1/tenants/subscription`, which updates `Tenant.SubscriptionTier`, max limits, and stamps `Tenant.OnboardingPlanConfirmedAt`.
+  2. **Choose security level** – user selects **Full Service**, **Confidential Processing**, or **Zero-Access**. This sets a **tenant default** used for future uploads (mailboxes can override at upload time).
+  3. **Configure keys (if needed)**:
+     - Full Service: no action needed (Evermail-managed keys).
+     - Confidential: requires BYOK + SKR readiness checks (Key Vault/AWS KMS + attestation policy).
+     - Zero-Access: introduces the recovery bundle UX (client-only) and deterministic token preferences.
+  4. **Upload mailbox** – links to the correct upload experience:
+     - Full/Confidential: `/upload` (server-managed ingestion).
+     - Zero-Access: `/upload?mode=zero-access` (client-only encryption + local search/index UX).
 - **Progress tracking**: `TenantOnboardingStatusDto` now includes `PlanConfirmed` and `SubscriptionTier`. The wizard (and dashboard banner) calculates completion purely from the backend (`PlanConfirmed`, `EncryptionConfigured`, `HasMailbox`) so refreshing the page always reflects reality.
 - **Design language**: Uses the same gradient hero, pill groups, and `.modern-card` stack as Home/Upload. The left rail is a progress list (step number + icon) while the right pane renders rich content for the selected step (plan cards, security alert, upload CTA). Everything is dark-mode aware thanks to existing tokens.
 
@@ -153,7 +172,7 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
 - **Security choice rationale**:
   - Evermail-managed: highlight speed, zero configuration, ideal for demos/debugging. Disclose that Evermail infrastructure can decrypt during operations.  
   - BYOK: highlight tenant-controlled keys, zero-operator access, compliance readiness. Mention that setup takes longer and requires vault access.  
-- **Offline BYOK lab integration**: reuse the existing component but frame it as “Need a key right now? Generate a test bundle without leaving your browser.” Provide reminders (“Store this bundle safely—Evermail can’t recover it”).  
+- **Zero-Access integration**: treat it as a premium “privacy mode” with strong warnings and an easy “I understand” gated recovery bundle download. Make it crystal clear which features become client-side only.
 - **Placeholder billing step**: be transparent (“Stripe hookup coming soon”) yet actionable (“Mark this step as acknowledged so we can alert you when checkout is ready”).  
 - **Data contract updates** (for future implementation):
   - `TenantOnboardingStatusDto` gains `SecurityPreference`, `PaymentAcknowledged`, `PaymentAcknowledgedAt`, and `IdentityProvider`.
@@ -161,42 +180,31 @@ Adhering to these rules keeps every surface (dashboard, mailboxes, upload, auth,
 
 This spec keeps the onboarding flow grounded in the current implementation while documenting the UX copy, OAuth considerations, and marketing positioning we expect to ship alongside the managed/BYOK security choices.
 
-#### Admin Dashboard (Blazor Server)
-- **Purpose**: Internal operations and monitoring
-- **Technology**: Blazor Server for real-time updates
-- **Key Features**:
-  - User and tenant management
-  - Mailbox processing status monitoring
-  - Storage usage analytics
-  - Payment and subscription management
-  - Error logs and job queue monitoring
-- **Access Control**: Admin-only, protected by role-based claims
+#### Evermail.AdminApp (SuperAdmin portal – Blazor Server)
+- **Purpose**: Internal-only operations console for Evermail staff (NOT customer tenant admins).
+- **Technology**: Blazor Server (fast iteration + real-time dashboards), MudBlazor, shared theme tokens.
+- **Data scope**: Cross-tenant by design; reads from SQL + probes platform services (Key Vault/Storage). Does **not** handle tenant plaintext by default.
+- **Deployment**: Standard compute (Container Apps/App Service). In production, AdminApp must operate on **production resources only** (no runtime switching).
 
-##### Admin Dashboard Action Plan
-1. **Adopt shared look & feel**
-   - Reuse the existing Blazor WebApp theme tokens (`wwwroot/app.css`, `.modern-card`, `.stat-grid`, `.glass-panel`, etc.) via a shared Razor Class Library so admin surfaces inherit typography, spacing, gradients, and dark-mode rules without divergence.
-   - Mirror navigation, card layouts, and hero/header treatments from user pages to keep brand continuity; extend tokens only in `app.css` and propagate to both apps.
-2. **Finalize admin API contracts**
-   - Document `/api/v1/admin/*` endpoints in `Documentation/API.md` covering tenants, users, mailboxes, jobs, analytics, billing, and audit logs.
-   - Add DTOs in `Evermail.Common` for dashboard tiles (queue depth, processing SLA, storage totals) before UI work begins so UI and backend evolve in lockstep.
-3. **Scaffold Evermail.AdminApp**
-   - Ensure the project references the shared theme library, registers MudBlazor, and enforces `[Authorize(Roles = "Admin,SuperAdmin")]` plus tenant-aware filters even for admin views.
-   - Stand up layout + navigation (Dashboard, Tenants, Users, Mailboxes, Jobs, Analytics, Billing, Logs) with placeholder components styled via the shared tokens to quickly validate look and feel.
-4. **Iterate by vertical slices**
-   - **Operations dashboard**: live queue depth, ingestion throughput, failure counts (SignalR/polling) plus quick links into Aspire logs.
-   - **Tenant/user management**: searchable grids, role toggles, plan overrides, retention settings, enforcement of multi-tenant guardrails prior to invoking actions.
-   - **Mailbox/job lifecycle**: status timelines, retry/purge controls, deletion queue visibility, attachment footprint per mailbox.
-   - **Analytics/billing**: MRR tiles, churn/ARPU charts, Stripe sync state, storage per tier, cost vs revenue deltas.
-   - **Audit & error intelligence**: surfaced Application Insights exceptions, audit trail search, downloadable CSV exports.
-5. **Quality gates**
-   - Automated tests for admin endpoints (role enforcement, tenant scoping, pagination).
-   - Storybook-style visual regression (optional) or screenshot diffs to ensure shared look & feel parity with the main WebApp.
-   - Observability hooks (structured logging, Application Insights custom metrics) to power the dashboard itself.
-6. **Preseed privileged identities**
-   - Keep a single ASP.NET Core Identity store for WebApp, AdminApp, and API clients; privilege levels come from roles (`User`, `Admin`, `SuperAdmin`) on the same user objects, which preserves tenant filtering and JWT claim generation.
-   - Extend `DataSeeder` to accept a `UserManager<ApplicationUser>` and create default SuperAdmin accounts (e.g., `founder@evermail.com`, `ops@evermail.com`) with randomly generated passwords stored in user secrets/Key Vault for production.
-   - Ensure the seed users belong to a dedicated `EvermailOps` tenant so their activity never collides with customer data, and document rotation procedures (disable default SuperAdmins after onboarding real admins).
-   - Configure the admin/API JWT policies to require the same Audience/Issuer as the main app so tokens remain interchangeable; scope API clients via roles/claims rather than a separate credential silo.
+##### Current AdminApp surfaces (Dec 2025)
+- **Ops Console** (`/`): runtime snapshot + Key Vault/Storage/SQL full-text probes; can set `EvermailRuntime--Mode` in Key Vault in development.
+- **Tenants & Users** (`/tenants`): cross-tenant overview, onboarding/security badges, tenant/user operational actions, and role tools.
+- **Business Dashboard** (`/business`): adoption + usage tiles and early MRR rollups (derived from `Subscriptions` + `SubscriptionPlans`).
+
+##### AdminApp access model (high level)
+- **Authentication**: OAuth-only (Google + Microsoft) using cookies.
+- **Authorization**: SuperAdmin-only policy for all pages; allowlist enforced on OAuth sign-in.
+- **Dev bypass**: A dev-only, explicitly enabled bypass exists to unblock fast UI iteration without breaking OAuth flows.
+
+##### AdminApp look & feel (UI contract)
+AdminApp must match the customer-facing WebApp’s visual system. Use these rules whenever you touch AdminApp UI:
+- **Reuse tokens**: All colors/typography flow through the shared `wwwroot/app.css` tokens (no new hex colors unless added as a token).
+- **Layouts**:
+  - Page structure uses: `page-hero` → `stat-grid` → `modern-card` sections.
+  - All pages use the `.admin-page` wrapper for consistent vertical rhythm (desktop and mobile).
+  - Login is chrome-less (no sidebar/topbar before auth).
+- **Navigation + chrome**: AdminApp topbar must mirror WebApp’s pill/blur treatment; the left rail is reserved for section-level navigation (no “single-function pages”).
+- **Components**: Prefer `.modern-card`, `.stat-grid`, `.data-table` and `.action-pill` patterns; avoid ad-hoc spacing utilities as page layout glue.
 
 #### Mobile App (.NET MAUI Blazor Hybrid - Phase 2)
 - **Purpose**: Native mobile experience for iOS and Android
@@ -228,10 +236,16 @@ This spec keeps the onboarding flow grounded in the current implementation while
     - Handle file uploads to Blob Storage
     - Enqueue processing jobs
     - Track mailbox processing status
+    - **Security-level routing**:
+      - Full Service / Confidential: queue ingestion and store per-email rows for search.
+      - Zero-Access: treat uploads as opaque ciphertext, store only mailbox metadata + deterministic tokens; do not enqueue ingestion.
   - **Search APIs**
     - Full-text search using SQL Server FTS (Subject, Text, HTML, Recipient blobs)
     - Advanced filtering (date range, sender, recipient, conversation/thread)
     - AI-powered semantic search (Phase 2)
+    - **Security-level behavior**:
+      - Full Service / Confidential: server-side search returns message-level results.
+      - Zero-Access: server-side search is limited to mailbox discovery via deterministic tokens; message-level search runs client-side.
   - **Billing Integration**
     - Stripe Checkout session creation
     - Customer Portal redirect
@@ -269,6 +283,12 @@ This spec keeps the onboarding flow grounded in the current implementation while
 
 - **Supported formats**: raw `.mbox`, Google Takeout `.zip` (multiple `.mbox` files), standalone `.pst`, Microsoft export `.zip` (contains `.pst`), Outlook offline cache files (`.ost` / `.ost.zip`), `.eml` bundles, and `.eml`/Maildir-style `.zip` archives.
 - **Detection**: The UI no longer asks users to pick a format. `ArchiveFormatDetector` runs immediately after each upload completes, opens the blob directly from Azure Storage, and inspects headers/ZIP entries to determine whether it is a PST/OST (raw or zipped), Google Takeout `.mbox`, Maildir `.eml` bundle, or single `.eml`. The resolved `SourceFormat` is persisted on both `Mailbox` and `MailboxUpload` before we queue ingestion.
+
+##### Worker behavior by security level
+
+- **Full Service**: worker decrypts (if needed), normalizes archives, parses messages, extracts attachments, and writes searchable rows to SQL.
+- **Confidential Processing**: worker does the same work, but must run in a confidential compute plane and obtain keys through SKR before decrypting.
+- **Zero-Access**: worker must **never** run for that mailbox. No server-side parsing/indexing is possible without violating key custody.
 - **Normalized sizing**: When `ArchivePreparationService` finishes converting the archive into a canonical `.mbox`, the worker records `NormalizedSizeBytes` on both mailboxes and uploads. UI progress bars and storage dashboards always prefer this value so “Processed 1.3 GB / 1.3 GB” matches the uncompressed workload even if the original upload was a much smaller ZIP.
 - **Normalization**: `ArchivePreparationService` streams every upload through a temp workspace before `MailboxProcessingService` sees it. Google Takeout and Apple Mail ZIP exports are expanded into a single `.mbox`, loose `.eml` files (or `.eml` ZIP bundles) are wrapped into a synthetic `.mbox`, and Outlook `.pst` / `.pst.zip` / `.ost` payloads are converted to `.mbox` via `PstToMboxWriter`.
 - **PST/OST conversion**: `PstToMboxWriter` embeds the open-source `XstReader` engine (Ms-PL) to walk every folder/message in the PST/OST, hydrate recipients + attachments, and emit canonical `MimeMessage` instances into an `MboxrdWriter`. Attachments stay inline so the existing hashing/dedupe/attachment pipeline works untouched. The implementation follows Microsoft’s [MS-PST specification](https://learn.microsoft.com/en-us/openspecs/exchange_server_protocols/ms-pst/) and the official [Outlook export workflow](https://support.microsoft.com/en-us/office/export-emails-contacts-and-calendar-items-to-outlook-using-a-pst-file-14252b52-3075-4e9b-be4e-ff9ef1068f91).
@@ -436,7 +456,7 @@ To satisfy “no admin can read my email” requirements, Evermail introduces a 
 
 - **Envelope encryption**: Each mailbox/upload owns an AES-256-GCM Data Encryption Key (DEK). The DEK is wrapped with the tenant’s Master Key (TMK) that lives in the tenant’s Azure Key Vault or Managed HSM. The platform only stores wrapped DEKs; plaintext keys exist solely inside confidential workloads.
 - **Tenant-managed keys (BYOK)**: Tenants provide a Key Vault key identifier during onboarding. We configure Key Vault key-release policies so that unwrap operations succeed only when the request comes from an attested Evermail workload. Operators with SuperAdmin access cannot call `UnwrapKey` manually because the policy denies non-attested contexts.
-- **Confidential workloads**: Ingestion, search, and AI services run inside Azure Confidential Container Apps (AMD SEV-SNP). Each container image is signed; its attestation quote is validated automatically before Key Vault releases any DEK. Control-plane APIs (billing, admin UI) remain outside the enclave and never see plaintext.
+- **Confidential workloads**: Ingestion/search/AI workloads must run inside a hardware-backed TEE (attested compute) before Key Vault can enforce Secure Key Release (SKR) policies. Control-plane APIs (billing, admin UI) remain outside the enclave and never see plaintext.
 - **Deterministic encrypted indexes**: After decrypting inside the TEE, workers normalize and encrypt search tokens using AES-SIV with a tenant-specific salt. SQL Server stores only encrypted tokens yet can still satisfy equality lookups, keeping FTS performance while protecting content from database admins.
 - **Audit + monitoring**: Every decrypt/unwrap event is logged in both Key Vault and the Evermail `AuditLogs` table, including attestation hash, workload version, and purpose. Alerts trigger on unusual key-release patterns.
 - **Optional client share**: For the Paranoid tier, tenants can require a passphrase-derived key that double-wraps each DEK. Background jobs receive short-lived passphrase tokens; exports can be decrypted offline via an open-source CLI so customers remain in control even if Evermail infrastructure is compromised.
@@ -446,7 +466,7 @@ To satisfy “no admin can read my email” requirements, Evermail introduces a 
 | Phase | Scope | Azure references |
 | --- | --- | --- |
 | **Phase 1 – BYOK foundation (MVP)** | Tenants onboard a customer-managed key (CMK) stored in their Azure Key Vault/Managed HSM; Evermail rotates per-mailbox DEKs, wraps them with the TMK, and enforces strict RBAC/PIM to limit unwrap operations. Plaintext still flows through standard Container Apps, so we clearly document that superadmins retain emergency access. Secure Key Release policies are authored up-front but initially reference “allowEvermailOps” attestation placeholders so we can validate the flow. | [Secret & key management](https://learn.microsoft.com/en-us/azure/confidential-computing/secret-key-management) |
-| **Phase 2 – Zero-trust enforcement** | Move ingestion, search, and AI workers into Azure Confidential Container Apps/AKS pools ([deployment models](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-computing-deployment-models), [confidential containers](https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-containers)). Attach production-grade Secure Key Release policies so Key Vault only unwraps DEKs for Microsoft Azure Attestation (MAA) claims emitted by the signed confidential images ([SKR + attestation](https://learn.microsoft.com/en-us/azure/confidential-computing/concept-skr-attestation)). At this point Evermail operators cannot read tenant mail even with elevated permissions. |
+| **Phase 2 – Zero-trust enforcement** | Move ingestion/search/AI into an attested compute plane (EU-ready path: AKS confidential VM node pools; alternative: ACI confidential containers) and attach production-grade Secure Key Release policies so Key Vault only unwraps DEKs for Microsoft Azure Attestation (MAA) claims emitted by signed workloads ([SKR + attestation](https://learn.microsoft.com/en-us/azure/confidential-computing/concept-skr-attestation)). At this point Evermail operators cannot read tenant mail even with elevated permissions. |
 
 Implementation highlights:
 
@@ -468,7 +488,7 @@ Implementation highlights:
 - **UI-only workflow** – The admin encryption page drives every SKR action through buttons and status chips; we never ask tenants to download scripts or edit JSON manually. “Generate & apply” posts the template automatically, while “Clear policy” calls the delete endpoint in one click.
 
 - **Aspire integration** – The Aspire AppHost keeps orchestrating WebApp + Worker, but the SKR services run inside the same solution so developers can iterate with `dotnet run Evermail.AppHost`. No new Azure resources are required in Phase 1; the Key Vault policies still point at the managed identity associated with the AppHost deployment.
-- **Deployment reality (Nov 2025)** – Because Azure Container Apps hasn’t exposed the confidential workload profile in EU yet, the ingestion worker currently runs in a standard Dedicated Container App (`evermail-conf-worker`) in West Europe. It sits behind a private VNet (`evermail-secure-vnet/container-apps-conf`), authenticates with a user-assigned managed identity, and sources its SQL/blob/queue secrets from `evermail-prod-kv`. The SQL tier now lives on `evermail-sql-weu` (General Purpose Serverless, 1 vCore, 2 h auto-pause) and all blob/queue traffic flows through the dedicated StorageV2 account `evermailprodstg` (`mailbox-archives`, `gdpr-exports`, `mailbox-*` queues). We pin the Key Vault URI via `ConnectionStrings__key-vault` and inject the Offline BYOK protector by mirroring `OfflineByok--MasterKey` into the Container App (`offline-master` secret + `OfflineByok__MasterKey=secretref:offline-master`) so Zero-Access bundles stay decryptable without exposing plaintext keys. Once Microsoft adds the confidential workload profile we’ll recreate the environment, update SKR policies, and move the worker without touching the rest of the topology.
+- **Deployment reality (Nov 2025)** – Azure Container Apps’ confidential compute is region-limited in preview, so EU deployments should not assume ACA provides attested compute yet. Keep control-plane apps on standard compute and run the decryption-capable worker/search plane on **AKS confidential VM node pools** (or ACI confidential containers if you prefer the documented SKR sidecar model). See `Documentation/Deployment.md#deployment-decision-matrix` for the current recommendation.
 
 This layer allows us to advertise zero-trust guarantees: decrypt operations run only in measured hardware, tenant keys never leave customer control, and staff-level access provides observability/operations without exposure to message content.
 

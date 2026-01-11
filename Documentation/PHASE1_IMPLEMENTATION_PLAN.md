@@ -1,9 +1,16 @@
-# Phase 1: Large File Upload & Email Parsing - Implementation Plan
+# Phase 1: Large File Upload & Email Parsing - Implementation Plan (Historical)
 
-> **Date**: 2025-11-14  
-> **Status**: Ready to Start  
-> **Estimated Time**: 3-4 hours  
-> **Prerequisites**: Authentication complete, SOLID refactoring done
+> ⚠️ **Status note (2025-12-16)**: This document is **historical** and kept for reference.  
+> The Phase 1 goals have been implemented and then significantly expanded (multi-format uploads, lifecycle jobs, audit logging, rate limiting, GDPR self-service, zero-access encrypted uploads, SKR scaffolding, and Azure production runway work).
+>
+> **Canonical “where we are now”**:
+> - `Documentation/ProgressReports/ProgressReport.md` (timeline + current status)
+> - `Documentation/Architecture.md` (current ingestion/onboarding architecture)
+> - `Documentation/API.md` (current upload + encrypted-upload contracts)
+> - `Documentation/Deployment.md` (Azure deployment guidance + production runway)
+
+> **Original Date**: 2025-11-14  
+> **Original Status**: Ready to Start (at the time)
 
 ---
 
@@ -17,6 +24,19 @@ Build a **production-ready large file upload system** that:
 - Queues for **background processing** (scalable)
 - **Parses emails** with MimeKit
 - **Stores in database** for search and display
+
+---
+
+## ✅ Phase 1 Outcome (Implemented)
+
+This Phase 1 scope is now delivered (and extended). At a high level, Evermail currently supports:
+
+- **Direct-to-Blob uploads** with an initiate/complete handshake (plus re-import history).
+- **Automatic archive format detection** and **normalization** (mbox, zip bundles, pst/ost, eml bundles), including **plan-aware inflation guardrails**.
+- **Queue-driven ingestion + deletion** lifecycle with progress tracking and audit logging.
+- **Zero-access encrypted upload mode** (`/api/v1/mailboxes/encrypted-upload/*`) with deterministic token indexing for mailbox tags and header-derived tokens (from/to/cc/subject).
+
+For the exact current behaviors and endpoint contracts, follow the canonical docs listed at the top of this file.
 
 ---
 

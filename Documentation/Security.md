@@ -4,52 +4,180 @@
 
 Evermail handles sensitive email data and must maintain the highest security standards. This document outlines our security architecture, threat model, and compliance measures.
 
-### Security Modes & Zero-Access Strategy
+### Security Modes (3 levels) & “How much do you trust Evermail?”
 
-Evermail now offers two complementary protection tiers so tenants can choose the balance between usability and cryptographic isolation:
+Evermail will support **three security levels** so customers can choose the trade-off between **service quality (search/AI/features)** and **cryptographic isolation (who can ever access plaintext)**.
 
-| Tier | Description | Capabilities | Trade-offs |
-| --- | --- | --- | --- |
-| **Confidential Compute Mode (default)** | Data is stored encrypted at rest and only decrypted inside attested TEEs with Secure Key Release and tenant-controlled master keys. Operators cannot read data during normal operations and every unwrap is audited. | Full-text search, AI features, server-side processing, automated retention & export. | In absolute emergencies a break-glass process could still grant plaintext access (logged + tenant-approved). |
-| **Zero-Access Archive Mode (opt-in)** | All mailbox content is encrypted *in the browser* before upload using tenant-held keys (Blazor WebAssembly). Evermail infrastructure only ever sees ciphertext, even inside TEEs. | Strongest “we never see your mail” guarantee, BYOK support, optional deterministic token indexing. | Limited or client-side-only search, no key recovery if the tenant loses their passphrase, larger uploads due to encryption overhead. |
+> **Important accuracy note (current code vs target design)**  
+> Some parts of the current UI run as `InteractiveServer`, which means **JS interop + form fields can flow to the server**. The specs below describe the **intended guarantees** for each level and the **implementation rules required** to make those guarantees true. Until those rules are enforced in code, we must not market stronger guarantees than we actually provide.
 
-#### Zero-Access Archive Mode (Client-Side Encryption)
+#### Level 1 — Full Service (Maximum capability)
+
+- **Promise**: Best search and UX. Evermail provides ingestion, per-email viewing, attachments, full-text search, and AI features.
+- **Key reality**: Evermail services **can decrypt** during processing (with strict access controls, audit logs, and least privilege).
+- **Who it’s for**: Most users; “I want it to just work.”
+
+#### Level 2 — Confidential Processing (Strong isolation + full search)
+
+- **Promise**: Evermail can provide near-full capabilities, but **decryption only happens inside attested confidential compute** (TEE) and is gated by **Secure Key Release (SKR)** and tenant key policy. Every unwrap is audited.
+- **Key reality**: This meaningfully reduces operator access in normal operation, but it is still not the same as “a malicious SaaS operator can never ship malicious code.”
+- **Who it’s for**: Regulated customers who want full search + strong operational controls.
+ - **Key sources supported**: Confidential Processing can support **both**:
+   - **Evermail-managed keys** (keys are controlled by Evermail, but *released only to TEEs* under SKR policies and audited), and/or
+   - **Customer-managed keys (BYOK)** via Azure Key Vault / AWS KMS (policy-gated and audited).
+
+#### Level 3 — Zero-Access (Strictest: Evermail stores ciphertext only)
+
+- **Promise**: Evermail infrastructure **never receives mailbox plaintext keys** for this mailbox, and therefore cannot decrypt the mailbox ciphertext using DB + blob access.
+- **Capability trade-off**: Server-side ingestion/search/AI over message bodies is not possible without keys. Search is either:
+  - **client-side** (recommended: local index in the browser), and/or
+  - **token-based filtering** (deterministic tokens for selected fields).
+- **Who it’s for**: Compliance-driven customers willing to trade capability for strict key custody.
+
+#### Security level scope (tenant default vs per-mailbox)
+
+Recommended model:
+- Tenants choose a **default security level** during onboarding.
+- Each upload can **override** the default (i.e., security level is effectively **per-mailbox**).
+  - Rationale: teams often need “Full Service” for day-to-day and “Zero-Access” for a subset of archives.
+
+#### Implementation requirements per level (server vs browser)
+
+This is the non-negotiable rule set that enforces the guarantees:
+
+##### Level 1 (Full Service)
+- Allowed: server-side parsing, server-side indexing, attachment extraction, full text search (SQL FTS), AI features.
+- Required: encryption at rest (TDE/SSE), TLS, least-privilege identities, audit logs for sensitive actions.
+
+##### Level 2 (Confidential Processing)
+- Required: any component that decrypts mailbox content must run in **confidential compute** and obtain keys via **SKR** (or equivalent strong release policy).
+- Required: “normal” WebApp/UI must not hold plaintext DEKs in memory longer than necessary; keys are released to the worker only.
+- Required: append-only evidence (ledger or immutable logs) for key release events.
+
+##### Level 3 (Zero-Access)
+- Required: mailbox keys/passphrases **must never cross the browser → server boundary**.
+  - No `InteractiveServer` pages/components may generate keys, accept passphrases, or receive keys through JS interop.
+  - No JS interop calls may return plaintext key material to .NET on the server.
+  - No API endpoint may accept a mailbox plaintext key or a passphrase that can unwrap it.
+- Required: server treats the uploaded blob as **opaque ciphertext**. No ingestion worker parses it.
+- Allowed: server stores **opaque deterministic tokens** (HMAC outputs) to enable filtering without plaintext.
+
+> This implies that Zero-Access flows must be implemented as **Interactive WebAssembly (client-only)** UX for key generation, encryption, and client-side search.
+
+#### World-class BYOK onboarding (UX spec)
+
+This section defines the **tenant-facing onboarding experience** for key management and privacy modes. It must satisfy:
+- **Non-technical usability** (no scripts/CLI/JSON handoffs)
+- **Clear, honest guarantees** per security level
+- **Guarded recovery bundle flow** (acknowledgement gating)
+- **Fast success path** (trial users can be “searching in minutes”)
+
+##### Onboarding step: “Choose your security level”
+
+Show 3 cards with a one-line promise, 3 bullets, and a “What you give up” disclosure link:
+
+1. **Full Service (recommended for most)**  
+   - *Promise*: “Best search and viewing—Evermail does the heavy lifting.”  
+   - Bullets: “Full-text search”, “Attachment preview”, “AI features (plan dependent)”  
+   - Disclosure: “Evermail services can decrypt during processing (audited, access controlled).”
+   - CTA: “Use Full Service”
+
+2. **Confidential Processing (strong isolation + full search)**  
+   - *Promise*: “Decrypt only inside attested secure compute.”  
+   - Bullets: “BYOK supported”, “SKR-gated key release”, “Full search and ingestion”  
+   - Disclosure: “Requires key setup; may take ~10–20 minutes.”
+   - CTA: “Set up Confidential”
+
+3. **Zero-Access (ciphertext-only)**  
+   - *Promise*: “Evermail never receives your mailbox key.”  
+   - Bullets: “Client-side encryption”, “Local-only full search”, “Optional token filtering”  
+   - Disclosure: “Lose your recovery bundle/passphrase and the data is unrecoverable.”
+   - CTA: “Use Zero-Access”
+
+Persist the choice as tenant default via the API (`PUT /api/v1/tenants/security-level`).
+
+##### Onboarding step: “Keys & recovery”
+
+This step adapts to the selected security level:
+
+**Full Service**:
+- Status message: “Keys are handled by Evermail. You can switch to BYOK later.”
+- Optional toggle: “Require admin approval for exports/deletions” (policy-only guardrails).
+
+**Confidential Processing**:
+- Wizard-style checklist with **button-only** actions:
+  1. “Connect your key provider” (Azure Key Vault / AWS KMS / Offline provider)
+  2. “Test access” (`POST /api/v1/tenants/encryption/test`)
+  3. “Enable Secure Key Release” (guided UI that generates the policy, shows required identity IDs, and validates policy presence via a “Check” button)
+- If the tenant selects **Evermail-managed keys**, step (1) becomes “Confirm Evermail-managed keys” and the wizard focuses on the SKR/attestation readiness checks.
+- UX principles:
+  - Always show a single “Status: Ready / Not ready” pill.
+  - Every failure should produce an actionable, copyable error (permission missing, wrong URI, etc.).
+
+**Zero-Access**:
+- Provide a “Generate recovery bundle” button that runs entirely client-side.
+- Require explicit acknowledgement before revealing or downloading bundle material:
+  - Checkbox: “I understand Evermail cannot recover this bundle or passphrase.”
+  - Only after checked: enable “Download bundle” + “Copy key” actions.
+- Provide a second checkbox before leaving the step:
+  - “I saved the bundle offline.”
+  - This is a UX guardrail (not cryptographic) but prevents accidental data loss.
+
+##### Zero-Access upload UX (world-class “idiot-proof” flow)
+
+On `/upload` when Zero-Access is selected:
+- Default to **client-only upload experience** (WASM). Do not expose plaintext keys to any server-rendered component.
+- Upload step layout:
+  1. “Choose file”
+  2. “Generate key” (auto-generated, but show the recovery bundle gate)
+  3. “Upload encrypted” (progress + cancel)
+  4. “Build local index” (optional; recommended)
+- Post-upload:
+  - Show “Open mailbox locally” CTA which opens the client-side viewer/search experience.
+  - Clearly label that server-side email detail pages are not available for Zero-Access mailboxes.
+
+#### Zero-Access Archive Mode (Client-Side Encryption) — target design
+
+Zero-Access is intentionally optimized for non-technical users: the browser generates a random mailbox key and Evermail does not receive it.
 
 1. **Key generation & custody**
-   - Blazor WebAssembly generates a 256-bit AES-GCM Data Encryption Key (DEK) per mailbox/upload.
-   - Tenants can either accept a random key stored in their password manager or derive it from a passphrase via Argon2id (salted, high-iteration).
-   - The DEK is wrapped twice:
-     - **Tenant-held wrap**: encrypted with the passphrase-derived key and stored client-side or exported as a `.evermail-key` file. Evermail never stores this share.
-     - **Infrastructure wrap**: encrypted with the tenant’s TMK (Key Vault/Managed HSM) so metadata workflows can still reference the blob. This wrap is useless without the tenant-held share.
+   - The upload page generates a random 256-bit AES-GCM key in the browser (WebCrypto).
+   - The UI shows the Base64 key + a SHA-256 fingerprint and offers a one-click “Download bundle” button.
+   - **Guarantee for Level 3**: Evermail never receives the key. If the tenant loses it, the ciphertext is not decryptable.
 
-2. **Blazor WASM encryption pipeline**
-   - `<InputFile>` streams the `.mbox` file in 1–4 MB chunks.
-   - Each chunk is encrypted in-browser with AES-GCM (unique nonce per chunk), producing ciphertext + auth tag.
-   - Deterministic tag tokens (phase 1): user-provided tags (e.g., matter IDs) are normalized client-side, HMAC’d with a token key derived from the DEK + server-issued salt, and attached to the upload so the server can filter mailboxes without seeing plaintext.
-   - The browser now calls:
-     1. `POST /api/v1/mailboxes/encrypted-upload/initiate` → returns SAS URL + `tokenSalt`.
-     2. Streams ciphertext directly to blob storage (same as before).
-     3. `POST /api/v1/mailboxes/encrypted-upload/complete` → provides scheme metadata, key fingerprint, ciphertext size, and the hashed token sets.
+2. **Client encryption pipeline**
+   - The browser reads the selected file in **4 MiB chunks** and encrypts each chunk with AES‑GCM.
+   - Each uploaded block payload is: `nonce (12 bytes) || ciphertext || tag` where:
+     - Nonce = `noncePrefix (8 random bytes) || chunkIndex (uint32 big-endian)`
+     - Tag length = 16 bytes (AES‑GCM default)
+   - The client calls:
+     1. `POST /api/v1/upload/encrypted/initiate` (alias: `POST /api/v1/mailboxes/encrypted-upload/initiate`) → returns SAS upload URL + `tokenSalt`.
+     2. Uploads ciphertext blocks directly to Azure Blob Storage via the SAS URL (no plaintext hits server disk).
+     3. `POST /api/v1/upload/encrypted/complete` (alias: `POST /api/v1/mailboxes/encrypted-upload/complete`) → stores metadata + hashed token sets and marks the mailbox as `Encrypted`.
 
 3. **Server-side handling**
-   - APIs treat uploads as opaque blobs; no parsing occurs server-side.
-   - Storage paths continue to include `tenantId` for multi-tenancy, and blobs remain under our existing TMK/DEK governance.
-   - Workers skip ingestion for these mailboxes; exports simply return ciphertext for client-side decryption.
-   - Deterministic tag tokens are stored in the new `ZeroAccessMailboxTokens` table (TenantId + MailboxId + TokenType + TokenValue) and power equality filters without revealing the plaintext tag.
+   - The WebApp treats the uploaded blob as **opaque ciphertext** and does not parse it.
+   - The mailbox/upload rows are finalized as:
+     - `SourceFormat = client-encrypted`
+     - `Status = Encrypted`
+     - `EncryptionMetadataJson` persisted (chunk sizes, nonce prefix, fingerprint, etc.)
+   - The ingestion worker is **not queued** for these uploads.
+   - Deterministic tokens are persisted to `ZeroAccessMailboxTokens` (`TenantId`, `MailboxId`, `TokenType`, `TokenValue`) to enable filtering without storing plaintext labels.
 
-4. **Search & UX**
-   - Default behavior: users download/decrypt locally and search within the Blazor client (WASM reuses the same C# parser).
-   - Advanced tenants can enable deterministic token indexing to allow server-side filtering (e.g., “from:alice”), but snippets still decrypt locally.
+4. **Search & UX (Level 3)**
+   - Default: users search in the browser using a **local index** (stored in IndexedDB) built from decrypted content.
+   - Optional: deterministic token indexing allows server-side filtering (e.g., “from:alice”) without plaintext.
+   - Email viewing (body + attachments) happens client-side after decryption.
    - UI surfaces clear warnings:
      - “Lose your passphrase = data unrecoverable.”
      - “Some features (AI summaries, cross-mailbox search) are unavailable in zero-access mode.”
      - “Switching a mailbox into zero-access requires re-upload because plaintext never leaves your device.”
 
-5. **Transparency & trust**
-   - WASM bundles are reproducible and signed; publish hashes so tenants can verify the client code that handles encryption.
+5. **Transparency & trust (Option A)**
+   - Publish build/version hashes for the client bundle to reduce “accidental trust drift.”
    - Long-term roadmap: integrate browser extensions or attestation (e.g., Subresource Integrity + CSP) to prove the delivered client matches the audited build.
 
-##### Encrypted upload contract (`/api/v1/mailboxes/encrypted-upload/*`)
+##### Encrypted upload contract (`/api/v1/upload/encrypted/*` + alias under `/api/v1/mailboxes/encrypted-upload/*`)
 
 | Endpoint | Purpose |
 | --- | --- |
@@ -62,22 +190,22 @@ Completion payload fields:
 - `keyFingerprint` – SHA-256 hash of the raw DEK (base64) so tenants can map bundles to uploads.
 - `tokenSets` – array of `{ "tokenType": "tag", "tokens": ["HMAC-SHA256(base64)", ...] }`. The server never sees plaintext tags; it simply stores the opaque HMACs.
 
-##### Deterministic tokens – Phase 1 (mailbox tags)
+##### Deterministic tokens – Phase 1 (mailbox tags) (implemented)
 
 - Scope: user-entered tags (e.g., “Case-4821”, “AcmeBeta”) captured during upload.
-- Derivation: the browser derives a token key via HKDF using the DEK and server-issued `tokenSalt`, then HMACs each normalized tag with SHA-256. Only the HMAC outputs are sent to the server.
+- Derivation: the browser derives an HMAC key via HKDF using the **raw mailbox key** and server-issued `tokenSalt` (HKDF info string `evermail-zero-access-token/v1`), then HMACs each normalized tag with SHA-256. Only the HMAC outputs are sent to the server.
 - Storage: `ZeroAccessMailboxTokens` ensures multi-tenant isolation and deduplicates repeated values.
 - Querying: clients hash the search tag with the same token key and call `GET /api/v1/mailboxes?tagToken=<base64>` to limit responses to matching mailboxes. Once the client downloads/decrypts the archive it performs full-text search locally.
 - Future phases will extend the same mechanism to per-email fields (from/to/subject tokens) as the WASM parser graduates to full message-level extraction.
 
-##### Deterministic tokens – Phase 2 (header indexes)
+##### Deterministic tokens – Phase 2 (header indexes) (implemented for .mbox/.mbx)
 
 - **Scope**: the upload UI now derives deterministic tokens for the most common per-message headers—`from`, `to`, `cc`, and `subject`—in addition to the manual tag list. This lets tenants filter their encrypted mailboxes without downloading gigabytes of ciphertext just to find “all mail from alice@example.com”.
-- **Client-side parsing**: before streaming chunks to Azure Blob Storage, `zero-access-upload.js` walks the `.mbox/.mbx` file via a streaming parser, detects the RFC 5322 header block for each message, and extracts the normalized header values. PST/OST/ZIP uploads currently skip this phase (we plan to reuse the browser-based normalizer once it lands); the UI surfaces a warning when header tokens cannot be generated.
-- **Normalization rules**:
-  - Addresses → lowercase, trim, extract the email portion inside `< >` when present, drop display names, collapse whitespace, and cap at 254 chars.
-  - Subjects → convert to lowercase, trim, collapse repeated whitespace, and truncate at 200 characters so the resulting token set stays bounded.
-- **Resource limits**: to avoid locking the browser UI on multi-gigabyte archives we (a) inspect the first 2 000 messages per upload, (b) cap each token type at 512 unique values, and (c) deduplicate in-memory before deriving hashes. These limits are configurable constants in `zero-access-upload.js` and documented for tenants who need to plan around them.
+- **Client-side parsing**: `zero-access-upload.js` streams the `.mbox/.mbx` file in the browser, detects message boundaries (`From ` lines), parses/unfolds RFC 5322 headers, and extracts `from`/`to`/`cc` address tokens plus a normalized `subject`.
+- **Normalization rules (current code)**:
+  - Addresses → extracted via regex, lowercased, trimmed.
+  - Subjects → lowercased, whitespace collapsed, trimmed, truncated to 200 chars.
+- **Resource limits**: (a) inspect up to 2,000 messages, (b) cap each token type at 512 unique values, (c) deduplicate in-memory before hashing.
 - **Derivation & storage**: once the plaintext sets are assembled the browser runs the same HKDF + HMAC flow as Phase 1, but now emits token sets such as `{ tokenType: "from", tokens: [...] }`. The WebApp persists them in `ZeroAccessMailboxTokens` alongside the legacy `tag` entries so the database schema does not change.
 - **Query surface**: `/api/v1/mailboxes` accepts `fromToken`, `toToken`, and `subjectToken` query parameters (multi-value). Clients hash the user-entered value with the token key and supply it as `fromToken=base64` to pre-filter encrypted mailboxes.
 - **UX**: the encrypted upload wizard now shows a “Header indexing” callout that reports how many unique senders/recipients/subjects were captured (or why it was skipped). Future client-side search views will reuse the same hashing helper to keep the UX consistent.
@@ -134,12 +262,12 @@ To make the existing audit pipeline actionable we are adding a tenant-facing **C
 
 Administrators can now satisfy “who touched what” audits, deliver CSV evidence packs, and monitor GDPR jobs without Evermail staff involvement, reinforcing the zero-trust posture described throughout this document.
 
-##### Offline key custody prototype (Browser BYOK)
+##### Offline key custody prototype (Browser BYOK) — current behavior vs target
 
 Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment with client-side key handling before enabling full zero-access ingestion:
 
 1. Navigate to **Admin → Offline BYOK (Lab)**.
-2. Enter a tenant label and a strong passphrase (minimum 12 chars, passphrase never leaves the browser).
+2. Enter a tenant label and a strong passphrase (minimum 12 chars).
 3. The Blazor WebAssembly client calls `window.crypto.subtle` to:
    - Generate a 256-bit DEK (`crypto.getRandomValues`).
    - Derive a wrapping key from the passphrase via PBKDF2 (SHA-256, 310 k iterations, 128-bit salt).
@@ -147,11 +275,17 @@ Phase 1 introduces a lightweight **Offline BYOK Lab** so admins can experiment w
 4. The UI displays:
    - **Plaintext DEK** (copy once, never stored by Evermail).
    - **Wrapped bundle JSON** containing `wrappedDek`, `salt`, `nonce`, `checksum`, `tenantLabel`, and `createdAt`.
-5. Admin downloads the bundle as `tenant-name-evermail-key.json` for their own safekeeping **and** the UI now automatically POSTs the wrapped bundle + passphrase to `/api/v1/tenants/encryption/offline`. The API unwraps the DEK in memory, re-encrypts it with the service-wide Offline BYOK master key (configured via `OfflineByok:MasterKey`), writes the ciphertext to `TenantEncryptionSettings.OfflineMasterKeyCiphertext`, and immediately zeroes the plaintext/passphrase. This allows the security step in the onboarding wizard to finish without leaving the page while still keeping the recovery material solely in the tenant’s custody.
+5. **Current**: The UI can POST the wrapped bundle **plus the passphrase** to `/api/v1/tenants/encryption/offline` so the server can unwrap it once and store `OfflineMasterKeyCiphertext` protected by `OfflineByok:MasterKey`.  
+   **Implication**: This enables an “offline provider” for server-side processing, but it does **not** satisfy Level 3 Zero-Access, because passphrases/keys cross to the server.
+
+5. **Target for Level 3**: Recovery bundle creation and storage are **client-only**:
+   - Evermail may store an *opaque* bundle registry entry (wrapped payload) for inventory, but must never receive a passphrase or any unwrapping material.
+   - Any “recovery” flow must happen in the browser with explicit user acknowledgement.
 6. Existing bundles can be imported later from the same admin page—the new “Upload bundle” card lets an admin pick the `.evermail-key.json`, enter the passphrase, and call the same API without re-generating keys.
 
 **Warnings surfaced in the UI and reiterated here:**
-- Lose the downloaded bundle or passphrase → Evermail cannot restore access.
+- Lose the downloaded bundle/passphrase → the UI cannot help you recreate the original bundle (treat it as a recovery artifact).
+- Note: the service retains an encrypted copy of the unwrapped offline key under `OfflineByok:MasterKey`, so “recoverability” is a product/policy decision rather than a cryptographic impossibility in the Offline provider.
 - Evermail only stores the DEK encrypted with the Offline BYOK master key provided by operators. Compromise of the SQL row does **not** reveal the tenant key unless the operator also compromises the host-level protector.
 - The master key itself lives in Azure Key Vault as `OfflineByok--MasterKey` (base64-encoded 256-bit). During deployment we mirror it into the ingestion worker via `offline-master`/`OfflineByok__MasterKey=secretref:offline-master` so Confidential Container Apps can unwrap tenant bundles without keeping plaintext keys on disk.
 - Do **not** paste the plaintext key anywhere else—treat it like a hardware token.
@@ -384,6 +518,15 @@ public async Task<string> GetAttachmentDownloadUrlAsync(Guid attachmentId)
 - `User`: Standard user (read/write own data)
 - `Admin`: Tenant admin (manage users, view billing, configure BYOK). The very first user created for a tenant is promoted to `Admin` automatically so every tenant starts with at least one administrator. Additional admins can be added/removed from `/settings/users`.
 - `SuperAdmin`: Platform admin (view all tenants, system config, AdminApp access). Only SuperAdmins can reach the standalone AdminApp; tenant admins are limited to the in-tenant Blazor admin pages.
+
+#### Evermail AdminApp (internal SuperAdmin portal)
+- **Audience**: Evermail staff only (never exposed to customers).
+- **Auth**: OAuth-only (Google + Microsoft), no password auth.
+- **Access control**: allowlist enforced on OAuth callback:
+  - Allowed email(s): `kalle.hiitola@gmail.com`
+  - Allowed domain(s): `evermail.ai`
+- **Environment guardrail**: when deployed to production the AdminApp operates **prod only** (no cross-environment switching UI).
+- **Operational safety**: runtime switches (Local / AzureDev / AzureProd) require explicit confirmations and emit audit events for every change and restart.
 
 **Authorization**:
 ```csharp
@@ -1075,7 +1218,32 @@ az network front-door waf-policy create \
 
 ---
 
-**Last Updated**: 2025-11-20  
+## AdminApp (Evermail SuperAdmin portal) Security Model
+
+`Evermail.AdminApp` is an internal-only ops portal for Evermail staff. It is **not** a customer-facing tenant admin surface and is treated as a privileged control plane.
+
+### Authentication
+- **OAuth-only**: Google + Microsoft sign-in (cookie-based auth).
+- **No password sign-in** for AdminApp.
+- **SameSite + Safari**: OAuth flows require strict cookie handling. AdminApp uses the ASP.NET Core SameSite mitigation (`CookiePolicyOptions`) and sets OAuth correlation cookies to `SameSite=None` to avoid Safari breaking OAuth callbacks.
+
+### Authorization
+- **SuperAdmin-only policy**: all pages require the `SuperAdmin` role.
+- **Allowlist enforced during OAuth sign-in**:
+  - Explicit allowlist: `kalle.hiitola@gmail.com`
+  - Domain allowlist: `@evermail.ai`
+
+### Runtime switching guardrails
+- Runtime switching (Local / Azure Dev / Azure Prod) is **development-only** and stored in Key Vault under `EvermailRuntime--Mode`.
+- In production deployments, AdminApp is locked to **production resources only** (no cross-environment switching).
+
+### Dev-only bypass (for UI iteration)
+- A dev-only bypass endpoint exists for fast UI iteration.
+- It is only enabled when:
+  - `ASPNETCORE_ENVIRONMENT=Development`, and
+  - `AdminAuth:DevBypassEnabled=true` (set by Aspire AppHost for local dev only).
+
+**Last Updated**: 2025-12-16  
 **Security Contact**: security@evermail.com  
 **Next Security Audit**: Quarterly
 

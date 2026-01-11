@@ -1,39 +1,48 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Evermail.AdminApp</a>
-        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-    </div>
-</div>
+﻿@using System.Security.Claims
+@using Evermail.AdminApp.Auth
+@using Microsoft.AspNetCore.Components.Authorization
+@inject NavigationManager Nav
 
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
-    <nav class="flex-column">
+<nav class="sidebar-layout admin-nav">
+    <div class="nav-section nav-section--primary">
+        <div class="nav-item px-3 admin-nav__brand">
+            <a class="navbar-brand evermail-logo" href="/">
+                <img src="/evermail_logo.png" alt="Evermail" class="evermail-logo__mark" />
+                <span class="evermail-logo__word">evermail</span>
+            </a>
+            <div class="admin-nav__subtitle">Ops console</div>
+        </div>
+
+        <!-- User info lives in the topbar; keep the sidebar clean and navigation-focused. -->
+
         <div class="nav-item px-3">
             <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="oi oi-home" aria-hidden="true"></span> Home
+                <i class="bi bi-speedometer2" aria-hidden="true"></i> Ops Console
             </NavLink>
         </div>
         <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="oi oi-plus" aria-hidden="true"></span> Counter
+            <NavLink class="nav-link" href="tenants">
+                <i class="bi bi-buildings" aria-hidden="true"></i> Tenants & Users
             </NavLink>
         </div>
         <div class="nav-item px-3">
-            <NavLink class="nav-link" href="fetchdata">
-                <span class="oi oi-list-rich" aria-hidden="true"></span> Fetch data
+            <NavLink class="nav-link" href="business">
+                <i class="bi bi-graph-up-arrow" aria-hidden="true"></i> Business Dashboard
             </NavLink>
         </div>
-    </nav>
-</div>
+    </div>
 
-@code {
-    private bool collapseNavMenu = true;
+    <div class="nav-section nav-section--bottom">
+        <AuthorizeView>
+            <Authorized>
+                <!-- Sign out is in the topbar to keep the sidebar clean -->
+            </Authorized>
+        </AuthorizeView>
 
-    private string? NavMenuCssClass => collapseNavMenu ? "collapse" : null;
+        <div class="nav-item px-3 admin-nav__env">
+            <span class="status-pill">AdminApp</span>
+        </div>
+    </div>
+</nav>
 
-    private void ToggleNavMenu()
-    {
-        collapseNavMenu = !collapseNavMenu;
-    }
-}
+@code { }

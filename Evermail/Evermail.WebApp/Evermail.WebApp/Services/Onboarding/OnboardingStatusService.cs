@@ -83,6 +83,7 @@ public sealed class OnboardingStatusService : IOnboardingStatusService
         tenant.PaymentAcknowledgedAt = null;
         tenant.PaymentAcknowledgedByUserId = null;
         tenant.SecurityPreference = "QuickStart";
+        tenant.SecurityLevel = "FullService";
         tenant.UpdatedAt = DateTime.UtcNow;
 
         var encryptionSettings = await _context.TenantEncryptionSettings

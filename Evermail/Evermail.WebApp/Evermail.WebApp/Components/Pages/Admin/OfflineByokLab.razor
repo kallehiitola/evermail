@@ -1,3 +1,4 @@
+@page "/settings/recovery"
 @page "/admin/offline-byok"
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
@@ -12,7 +13,7 @@
 @inject IAuthenticationStateService AuthStateService
 @implements IAsyncDisposable
 
-<PageTitle>Offline BYOK Lab - Evermail</PageTitle>
+<PageTitle>Recovery bundles - Evermail</PageTitle>
 
 <AuthorizeView Roles="Admin,SuperAdmin">
     <Authorized Context="authState">
@@ -23,16 +24,24 @@
                         <div class="card-body">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <div>
-                                    <h1 class="h3 mb-1">Offline BYOK Lab (Prototype)</h1>
-                                    <p class="text-muted mb-0">Generate tenant-managed keys entirely in your browser.
-                                        Nothing is sent to Evermail.</p>
+                                    <h1 class="h3 mb-1">Recovery bundles</h1>
+                                    <p class="text-muted mb-0">
+                                        Generate a tenant key bundle entirely in your browser. You can optionally upload the wrapped bundle once to enable the Offline BYOK provider.
+                                    </p>
                                 </div>
-                                <span class="badge bg-warning text-dark text-uppercase">Experimental</span>
+                                <span class="badge bg-light text-dark text-uppercase">Security</span>
                             </div>
 
                             <div class="alert alert-warning">
-                                <strong>Important:</strong> Lose this bundle or your passphrase and Evermail cannot help
-                                recover it. Store the download in an offline vault before you close this tab.
+                                <strong>Important:</strong> If you lose this bundle or passphrase, Evermail cannot recover it. Store the bundle offline before you continue.
+                            </div>
+
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="ackRecovery"
+                                       @bind="_ackRecovery" />
+                                <label class="form-check-label" for="ackRecovery">
+                                    I understand Evermail cannot recover this key bundle or passphrase.
+                                </label>
                             </div>
 
                             @if (!string.IsNullOrEmpty(_errorMessage))
@@ -62,7 +71,7 @@
                                 <div class="mb-3">
                                     <label class="form-label">Passphrase</label>
                                     <input type="password" class="form-control" @bind="_form.Passphrase" />
-                                    <div class="form-text">Minimum 12 characters. We never send it to the server.</div>
+                                <div class="form-text">Minimum 12 characters. Not stored by Evermail (used only to unwrap a bundle when you upload).</div>
                                 </div>
 
                                 <div class="mb-4">
@@ -79,7 +88,7 @@
                                     Generate secure key
                                 </button>
                                 <button type="button" class="btn btn-outline-secondary ms-2"
-                                    disabled="@(_isGenerating || _bundle is null)" @onclick="DownloadBundleAsync">
+                                    disabled="@(_isGenerating || _bundle is null || !_ackRecovery)" @onclick="DownloadBundleAsync">
                                     <i class="bi bi-download"></i> Download bundle
                                 </button>
                             </form>
@@ -112,8 +121,9 @@
                                 <div class="mb-3">
                                     <label class="form-label fw-semibold">Plaintext DEK (Base64)</label>
                                     <div class="input-group">
-                                        <input type="text" class="form-control" value="@_bundle.PlaintextDek" readonly />
+                                        <input type="text" class="form-control" value="@(_ackRecovery ? _bundle.PlaintextDek : "••••••••••••••••")" readonly />
                                         <button class="btn btn-outline-secondary"
+                                            disabled="@(!_ackRecovery)"
                                             @onclick='@(() => CopyToClipboardAsync("Plaintext DEK", _bundle.PlaintextDek))'>
                                             <i class="bi bi-clipboard"></i>
                                         </button>
@@ -124,7 +134,14 @@
 
                                 <div class="mb-3">
                                     <label class="form-label fw-semibold">Bundle preview</label>
-                                    <pre class="bg-dark text-light p-3 rounded small"><code>@_bundlePreview</code></pre>
+                                    @if (_ackRecovery)
+                                    {
+                                        <pre class="bg-dark text-light p-3 rounded small"><code>@_bundlePreview</code></pre>
+                                    }
+                                    else
+                                    {
+                                        <div class="alert alert-info small mb-0">Acknowledge the recovery warning to view/copy bundle material.</div>
+                                    }
                                 </div>
 
                                 <div class="mb-3">
@@ -223,6 +240,7 @@
 
 @code {
     private readonly OfflineByokForm _form = new();
+    private bool _ackRecovery;
     private bool _isGenerating;
     private string? _errorMessage;
     private string? _statusMessage;

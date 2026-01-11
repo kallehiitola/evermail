@@ -33,6 +33,13 @@ public class Tenant
     [MaxLength(32)]
     public string SecurityPreference { get; set; } = "QuickStart";
 
+    /// <summary>
+    /// Default security level for new mailbox uploads.
+    /// Values: FullService | Confidential | ZeroAccess
+    /// </summary>
+    [MaxLength(32)]
+    public string SecurityLevel { get; set; } = "FullService";
+
     public DateTime? PaymentAcknowledgedAt { get; set; }
     public Guid? PaymentAcknowledgedByUserId { get; set; }
 

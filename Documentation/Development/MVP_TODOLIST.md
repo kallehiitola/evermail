@@ -4,6 +4,91 @@
 > **Target**: Beta launch with 10 users  
 > **Includes**: Full auth with 2FA, all tiers, admin dashboard, multiple mailbox support
 
+> ⚠️ **Status note (2025-12-16)**: This checklist was authored early and many items have since shipped.  
+> Treat this file as a **backlog-style reference**, not the canonical tracker. For the authoritative timeline and “what’s done”, see `Documentation/ProgressReports/ProgressReport.md`.
+
+## ✅ Current status snapshot (Dec 2025)
+
+- **Already shipped (high level)**:
+  - Auth (Google/Microsoft OAuth, JWT refresh, 2FA UI wiring)
+  - Guided onboarding wizard (`/onboarding`) with plan + security + upload journey
+  - Upload pipeline (direct-to-Blob SAS initiate/complete), ingestion worker, mailbox lifecycle (re-import/delete/purge)
+  - Multi-format archive detection + normalization (ZIP/PST/OST/EML), inflation guardrails
+  - SQL full-text search + search UX polish (snippets, match navigator)
+  - Security headers middleware, audit logging middleware, rate limiting
+  - GDPR self-service export + delete flows
+  - Zero-access encrypted uploads + deterministic mailbox/header tokens
+  - Azure production runway (SQL/Storage/Key Vault + worker smoke test documented)
+
+- **Critical path remaining for “feature-ready” beta**:
+  - **Stripe integration end-to-end** (checkout, webhooks, portal) + plan enforcement tied to paid status
+  - **Production deployment pass** for WebApp/AdminApp/MigrationService (not just the worker smoke test)
+  - **Confidential compute in EU** decision and rollout (AKS confidential node pools vs ACI confidential containers) so “zero-touch” claims hold for Confidential Compute Mode
+  - **Focused end-to-end regression tests** for the onboarding → upload → search → deletion flows (especially in Azure)
+
+---
+
+## 🚀 Shipping Plan TODO (Dec 2025): 3 Security Levels + World-Class BYOK Onboarding
+
+> Goal: ship the 3-level model fast with minimal rework: **tenant default + per-mailbox override**, pricing hooks, and strict Zero-Access key custody.
+>
+> Canonical design references:
+> - `Documentation/Security.md` (guarantees + onboarding UX spec)
+> - `Documentation/Architecture.md` (what runs where)
+> - `Documentation/API.md` (contracts)
+> - `Documentation/Deployment.md` (confidential compute mapping)
+> - `Documentation/Pricing.md` (tier limits + per-mailbox pricing direction)
+
+### P0 — Unblock the architecture (must ship)
+
+- [ ] **Data model & migrations**
+  - [ ] Add `SecurityLevel` to tenants (default) and mailboxes/uploads (override) with values: `FullService`, `Confidential`, `ZeroAccess`
+  - [ ] Add migration + backfill (existing tenants default to Full Service; existing zero-access mailboxes map to ZeroAccess)
+
+- [ ] **API**
+  - [ ] `PUT /api/v1/tenants/security-level` (Admin/SuperAdmin) to set tenant default
+  - [ ] Extend `GET /api/v1/tenants/onboarding/status` with `securityLevel` + `securityLevelReady`
+  - [ ] Ensure tenant isolation + audit logging for these endpoints
+
+- [ ] **Onboarding Wizard UX**
+  - [ ] Add “Choose security level” step with 3 cards + disclosures (see `Security.md`)
+  - [ ] Persist tenant default via API
+  - [ ] Route next step based on selection:
+    - Full Service → ready now
+    - Confidential → setup checklist
+    - Zero-Access → recovery bundle UX
+
+- [ ] **Upload UX (per mailbox)**
+  - [ ] Default selection = tenant security level
+  - [ ] Allow per-upload override + persist chosen level on mailbox/upload
+  - [ ] Enforce routing:
+    - Full/Confidential → normal initiate/complete + ingestion queued
+    - Zero-Access → encrypted initiate/complete; ingestion never queued
+
+### P1 — Make Zero-Access true (no key leakage)
+
+- [ ] **Client-only Zero-Access surface**
+  - [ ] Ensure key generation + encryption + recovery bundles run client-side only (WASM/JS) and **never cross server**
+  - [ ] Remove any JS interop returning plaintext keys to server-side .NET for Zero-Access flows
+  - [ ] Add “acknowledge” gating before showing/downloading key material
+
+- [ ] **Zero-Access search experience**
+  - [ ] Optional client-side local index (IndexedDB) + bounded resource usage for large mailboxes (up to 100GB)
+  - [ ] Keep deterministic token filters for fast mailbox discovery (tag/from/to/cc/subject)
+
+### P1 — Confidential Processing support (both key models)
+
+- [ ] Support both:
+  - [ ] Evermail-managed keys + TEE/SKR gating
+  - [ ] External BYOK (Azure Key Vault / AWS KMS) + the same TEE/SKR gating
+- [ ] Route Confidential mailboxes to confidential worker/compute plane in EU (AKS confidential nodes vs ACI confidential containers)
+
+### P2 — Pricing + entitlements + polish
+
+- [ ] Implement security-level pricing gates (e.g., confidential add-on per mailbox/GB)
+- [ ] Add Settings UI to manage tenant default security level + readiness status
+- [ ] Add regression/integration tests for all modes and “no-key-leak” assertions
+
 ---
 
 ## 📅 Timeline Overview

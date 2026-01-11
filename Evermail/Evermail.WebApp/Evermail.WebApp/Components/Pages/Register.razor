@@ -203,7 +203,9 @@
             _model.TenantName
             );
 
-            var response = await Http.PostAsJsonAsync("/api/v1/auth/register", request);
+            var response = await Http.PostAsJsonAsync(
+                new Uri(new Uri(Navigation.BaseUri), "api/v1/auth/register"),
+                request);
 
             if (response.IsSuccessStatusCode)
             {

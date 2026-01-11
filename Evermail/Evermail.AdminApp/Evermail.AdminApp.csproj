@@ -1,13 +1,25 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>a466c3c5-21dd-42de-b4f1-c21b8d7b0030</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Aspire.Azure.Security.KeyVault" Version="13.0.0" />
+    <PackageReference Include="Aspire.Azure.Security.KeyVault" Version="13.0.2" />
+    <PackageReference Include="MudBlazor" Version="8.14.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.Google" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.MicrosoftAccount" Version="10.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="Azure.Identity" Version="1.17.0" />
+    <PackageReference Include="Azure.Security.KeyVault.Secrets" Version="4.8.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Evermail.Infrastructure\Evermail.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

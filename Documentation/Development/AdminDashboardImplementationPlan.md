@@ -1,26 +1,27 @@
-# Admin Dashboard Implementation Plan
+# Admin Dashboard Implementation Plan (Evermail internal SuperAdmin portal)
 
-> **Last Updated:** 2025-11-19  
-> **Scope:** Evermail.AdminApp (Blazor Server) + `/api/v1/admin/*` surface  
+> **Last Updated:** 2025-12-15  
+> **Scope:** Evermail.AdminApp (Blazor Server) — Evermail-internal SuperAdmin portal (not customer-facing)  
 > **References:** `Documentation/Architecture.md` ("Admin Dashboard Action Plan"), `Documentation/API.md`, `Documentation/Security.md`
 
 ---
 
 ## 1. Objectives
 
-1. Mirror the look & feel of `Evermail.WebApp` (shared theme tokens, MudBlazor components) while exposing operational tooling for admins.
-2. Leverage the existing ASP.NET Core Identity store so `Admin` / `SuperAdmin` roles unlock admin surfaces without duplicating accounts.
-3. Implement admin APIs first (documented in `Documentation/API.md`), then bind Blazor Server pages for real-time insight and control.
-4. Maintain strict multi-tenancy and auditing: every action logs to `AuditLogs`, and tenant-scoped data stays isolated even in admin views.
+1. Mirror the look & feel of `Evermail.WebApp` (reuse `wwwroot/app.css` tokens + layout patterns) while exposing Evermail ops tooling.
+2. Enforce **OAuth-only access** (Google + Microsoft) with an allowlist (`kalle.hiitola@gmail.com` and `@evermail.ai`) so no customer can ever sign in.
+3. Keep the AdminApp deployable to Azure and make it the single “SaaS management” surface (health, adoption/funnel, revenue/costs, tenant ops).
+4. Avoid a “one-page-per-button” UI. Prefer a few thematic pages with multiple related sections.
+5. Runtime controls must be explicit and safe: show current setup, require confirmations, and support restarts where required.
 
 ---
 
 ## 2. Prerequisites
 
 - [ ] Roles `User`, `Admin`, `SuperAdmin` seeded (`DataSeeder`).
-- [ ] Bootstrap SuperAdmin accounts in `EvermailOps` tenant with credentials stored in user secrets/Key Vault.
-- [ ] Shared Razor Class Library (RCL) for typography, components, and CSS tokens (exported from WebApp or referenced directly).
-- [ ] Aspire wiring ensures AdminApp shares identity DB + config.
+- [ ] OAuth credentials configured for both providers (same keys as WebApp).
+- [ ] Allowlist configured: `kalle.hiitola@gmail.com` and `@evermail.ai` (no `evermail.com` domain).
+- [ ] AdminApp can read from the platform database (Azure SQL) and storage/queue configuration (Key Vault).
 
 ---
 
@@ -28,80 +29,68 @@
 
 | Layer | Deliverable | Notes |
 |-------|-------------|-------|
-| API | `/api/v1/admin/*` endpoints | Minimal APIs under `Evermail.WebApp`; all require `Admin`/`SuperAdmin`. |
-| Admin UI | `Evermail.AdminApp` | Blazor Server, MudBlazor, shared layout + nav. |
-| Auth | Shared Identity | JWT issuer/audience identical; AdminApp uses cookie + JWT hybrid (Blazor Server default) with role checks. |
-| Storage | Same Azure SQL + Blob | Read-only insights obey tenant filters; destructive actions double-check ownership. |
+| Admin UI | `Evermail.AdminApp` | Blazor Server. Uses the same visual language as WebApp (shared CSS tokens + components). |
+| Auth | OAuth allowlist | Google + Microsoft OAuth only. Only allowlisted identities can sign in; non-allowlisted users are rejected. |
+| Data access | Direct + scoped | AdminApp reads the platform database without tenant query filters (SuperAdmin context) and can call Azure control plane APIs for service status. |
+| Customer admin tools | Stay in WebApp | Tenant-admin pages (`/admin/*` inside WebApp) remain customer-facing and must not move into AdminApp. |
+| API | Optional `/api/v1/admin/*` | If/when we add admin APIs, they are for internal integrations; AdminApp should not depend on undocumented or unimplemented endpoints. |
 
 ---
 
 ## 4. Implementation Phases
 
 ### Phase A – Foundations (Day 0-1)
-1. **Theme Sharing**
-   - Extract existing CSS tokens/components into `Evermail.Shared.UI` or reference `Evermail.WebApp/wwwroot/app.css` via static file package.
-   - Add dark-mode + layout helpers to AdminApp.
-2. **Project Setup**
-   - Ensure `Evermail.AdminApp` targets `net10.0`, references `MudBlazor`, `Evermail.Common`, and uses the shared DI extensions (in line with the upgraded solution baseline).
-   - Configure authentication/authorization (cookie auth + JWT fallback) with `[Authorize(Roles = "Admin,SuperAdmin")]` globally.
-3. **Navigation Shell**
-   - Implement `App.razor`, `MainLayout.razor`, and `NavMenu.razor` with sections: Dashboard, Tenants, Users, Mailboxes, Jobs, Analytics, Billing, Logs, Settings.
+1. **Theme sharing (WebApp parity)**
+   - Reuse `Evermail.WebApp/wwwroot/app.css` tokens + shared assets (logo) in AdminApp.
+   - Keep dark-mode support consistent with WebApp.
+2. **Auth (OAuth-only + allowlist)**
+   - Implement Google + Microsoft OAuth sign-in.
+   - Enforce allowlist (`AllowedEmails`, `AllowedDomains`) on every OAuth callback.
+   - Assign an internal role claim (`SuperAdmin`) for allowlisted users.
+3. **Navigation shell**
+   - Replace template layout with the same sidebar + card language as WebApp.
+   - Start with 3 thematic pages:
+     - **Ops Console** (runtime status, diagnostics, restart actions)
+     - **Tenants & Users** (cross-tenant listing + role management)
+     - **Business Dashboard** (adoption + revenue/cost placeholders → real metrics later)
 
-### Phase B – API + DTO Layer (Day 1-2)
-1. Document all admin endpoints in `Documentation/API.md` (request/response models, roles, sample payloads).
-2. Add DTOs under `Evermail.Common.DTOs.Admin` for:
-   - `TenantSummaryDto`, `UserSummaryDto`, `MailboxJobDto`, `QueueDepthDto`, `BillingSnapshotDto`, `AuditEntryDto`.
-3. Implement Minimal APIs in `Evermail.WebApp/Evermail.WebApp/Endpoints/AdminEndpoints.cs`:
-   - `GET /admin/dashboard` – aggregate KPIs.
-   - `GET /admin/tenants`, `GET /admin/tenants/{id}`, `PATCH /admin/tenants/{id}`.
-   - `GET /admin/users`, `PATCH /admin/users/{id}/roles`.
-   - `GET /admin/mailboxes`, `POST /admin/mailboxes/{id}/retry`.
-   - `GET /admin/jobs/queue-depth`, `POST /admin/jobs/{id}/retry`.
-   - `GET /admin/analytics/storage`, `/analytics/revenue`.
-   - `GET /admin/logs/audit`, `GET /admin/logs/errors`.
-4. Add integration tests enforcing role requirements + tenant isolation.
+### Phase B – Ops Console (Day 1-2)
+1. **Runtime status (read-only)**
+   - Show: SQL target, storage/queue target, Key Vault source, FTS status, queue depths, and basic “last activity” counters.
+2. **Runtime controls**
+   - Provide a **mode selector**: `Local`, `AzureDev`, `AzureProd`.
+   - Switching requires explicit confirmation and clearly states what needs restart (WebApp/Worker/Migrations).
+   - Restart buttons must be available (with audit logging) because switching storage/SQL requires restarts.
 
 ### Phase C – UI Vertical Slices (Day 3-6)
 
-1. **Operations Dashboard**
-   - Tiles: Queue depth, ingestion throughput (emails/min), failed jobs, total storage, active tenants/users.
-   - Real-time updates via SignalR hub or 10s polling.
-2. **Tenant & User Management**
-   - Searchable tables with filters (tier, status, retention, last login).
-   - Actions: suspend tenant, adjust plan limits, reset 2FA, assign roles (SuperAdmin only).
-   - Show storage/mailbox usage charts per tenant.
-3. **Mailbox / Job Control**
-   - Table of in-flight uploads/deletions with status timeline, ability to retry/purge (SuperAdmin).
-   - Detail drawer with mailbox metadata, attachments footprint, audit trail.
-4. **Analytics & Billing**
-   - Charts for MRR, ARPU, churn, storage cost vs revenue.
-   - Stripe sync view listing customers, subscription states, failed invoices.
-5. **Logs & Audit**
-   - Searchable audit log list (action, actor, tenant, timestamp).
-   - Exception viewer hooking into Application Insights API (filter by service).
-6. **Compliance & GDPR Tooling**
-   - Add compliance center page exposing retention policies per tenant, export/delete queues, and legal hold indicators.
-   - Surface GDPR requests (export, delete) with approval workflows, SLA timers, and ability to trigger automated jobs (SuperAdmin only).
-   - Provide immutable storage status, audit trail downloads, and compliance attestations per plan (read-only for Admin, write actions for SuperAdmin).
+1. **Tenants & Users**
+   - Migrate and supersede the current WebApp dev pages:
+     - `/dev/tenant-manager` → tenant list + safe delete/reset tools (SuperAdmin).
+     - `/dev/admin-roles` → internal role management (SuperAdmin, allowlisted only).
+2. **Operational insights**
+   - Mailbox/job views and queue depth summaries.
+   - Audit log browser and export (internal evidence packs).
+3. **Business dashboard**
+   - Early: counts, growth deltas, storage usage, active tenants/users.
+   - Later: funnel + costs/profit (Application Insights + Azure cost APIs).
 
 ### Phase D – Cross-Cutting Concerns (Day 6-7)
 
-- **Auditing:** wrap admin APIs with middleware that records `AuditLog` entries.
-- **Error handling & alerts:** surface toast notifications, integrate Application Insights alerts.
-- **Role management tooling:** internal page to add/remove roles for bootstrap accounts (dev only).
-- **Docs & Tests:** update `Documentation/Architecture.md`, `Documentation/API.md`, add README section on AdminApp, expand integration tests.
-- **Compliance hardening:** integrate GDPR tooling endpoints, ensure legal hold flows emit audit entries, validate retention overrides respect tier rules.
+- **Auditing:** every admin action must emit an audit entry (internal “platform audit” stream).
+- **Error handling & alerts:** surface clear banners and durable status badges.
+- **Docs & Tests:** keep docs aligned, add role-gating tests, and remove/retire redundant WebApp dev pages once AdminApp covers them.
 
 ---
 
 ## 5. Security Checklist
 
-- [ ] Global `[Authorize(Roles = "Admin,SuperAdmin")]` on AdminApp routes.
-- [ ] API requires same roles + explicit claim checks for destructive operations.
-- [ ] Tenant isolation: even when viewing all tenants, queries never mix data unless user is SuperAdmin.
-- [ ] Audit all admin actions with actor, tenant, payload snapshot.
-- [ ] CSRF protection for Blazor Server forms; anti-forgery tokens on POSTs.
-- [ ] Secrets (bootstrap admin passwords, Stripe keys) stored in Key Vault.
+- [ ] OAuth-only login (Google + Microsoft); no password auth.
+- [ ] Allowlist enforced (`AllowedEmails`, `AllowedDomains`) and logged on denial.
+- [ ] All pages require `SuperAdmin` (AdminApp is Evermail-only).
+- [ ] Admin actions audited (who/what/when + correlation id).
+- [ ] CSRF protection enabled for any state-changing actions.
+- [ ] Production AdminApp operates **prod only** (no cross-environment switching from a prod deployment).
 
 ---
 

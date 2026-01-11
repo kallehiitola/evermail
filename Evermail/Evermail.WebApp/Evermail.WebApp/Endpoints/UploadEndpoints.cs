@@ -82,7 +82,7 @@ public static class UploadEndpoints
         TenantContext tenantContext)
         => InitiateUploadInternalAsync(request, null, blobService, context, tenantContext);
 
-    private static async Task<IResult> InitiateZeroAccessUploadAsync(
+    internal static async Task<IResult> InitiateZeroAccessUploadAsync(
         InitiateZeroAccessUploadRequest request,
         IBlobStorageService blobService,
         EvermailDbContext context,
@@ -93,12 +93,21 @@ public static class UploadEndpoints
             return Results.Unauthorized();
         }
 
+        var requestedSecurityLevel = NormalizeSecurityLevel(request.SecurityLevel) ?? "ZeroAccess";
+        if (!string.Equals(requestedSecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest(new ApiResponse<object>(
+                Success: false,
+                Error: "Encrypted upload endpoint requires SecurityLevel=ZeroAccess."));
+        }
+
         var coreRequest = new InitiateUploadRequest(
             request.FileName,
             request.FileSizeBytes,
             EmailArchiveFormats.ClientEncrypted,
             request.MailboxId,
-            ClientSideEncryption: true);
+            ClientSideEncryption: true,
+            SecurityLevel: requestedSecurityLevel);
 
         try
         {
@@ -236,7 +245,7 @@ public static class UploadEndpoints
         ));
     }
 
-    private static async Task<IResult> CompleteZeroAccessUploadAsync(
+    internal static async Task<IResult> CompleteZeroAccessUploadAsync(
         CompleteZeroAccessUploadRequest request,
         EvermailDbContext context,
         TenantContext tenantContext,
@@ -422,6 +431,8 @@ public static class UploadEndpoints
             throw new InvalidOperationException("Subscription plan not found.");
         }
 
+        var normalizedSecurityLevel = NormalizeSecurityLevel(request.SecurityLevel) ?? tenant.SecurityLevel ?? "FullService";
+
         var fileSizeGb = request.FileSizeBytes / (1024.0 * 1024.0 * 1024.0);
         if (fileSizeGb > plan.MaxFileSizeGB)
         {
@@ -453,6 +464,12 @@ public static class UploadEndpoints
             mailbox = await context.Mailboxes
                 .FirstOrDefaultAsync(m => m.Id == overrideMailboxId.Value && m.TenantId == tenantContext.TenantId)
                 ?? throw new InvalidOperationException("Mailbox not found.");
+
+            if (!string.IsNullOrWhiteSpace(request.SecurityLevel) &&
+                !string.Equals(mailbox.SecurityLevel, normalizedSecurityLevel, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Mailbox security level cannot be changed via upload. Update the mailbox security level first, then upload again.");
+            }
         }
         else
         {
@@ -468,6 +485,7 @@ public static class UploadEndpoints
                 BlobPath = string.Empty,
                 Status = isClientEncrypted ? "EncryptedPending" : "Pending",
                 IsClientEncrypted = isClientEncrypted,
+                SecurityLevel = normalizedSecurityLevel,
                 CreatedAt = DateTime.UtcNow
             };
 
@@ -497,7 +515,8 @@ public static class UploadEndpoints
             BlobPath = string.Empty,
             Status = isClientEncrypted ? "EncryptedPending" : "Pending",
             CreatedAt = DateTime.UtcNow,
-            IsClientEncrypted = isClientEncrypted
+            IsClientEncrypted = isClientEncrypted,
+            SecurityLevel = mailbox.SecurityLevel
         };
 
         context.MailboxUploads.Add(upload);
@@ -554,6 +573,23 @@ public static class UploadEndpoints
             "eml" => EmailArchiveFormats.Eml,
             "eml-zip" or "maildir" => EmailArchiveFormats.EmlZip,
             _ => normalized
+        };
+    }
+
+    private static string? NormalizeSecurityLevel(string? level)
+    {
+        if (string.IsNullOrWhiteSpace(level))
+        {
+            return null;
+        }
+
+        var normalized = level.Trim();
+        return normalized switch
+        {
+            "FullService" or "fullservice" or "full_service" or "full-service" => "FullService",
+            "Confidential" or "confidential" or "confidentialprocessing" or "confidential-processing" or "confidential_processing" => "Confidential",
+            "ZeroAccess" or "zeroaccess" or "zero-access" or "zero_access" => "ZeroAccess",
+            _ => throw new InvalidOperationException($"Unknown security level '{level}'.")
         };
     }
 

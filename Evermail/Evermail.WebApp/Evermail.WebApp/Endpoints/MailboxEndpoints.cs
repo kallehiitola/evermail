@@ -35,6 +35,13 @@ public static class MailboxEndpoints
         
         group.MapDelete("/{id:guid}", PurgeMailboxAsync)
             .RequireAuthorization(policy => policy.RequireRole("SuperAdmin"));
+
+        // Zero-access (client-side encrypted) uploads
+        // The UI uses /mailboxes/encrypted-upload/*; the implementation lives in UploadEndpoints and is also exposed under /upload/encrypted/*.
+        group.MapPost("/encrypted-upload/initiate", UploadEndpoints.InitiateZeroAccessUploadAsync)
+            .RequireAuthorization();
+        group.MapPost("/encrypted-upload/complete", UploadEndpoints.CompleteZeroAccessUploadAsync)
+            .RequireAuthorization();
         
         return group;
     }

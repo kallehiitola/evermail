@@ -1,9 +1,418 @@
 ﻿@page "/"
+@attribute [Authorize(Policy = "SuperAdminOnly")]
 
-<PageTitle>Index</PageTitle>
+@inject IConfiguration Config
+@inject Evermail.Infrastructure.Data.EvermailDbContext Db
+@using Microsoft.EntityFrameworkCore
+@inject Evermail.AdminApp.Ops.AdminRuntimeState RuntimeState
+@inject Evermail.AdminApp.Ops.AdminKeyVaultService KeyVaultService
+@inject IWebHostEnvironment Env
+@inject Azure.Security.KeyVault.Secrets.SecretClient SecretClient
+@using Microsoft.AspNetCore.Components.Authorization
+@inject AuthenticationStateProvider AuthStateProvider
+@using System.Security.Claims
 
-<h1>Hello, world!</h1>
+<PageTitle>Ops Console - Evermail</PageTitle>
 
-Welcome to your new app.
+<div class="ops-console admin-page">
+<div class="page-hero">
+    <div>
+        <div class="hero-eyebrow">Evermail</div>
+        <h1>Ops Console</h1>
+        <p class="text-muted">Runtime status and core diagnostics for the platform.</p>
+    </div>
+</div>
 
-<SurveyPrompt Title="How is Blazor working for you?" />
+<div class="stat-grid">
+    <div class="stat-card modern-card">
+        <div class="stat-label">Tenants</div>
+        <div class="stat-value">@_tenantCount</div>
+    </div>
+    <div class="stat-card modern-card">
+        <div class="stat-label">Users</div>
+        <div class="stat-value">@_userCount</div>
+    </div>
+    <div class="stat-card modern-card">
+        <div class="stat-label">Mailboxes</div>
+        <div class="stat-value">@_mailboxCount</div>
+    </div>
+    <div class="stat-card modern-card">
+        <div class="stat-label">Emails</div>
+        <div class="stat-value">@_emailCount</div>
+    </div>
+</div>
+
+<div class="modern-card ops-section">
+    <h2 class="h5 mb-2">Runtime snapshot</h2>
+    <div class="text-muted small mb-3">This is the baseline. Runtime switching and cross-service restarts are the next slice.</div>
+
+    <div class="data-table">
+        <div class="data-row">
+            <div class="data-key">Environment</div>
+            <div class="data-value">@_environmentName</div>
+        </div>
+        <div class="data-row">
+            <div class="data-key">Key Vault</div>
+            <div class="data-value">@(_keyVaultStatus)</div>
+        </div>
+        <AdminValueRow Label="SQL" Value="@_sqlTarget" MaxLen="72" />
+        <AdminValueRow Label="Blobs" Value="@_blobsTarget" MaxLen="72" />
+        <AdminValueRow Label="Queues" Value="@_queuesTarget" MaxLen="72" />
+        <div class="data-row">
+            <div class="data-key">Runtime mode</div>
+            <div class="data-value">
+                <strong>@_runtimeMode</strong>
+                @if (!string.IsNullOrWhiteSpace(_modeMessage))
+                {
+                    <div class="small text-muted mt-1">@_modeMessage</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="mt-3 d-flex gap-2 flex-wrap">
+        @if (Env.IsDevelopment())
+        {
+            <button type="button" class="btn btn-outline-secondary" @onclick='() => SetModeAsync("Local")'>Local</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick='() => SetModeAsync("AzureDev")'>Azure Dev</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick='() => SetModeAsync("AzureProd")'>Azure Prod</button>
+        }
+        else
+        {
+            <span class="text-muted small">Mode switching is disabled in production deployments.</span>
+        }
+
+        <form method="post" action="/ops/restart">
+            <button type="submit" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-repeat me-2" aria-hidden="true"></i>Restart AdminApp
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="modern-card ops-section">
+    <h2 class="h5 mb-2">Platform diagnostics</h2>
+    <div class="text-muted small mb-3">Quick health checks for Key Vault, storage access, and SQL full-text search.</div>
+
+    <AuthorizeView>
+        <Authorized Context="ctx">
+            <div class="small text-muted mb-3">
+                Signed in as <strong>@(ctx.User.Identity?.Name ?? "Unknown")</strong>
+                @if (_roleSummary.Count > 0)
+                {
+                    <span class="ms-2">•</span>
+                    @foreach (var r in _roleSummary)
+                    {
+                        <span class="badge bg-primary ms-2">@r</span>
+                    }
+                }
+            </div>
+        </Authorized>
+    </AuthorizeView>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="modern-card h-100">
+                <h3 class="h6 mb-3">Key Vault & Storage</h3>
+                <div class="data-table">
+                    <div class="data-row">
+                        <div class="data-key">Key Vault read</div>
+                        <div class="data-value">@_keyVaultRead</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-key">Blob access</div>
+                        <div class="data-value">@_blobAccess</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-key">Queue access</div>
+                        <div class="data-value">@_queueAccess</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="modern-card h-100">
+                <h3 class="h6 mb-3">SQL full-text search</h3>
+                <div class="data-table">
+                    <div class="data-row">
+                        <div class="data-key">Service installed</div>
+                        <div class="data-value">@(_ftsInstalled ? "✅ Yes" : "❌ No")</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-key">Database enabled</div>
+                        <div class="data-value">@(_ftsDbEnabled ? "✅ Yes" : "❌ No")</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-key">Catalogs</div>
+                        <div class="data-value">@_ftsCatalogs</div>
+                    </div>
+                    <div class="data-row">
+                        <div class="data-key">Indexes</div>
+                        <div class="data-value">@_ftsIndexes</div>
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrWhiteSpace(_ftsPopulationSummary))
+                {
+                    <div class="text-muted small mt-3">@_ftsPopulationSummary</div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <details class="mt-3">
+        <summary class="small text-muted">Security context (claims)</summary>
+        <AuthorizeView>
+            <Authorized Context="ctx">
+                <div class="table-responsive mt-3">
+                    <table class="table table-sm data-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var claim in ctx.User.Claims.OrderBy(c => c.Type))
+                            {
+                                <tr>
+                                    <td><code>@claim.Type</code></td>
+                                    <td>@claim.Value</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </Authorized>
+        </AuthorizeView>
+    </details>
+</div>
+
+</div>
+
+@code {
+    private string _environmentName = "Unknown";
+    private string _sqlTarget = "Not configured";
+    private string _blobsTarget = "Not configured";
+    private string _queuesTarget = "Not configured";
+    private string _keyVaultStatus = "Unknown";
+    private string _runtimeMode = "Unknown";
+    private string? _modeMessage;
+
+    private int _tenantCount;
+    private int _userCount;
+    private int _mailboxCount;
+    private int _emailCount;
+
+    private string _keyVaultRead = "Unknown";
+    private string _blobAccess = "Unknown";
+    private string _queueAccess = "Unknown";
+
+    private bool _ftsInstalled;
+    private bool _ftsDbEnabled;
+    private int _ftsCatalogs;
+    private int _ftsIndexes;
+    private string? _ftsPopulationSummary;
+
+    private List<string> _roleSummary = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _environmentName = Config["ASPNETCORE_ENVIRONMENT"] ?? "Unknown";
+        _keyVaultStatus = RuntimeState.KeyVaultLoaded ? "✅ Loaded" : "ℹ️ Not accessible (fallback)";
+        _runtimeMode = Config["EvermailRuntime:Mode"] ?? "Local (default)";
+
+        _sqlTarget = Shorten(Config.GetConnectionString("evermaildb"));
+        _blobsTarget = Shorten(Config.GetConnectionString("blobs"));
+        _queuesTarget = Shorten(Config.GetConnectionString("queues"));
+
+        _tenantCount = await Db.Tenants.CountAsync();
+        _userCount = await Db.Users.CountAsync();
+        _mailboxCount = await Db.Mailboxes.CountAsync();
+        _emailCount = await Db.EmailMessages.CountAsync();
+
+        // Role summary (from cookie/OAuth claims)
+        try
+        {
+            var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+            _roleSummary = authState.User.FindAll(ClaimTypes.Role)
+                .Select(c => c.Value)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(x => x)
+                .ToList();
+        }
+        catch
+        {
+            _roleSummary = new();
+        }
+
+        await LoadDiagnosticsAsync();
+    }
+
+    private async Task LoadDiagnosticsAsync()
+    {
+        // Key Vault read (best-effort)
+        try
+        {
+            var secret = await SecretClient.GetSecretAsync("EvermailRuntime--Mode");
+            _keyVaultRead = $"✅ OK (EvermailRuntime--Mode = {secret.Value.Value})";
+        }
+        catch (Azure.RequestFailedException ex) when (ex.Status == 404)
+        {
+            _keyVaultRead = "ℹ️ Not set (EvermailRuntime--Mode)";
+        }
+        catch (Exception ex)
+        {
+            _keyVaultRead = $"⚠️ {TrimErr(ex.Message)}";
+        }
+
+        // Storage access checks (best-effort). We don't enumerate everything—just probe.
+        var blobsConn = Config.GetConnectionString("blobs");
+        var queuesConn = Config.GetConnectionString("queues");
+
+        if (string.IsNullOrWhiteSpace(blobsConn))
+        {
+            _blobAccess = "❌ Not configured";
+        }
+        else
+        {
+            try
+            {
+                var blobSvc = new Azure.Storage.Blobs.BlobServiceClient(blobsConn);
+                blobSvc.GetAccountInfo();
+                _blobAccess = "✅ OK (account probe)";
+            }
+            catch (Exception ex)
+            {
+                _blobAccess = $"⚠️ {TrimErr(ex.Message)}";
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(queuesConn))
+        {
+            _queueAccess = "❌ Not configured";
+        }
+        else
+        {
+            try
+            {
+                var queueSvc = new Azure.Storage.Queues.QueueServiceClient(queuesConn);
+                queueSvc.GetProperties();
+                _queueAccess = "✅ OK (service properties probe)";
+            }
+            catch (Exception ex)
+            {
+                _queueAccess = $"⚠️ {TrimErr(ex.Message)}";
+            }
+        }
+
+        // SQL full-text diagnostics (based on WebApp DevEndpoints)
+        try
+        {
+            var installed = await Db.Database
+                .SqlQueryRaw<int>("SELECT FULLTEXTSERVICEPROPERTY('IsFullTextInstalled')")
+                .AsAsyncEnumerable()
+                .FirstAsync();
+
+            var dbEnabled = await Db.Database
+                // sys.databases.is_fulltext_enabled is a BIT -> ensure we project an INT to avoid bool/int casting issues.
+                .SqlQueryRaw<int>("SELECT CAST(is_fulltext_enabled AS int) FROM sys.databases WHERE name = DB_NAME()")
+                .AsAsyncEnumerable()
+                .FirstAsync();
+
+            var catalogs = await Db.Database
+                .SqlQueryRaw<string>("SELECT name FROM sys.fulltext_catalogs ORDER BY name")
+                .ToListAsync();
+
+            var indexes = await Db.Database
+                .SqlQueryRaw<string>(
+                    """
+                    SELECT o.name
+                    FROM sys.fulltext_indexes fi
+                    JOIN sys.objects o ON fi.object_id = o.object_id
+                    ORDER BY o.name
+                    """)
+                .ToListAsync();
+
+            _ftsInstalled = installed == 1;
+            _ftsDbEnabled = dbEnabled == 1;
+            _ftsCatalogs = catalogs.Count;
+            _ftsIndexes = indexes.Count;
+
+            var pop = await Db.Database
+                .SqlQueryRaw<FullTextPopulationRow>(
+                    """
+                    SELECT TOP (1)
+                        catalog_id AS CatalogId,
+                        table_id AS TableId,
+                        status AS Status,
+                        start_time AS StartTime
+                    FROM sys.dm_fts_index_population
+                    ORDER BY start_time DESC
+                    """)
+                .ToListAsync();
+
+            if (pop.Count == 0)
+            {
+                _ftsPopulationSummary = "No recent population activity.";
+            }
+            else
+            {
+                var p = pop[0];
+                _ftsPopulationSummary = $"Latest population: {DescribePopulationStatus(p.Status)} (started {p.StartTime?.ToLocalTime():g}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _ftsPopulationSummary = $"FTS diagnostics failed: {TrimErr(ex.Message)}";
+        }
+    }
+
+    private static string TrimErr(string? msg)
+    {
+        if (string.IsNullOrWhiteSpace(msg)) return "Unknown error";
+        return msg.Length <= 140 ? msg : msg[..140] + "…";
+    }
+
+    private static string DescribePopulationStatus(int status) => status switch
+    {
+        0 => "Idle",
+        1 => "Full population in progress",
+        2 => "Paused",
+        3 => "Throttled",
+        4 => "Recovering",
+        _ => $"Status {status}"
+    };
+
+    private sealed record FullTextPopulationRow(
+        int CatalogId,
+        int TableId,
+        int Status,
+        DateTime? StartTime);
+
+    private async Task SetModeAsync(string mode)
+    {
+        _modeMessage = "Saving…";
+
+        var (success, error) = await KeyVaultService.TrySetRuntimeModeAsync(mode);
+        if (!success)
+        {
+            _modeMessage = $"Failed to set mode: {error}";
+            return;
+        }
+
+        _runtimeMode = mode;
+        _modeMessage = "Saved to Key Vault. Restart required for services to pick up changes.";
+    }
+
+    private static string Shorten(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "Not configured";
+        }
+
+        return value.Length <= 120 ? value : value[..120] + "…";
+    }
+}

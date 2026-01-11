@@ -1,6 +1,6 @@
 # Evermail Development Progress Report
 
-> **Last Updated**: 2025-11-25  
+> **Last Updated**: 2025-12-16  
 > **Status**: Active Development  
 > **Phase**: Phase 0 Complete + Authentication System Complete
 
@@ -257,6 +257,14 @@ Your Evermail SaaS project is now fully configured with world-class development 
 
 ## Recent Updates
 
+### 2025-12-16 - Security Levels (3-tier) + BYOK Onboarding Plan Locked In
+- 🔐 Finalized the **3 security levels** model as a first-class product concept: **Full Service**, **Confidential Processing**, and **Zero-Access**, with the recommended scope being **tenant default + per-mailbox override**.
+- 🧭 Documented “world-class BYOK onboarding” UX: three clear security cards, button-only setup flows, explicit trade-offs, and a guarded recovery bundle flow (acknowledgement gating) for Zero-Access so non-technical users can’t accidentally lose access.
+- 🧱 Mapped architecture + deployment implications: which components may decrypt in each mode, where TEEs/SKR are required, and how Zero-Access must skip server-side ingestion entirely.
+- 🔌 Extended API documentation with the security-level contract (including a proposed `PUT /api/v1/tenants/security-level`) and clarified that Full/Confidential can support both Evermail-managed keys and external BYOK providers.
+- 💶 Reconciled pricing documentation with real seeded plan limits and upload enforcement (e.g., Enterprise supports **100 GB** single-file uploads; Team/Enterprise storage limits corrected to match seeding).
+- 🗺️ Updated the documentation index so future work can be resumed “cold” by following the new “Security levels & BYOK onboarding” entry path.
+
 ### 2025-11-22 - Archive Auto-Detection & Friendly Upload UX
 - 🧠 Removed the manual “select your archive type” step from `/upload` and replaced it with auto-detection + contextual hints so non-technical users can just drop any ZIP/PST/OST/EML and let Evermail figure it out.
 - 🛰️ Added `ArchiveFormatDetector`, a scoped service that downloads only the necessary metadata from Azure Blob Storage, inspects ZIP entries/PST headers, and persists the resolved `SourceFormat` before an upload ever hits the ingestion queue.
@@ -443,6 +451,38 @@ Your Evermail SaaS project is now fully configured with world-class development 
 - ✅ Documentation structure created
 - ✅ Cursor AI rules configured
 
+### 2025-12-16 - AdminApp Ops Console hardening + Business Dashboard foundation
+
+- ✅ Fixed AdminApp SQL Full-Text diagnostics (bit/int cast + DMV column mismatch), and made storage probes fast/safe (account/service property probes vs full enumeration).
+- ✅ Improved Ops Console clarity: friendly Key Vault “not set” messaging and a compact “Signed in as / roles” summary.
+- ✅ Expanded Tenants & Users into a real cross-tenant tool: inline per-tenant user list, role checking, and activate/deactivate controls.
+- ✅ Implemented the first Business Dashboard slice: adoption + usage tiles and an estimated MRR rollup from `Subscriptions` + `SubscriptionPlans` (with fallback to tier mix when Stripe subs are absent).
+- ✅ Unified AdminApp UI spacing into a shared `.admin-page` rhythm and documented the AdminApp purpose/security/UX contract in the canonical docs.
+
+### 2025-12-16 - Plan docs reconciled for Azure deployment push
+
+- 🧭 Marked legacy planning docs (`PHASE1_IMPLEMENTATION_PLAN.md`, `Progress.md`, `Development/MVP_TODOLIST.md`) as historical/backlog references and pointed them at `ProgressReport.md` as the canonical tracker.
+- ✅ Captured the current “feature-ready” critical path: Stripe end-to-end billing + an EU-ready attested compute decision (AKS confidential node pools vs ACI confidential containers) before we can claim “zero-touch” for Confidential Compute Mode in production.
+
+### 2025-12-16 - Zero-touch BYOK local readiness verified (no Key Vault UX)
+
+- ✅ Verified the end-to-end “non-technical admin” onboarding path: register → plan → select BYOK → generate offline bundle in-browser → upload bundle → billing acknowledge → zero-access toggle appears on `/upload`.
+- ✅ Fixed a real blocker in the “idiot flow”: `/register` and `/login` were calling API routes with relative URIs (no `HttpClient.BaseAddress`), causing “invalid request URI” failures. These now use absolute URLs derived from `Navigation.BaseUri`.
+- ✅ Fixed a second “idiot flow” blocker: `/upload` attempted to read the JWT from `localStorage` during prerendering, which always returns null; the tenant status fetch now runs after first render so the zero-access UI consistently appears when BYOK is configured.
+- ✅ Aligned zero-access endpoint routing: the UI/docs use `/api/v1/mailboxes/encrypted-upload/*` while the implementation lived under `/api/v1/upload/encrypted/*`. The mailboxes routes are now wired as aliases to the same handlers and were smoke-tested (`initiate → SAS PUT → complete`).
+- 📚 Updated `Documentation/Security.md` + `Documentation/API.md` to match the actual implementation details (WebCrypto AES-GCM chunking, HKDF+HMAC token derivation, correct response field names), and corrected misleading “nothing is sent” language in the BYOK UI copy.
+
+### 2025-12-16 - Tenant-admin UX moved under Settings + Offline BYOK hardened
+
+- ✅ Moved tenant-admin (non-SuperAdmin) surfaces out of the legacy `/admin/*` area into `/settings/*`:
+  - Billing/plan: `/settings/billing` (alias: `/admin/subscriptions`)
+  - Encryption: `/settings/encryption` (alias: `/admin/encryption`)
+  - Compliance: `/settings/compliance` (alias: `/admin/audit`)
+  - Recovery bundles (Offline BYOK): `/settings/recovery` (alias: `/admin/offline-byok`)
+- ✅ Removed “Admin:” links from the WebApp dev menu and exposed the correct entry points through Settings.
+- ✅ Hardened Offline BYOK (“recovery bundles”) UX with a guarded acknowledgement gate before users can view/copy/download sensitive material.
+- ✅ Switched Billing UI away from cross-tenant DB writes to the tenant APIs (`/api/v1/tenants/plans`, `/api/v1/tenants/subscription`) to be production-safe.
+
 ---
 
 ## Next Steps
@@ -451,6 +491,8 @@ Your Evermail SaaS project is now fully configured with world-class development 
 2. **Deterministic token expansion** – Extend zero-access tokens from mailbox-level tags to per-email metadata + client-side search UX so encrypted tenants can filter conversations without decrypting everything.
 3. **Stripe integration** – Finish payment plumbing (Checkout, webhooks, portal) so onboarding can enforce plan upgrades once the security layers are in place.
 4. **Audit trail UX & exports** – Surface the new `AuditLogs` + GDPR job data in the admin dashboard (filters, CSV download, anomaly indicators) so compliance teams can self-serve evidence packs without touching SQL.
+5. **Settings information architecture** – Convert `/settings` into a small settings hub with clear sub-nav for Billing, Encryption, Compliance, and Recovery, and add “Back to Settings” affordances on each subpage for wayfinding.
+6. **Offline BYOK policy decision** – Decide whether Offline BYOK should remain “enable provider by uploading once” vs “purely download-only recovery bundles”, and document the chosen trust model in `Security.md`.
 
 ---
 

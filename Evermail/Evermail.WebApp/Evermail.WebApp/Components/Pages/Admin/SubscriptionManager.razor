@@ -1,90 +1,109 @@
+@page "/settings/billing"
 @page "/admin/subscriptions"
 @rendermode InteractiveServer
 @attribute [Authorize(Roles = "Admin,SuperAdmin")]
-@using Microsoft.EntityFrameworkCore
 @using Microsoft.AspNetCore.Components.Authorization
-@inject Evermail.Infrastructure.Data.EvermailDbContext DbContext
-@inject Microsoft.AspNetCore.Identity.UserManager<Evermail.Domain.Entities.ApplicationUser> UserManager
+@using System.Net.Http.Headers
+@using System.Net.Http.Json
+@using Evermail.Common.DTOs
+@using Evermail.Common.DTOs.Tenant
+@inject HttpClient Http
 @inject NavigationManager Navigation
+@inject IAuthenticationStateService AuthStateService
 
-<PageTitle>Manage Subscriptions - Evermail</PageTitle>
+<PageTitle>Billing & Plan - Evermail</PageTitle>
 
 <AuthorizeView Roles="Admin,SuperAdmin">
     <Authorized>
         <div class="container mt-4">
-            <h1>Subscription Manager</h1>
-            <p class="text-muted">Change user subscription tiers for testing</p>
+            <h1>Billing & plan</h1>
+            <p class="text-muted">Review your plan limits and update the workspace tier (admins only).</p>
 
-    <div class="card mt-4">
-        <div class="card-body">
-            <h5>Change Subscription Tier</h5>
-            
-            <div class="mb-3">
-                <label class="form-label">User Email</label>
-                <input type="email" 
-                       class="form-control" 
-                       @bind="_userEmail" 
-                       placeholder="user@example.com" />
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">New Subscription Tier</label>
-                <select class="form-select" @bind="_selectedTier">
-                    <option value="">-- Select Tier --</option>
-                    @foreach (var plan in _plans)
-                    {
-                        <option value="@plan.Name">
-                            @plan.DisplayName (@plan.MaxFileSizeGB GB max file, @plan.MaxStorageGB GB storage)
-                        </option>
-                    }
-                </select>
-            </div>
-
-            @if (!string.IsNullOrEmpty(_message))
+            @if (!string.IsNullOrEmpty(_error))
             {
-                <div class="alert @(_isError ? "alert-danger" : "alert-success")">
-                    @_message
-                </div>
+                <div class="alert alert-danger">@_error</div>
+            }
+            @if (!string.IsNullOrEmpty(_status))
+            {
+                <div class="alert alert-success">@_status</div>
             }
 
-            <button class="btn btn-primary" @onclick="ChangeSubscriptionAsync" disabled="@_isProcessing">
-                @if (_isProcessing)
-                {
-                    <span class="spinner-border spinner-border-sm me-2"></span>
-                }
-                Change Subscription
-            </button>
-        </div>
-    </div>
+            <div class="card mt-4">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div>
+                            <h5 class="mb-1">Workspace plan</h5>
+                            <p class="text-muted mb-0">Stripe checkout is coming next. For now this sets the tenant tier used for limits.</p>
+                        </div>
+                        @if (_isLoading)
+                        {
+                            <span class="spinner-border text-primary" role="status" aria-label="Loading"></span>
+                        }
+                    </div>
 
-    <div class="card mt-4">
-        <div class="card-body">
-            <h5>Current Subscription Plans</h5>
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th>Tier</th>
-                        <th>Max File Size</th>
-                        <th>Total Storage</th>
-                        <th>Max Users</th>
-                        <th>Price (Monthly)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var plan in _plans)
+                    <div class="row g-3 mt-2">
+                        <div class="col-md-7">
+                            <label class="form-label">Plan</label>
+                            <select class="form-select" @bind="_selectedTier" disabled="@_isSaving || _isLoading">
+                                <option value="">-- Select tier --</option>
+                                @foreach (var plan in _plans)
+                                {
+                                    <option value="@plan.Name">@plan.DisplayName</option>
+                                }
+                            </select>
+                            <div class="form-text">Applies to this workspace only (not other tenants).</div>
+                        </div>
+                        <div class="col-md-5 d-flex align-items-end">
+                            <button class="btn btn-primary w-100" @onclick="SaveAsync"
+                                    disabled="@_isSaving || _isLoading || string.IsNullOrWhiteSpace(_selectedTier)">
+                                @if (_isSaving)
+                                {
+                                    <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                                }
+                                Save plan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-body">
+                    <h5>Available plans</h5>
+                    @if (_plans.Count == 0 && !_isLoading)
                     {
-                        <tr>
-                            <td><strong>@plan.DisplayName</strong></td>
-                            <td>@plan.MaxFileSizeGB GB</td>
-                            <td>@plan.MaxStorageGB GB</td>
-                            <td>@(plan.MaxUsers == int.MaxValue ? "Unlimited" : plan.MaxUsers.ToString())</td>
-                            <td>€@plan.PriceMonthly</td>
-                        </tr>
+                        <div class="text-muted">No plans available.</div>
                     }
-                </tbody>
-            </table>
-        </div>
-    </div>
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Tier</th>
+                                        <th>Max file size</th>
+                                        <th>Total storage</th>
+                                        <th>Max users</th>
+                                        <th>Monthly</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var plan in _plans)
+                                    {
+                                        <tr>
+                                            <td><strong>@plan.DisplayName</strong></td>
+                                            <td>@plan.MaxFileSizeGb GB</td>
+                                            <td>@plan.MaxStorageGb GB</td>
+                                            <td>@(plan.MaxUsers == int.MaxValue ? "Unlimited" : plan.MaxUsers.ToString())</td>
+                                            <td>@plan.PriceMonthly.ToString("0.##")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
     </Authorized>
     <NotAuthorized>
@@ -93,97 +112,122 @@
 </AuthorizeView>
 
 @code {
-    private List<Evermail.Domain.Entities.SubscriptionPlan> _plans = new();
-    private string _userEmail = "";
-    private string _selectedTier = "";
-    private string _message = "";
-    private bool _isError;
-    private bool _isProcessing;
+    private readonly List<SubscriptionPlanDto> _plans = new();
+    private string _selectedTier = string.Empty;
+    private bool _isLoading;
+    private bool _isSaving;
+    private string? _error;
+    private string? _status;
 
     protected override async Task OnInitializedAsync()
     {
-        _plans = await DbContext.SubscriptionPlans
-            .OrderBy(p => p.DisplayOrder)
-            .ToListAsync();
+        await LoadPlansAsync();
     }
 
-    private async Task ChangeSubscriptionAsync()
+    private async Task LoadPlansAsync()
     {
-        _isProcessing = true;
-        _message = "";
-        _isError = false;
-
+        _isLoading = true;
+        _error = null;
         try
         {
-            // Validate inputs
-            if (string.IsNullOrWhiteSpace(_userEmail))
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
             {
-                _message = "Please enter a user email address";
-                _isError = true;
+                _error = "You must be signed in to manage billing.";
+                _plans.Clear();
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(_selectedTier))
+            var request = new HttpRequestMessage(HttpMethod.Get, BuildApiUri("api/v1/tenants/plans"));
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var response = await Http.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
             {
-                _message = "Please select a subscription tier";
-                _isError = true;
+                _error = $"Failed to load plans ({(int)response.StatusCode}).";
+                _plans.Clear();
                 return;
             }
 
-            // Find user by email
-            var user = await UserManager.FindByEmailAsync(_userEmail);
-            if (user == null)
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<IReadOnlyList<SubscriptionPlanDto>>>();
+            _plans.Clear();
+            if (payload?.Success == true && payload.Data is not null)
             {
-                _message = $"User with email '{_userEmail}' not found";
-                _isError = true;
-                return;
+                _plans.AddRange(payload.Data);
             }
-
-            // Get user's tenant
-            var tenant = await DbContext.Tenants
-                .FirstOrDefaultAsync(t => t.Id == user.TenantId);
-            
-            if (tenant == null)
+            else
             {
-                _message = "Tenant not found for user";
-                _isError = true;
-                return;
+                _error = payload?.Error ?? "Unable to load subscription plans.";
             }
-
-            // Verify the selected tier exists
-            var plan = _plans.FirstOrDefault(p => p.Name == _selectedTier);
-            if (plan == null)
-            {
-                _message = "Invalid subscription tier selected";
-                _isError = true;
-                return;
-            }
-
-            // Update tenant's subscription tier
-            var oldTier = tenant.SubscriptionTier;
-            tenant.SubscriptionTier = _selectedTier;
-            tenant.MaxStorageGB = plan.MaxStorageGB;
-            tenant.MaxUsers = plan.MaxUsers;
-            tenant.UpdatedAt = DateTime.UtcNow;
-
-            await DbContext.SaveChangesAsync();
-
-            _message = $"✅ Successfully changed {user.Email} from '{oldTier}' to '{_selectedTier}' tier";
-            _isError = false;
-
-            // Clear form
-            _userEmail = "";
-            _selectedTier = "";
         }
         catch (Exception ex)
         {
-            _message = $"Error: {ex.Message}";
-            _isError = true;
+            _error = $"Error loading plans: {ex.Message}";
         }
         finally
         {
-            _isProcessing = false;
+            _isLoading = false;
         }
     }
-}
 
+    private async Task SaveAsync()
+    {
+        _status = null;
+        _error = null;
+
+        if (string.IsNullOrWhiteSpace(_selectedTier))
+        {
+            _error = "Please select a plan.";
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            var token = await AuthStateService.GetTokenAsync();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                _error = "Session expired. Please sign in again.";
+                return;
+            }
+
+            var request = new HttpRequestMessage(HttpMethod.Put, BuildApiUri("api/v1/tenants/subscription"))
+            {
+                Content = JsonContent.Create(new SelectSubscriptionPlanRequest(_selectedTier))
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            var response = await Http.SendAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<object>>();
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _error = "Session expired. Please sign in again.";
+            }
+            else if (response.IsSuccessStatusCode && payload?.Success == true)
+            {
+                var plan = _plans.FirstOrDefault(p => p.Name == _selectedTier);
+                _status = plan is null ? "Plan updated." : $"Plan updated to {plan.DisplayName}.";
+            }
+            else
+            {
+                _error = payload?.Error ?? $"Failed to update plan ({(int)response.StatusCode}).";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Unable to update plan: {ex.Message}";
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private string BuildApiUri(string path)
+    {
+        var baseUri = Navigation.BaseUri.TrimEnd('/');
+        var normalized = path.StartsWith('/') ? path : "/" + path;
+        return baseUri + normalized;
+    }
+}

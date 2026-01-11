@@ -7,14 +7,16 @@ public record InitiateUploadRequest(
     long FileSizeBytes,
     string? FileType,  // optional hint (mbox | google-takeout-zip | microsoft-export-zip | outlook-pst | outlook-pst-zip | outlook-ost | outlook-ost-zip | eml | eml-zip)
     Guid? MailboxId = null,
-    bool ClientSideEncryption = false
+    bool ClientSideEncryption = false,
+    string? SecurityLevel = null
 );
 
 public record InitiateZeroAccessUploadRequest(
     string FileName,
     long FileSizeBytes,
     Guid? MailboxId = null,
-    string Scheme = "zero-access/aes-gcm-chunked/v1"
+    string Scheme = "zero-access/aes-gcm-chunked/v1",
+    string? SecurityLevel = null
 );
 
 public record DeterministicTokenSetDto(

@@ -73,6 +73,13 @@ var adminapp = builder.AddProject<Projects.Evermail_AdminApp>("adminapp")
     .WithReference(keyVault)
     .WaitForCompletion(migrations);
 
+// Dev-only: enable "Dev bypass" button for fast UI iteration without breaking OAuth.
+// This becomes an env var for the AdminApp process when running locally (non-publish).
+if (!builder.ExecutionContext.IsPublishMode)
+{
+    adminapp.WithEnvironment("AdminAuth__DevBypassEnabled", "true");
+}
+
 // Add IngestionWorker (Background Service)
 // WaitFor(migrations) ensures migrations complete before Worker starts
 builder.AddProject<Projects.Evermail_IngestionWorker>("worker")

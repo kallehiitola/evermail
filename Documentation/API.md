@@ -112,6 +112,42 @@ Refresh JWT token.
 
 All endpoints under `/tenants/encryption` require `Admin` or `SuperAdmin` role membership. They let a tenant choose between Evermail-managed keys, Azure Key Vault BYOK, or the new AWS KMS connector.
 
+### Security levels (Full Service / Confidential / Zero-Access)
+
+Evermail exposes **three security levels** that control how much the platform can do server-side vs how strongly the tenant isolates keys:
+
+| Level | Server capabilities | Key custody goal | Typical use |
+| --- | --- | --- | --- |
+| **Full Service** | Full ingestion, per-email viewing, attachments, SQL full-text search, AI features | Tenant trusts Evermail’s service to decrypt during processing (audited) | Most users |
+| **Confidential Processing** | Same as Full Service, but decryption is restricted to attested confidential compute with SKR | Tenant trusts that keys release only to approved TEEs | Regulated/enterprise |
+| **Zero-Access** | Server stores ciphertext only; no server-side ingestion of body/attachments | Tenant holds mailbox keys; server never receives them | Strict privacy/compliance |
+
+**Scope**: recommended model is **tenant default** + per-upload override. The tenant default is chosen during onboarding and used as the default selection on `/upload`.
+
+> Note: “BYOK provider” and “Security level” are distinct:
+> - Full/Confidential may use Evermail-managed keys or external BYOK (Azure/AWS).
+> - Zero-Access uses per-mailbox client-generated keys and does not require a server-side key provider.
+
+#### GET /tenants/onboarding/status (extended)
+
+The onboarding status response should include the tenant’s default security level and whether the chosen level is “ready”:
+- `securityLevel`: `FullService` | `Confidential` | `ZeroAccess`
+- `securityLevelReady`: boolean
+- `encryptionConfigured`: boolean (still used for BYOK providers that the server must access)
+
+#### PUT /tenants/security-level (new)
+
+Sets the tenant’s default security level (used to preselect upload behavior). Requires `Admin`/`SuperAdmin`.
+
+**Request Body**:
+```json
+{
+  "securityLevel": "ZeroAccess" // FullService | Confidential | ZeroAccess
+}
+```
+
+**Response (200 OK)** returns the updated onboarding status.
+
 ### GET /tenants/encryption
 Fetch the current encryption settings for the authenticated tenant. The payload includes provider-agnostic status plus provider-specific metadata (Azure or AWS). Fields that don’t apply to the selected provider are omitted/null.
 
@@ -191,6 +227,8 @@ On failure, `success` is `false` and `error` contains the human-friendly reason 
 
 ### POST /tenants/encryption/offline
 Uploads an offline BYOK bundle that was generated entirely in the browser. The payload includes the wrapped DEK plus the passphrase so the API can unwrap it once, encrypt it with the server-side protector key, and mark the tenant as `Provider = Offline`.
+
+> **Important**: this endpoint is compatible with **Full Service** and **Confidential Processing** (where the server must unwrap keys to process mail). It is **not compatible with Zero-Access** if we want the “server never receives unwrapping material” guarantee.
 
 **Request Body**:
 ```json
@@ -780,7 +818,8 @@ Tell the API the browser finished uploading the blob so it can enqueue processin
 If the client calls `/mailboxes/{id}/uploads` the server wraps both steps and returns the same payload.
 
 ### POST /mailboxes/encrypted-upload/initiate
-Start a zero-access upload. Returns the SAS URL, mailbox/upload IDs, and the `tokenSalt` the browser needs to derive deterministic tokens from the DEK.
+### POST /upload/encrypted/initiate
+Start a zero-access upload. Returns the upload SAS URL, mailbox/upload IDs, and the `tokenSalt` the browser needs to derive deterministic tokens from the per-upload key.
 
 **Request**
 ```json
@@ -797,16 +836,18 @@ Start a zero-access upload. Returns the SAS URL, mailbox/upload IDs, and the `to
 {
   "success": true,
   "data": {
-    "sasUrl": "https://storage.blob.core.windows.net/mbox-archives/...&sig=...",
+    "uploadUrl": "https://storage.blob.core.windows.net/mbox-archives/...&sig=...",
     "blobPath": "mbox-archives/{tenant}/{mailbox}/{guid}_encrypted.mbox",
     "mailboxId": "98d1c9b9-01f7-4fd7-9ccb-d3b18d1e1e93",
     "uploadId": "87a4f041-32d3-4f2b-930c-b52100e64bb5",
+    "expiresAt": "2025-11-18T18:30:00Z",
     "tokenSalt": "rTQ6kpmzO5E8b+Ja3n8ihQ=="
   }
 }
 ```
 
 ### POST /mailboxes/encrypted-upload/complete
+### POST /upload/encrypted/complete
 Finish a zero-access upload after the ciphertext has been committed. The browser provides the encryption metadata, DEK fingerprint, ciphertext sizes, and hashed deterministic token sets.
 
 **Request**
@@ -856,7 +897,7 @@ Finish a zero-access upload after the ciphertext has been committed. The browser
 }
 ```
 
-`tokenSets.tokens` are Base64 HMAC-SHA256 strings derived client-side using the DEK, the `tokenSalt`, and HKDF per the zero-access spec. The same algorithm powers mailbox tags as well as the new `from` / `to` / `cc` / `subject` header indexes. The server stores the opaque hashes but cannot reverse them or distinguish their plaintext values.
+`tokenSets.tokens` are Base64 HMAC-SHA256 strings derived client-side using the per-upload key, the `tokenSalt`, and HKDF per the implementation in `Evermail.WebApp/wwwroot/js/zero-access-upload.js`. The same algorithm powers mailbox tags as well as the `from` / `to` / `cc` / `subject` header indexes. The server stores the opaque hashes but cannot reverse them or distinguish their plaintext values.
 
 ### GET /mailboxes?tagToken=...
 Filter the mailbox list by deterministic tag tokens (supply multiple `tagToken` query parameters for AND semantics). Clients hash the plaintext tag locally before calling this endpoint.
@@ -1316,6 +1357,11 @@ Get current subscription details.
 ---
 
 ## Admin Endpoints
+
+> ⚠️ **Status note (2025-12-16)**: The Evermail **SuperAdmin portal** is `Evermail.AdminApp` (internal-only, OAuth allowlist).  
+> AdminApp currently renders ops/tenants/business views by reading SQL + probing platform services. The `/api/v1/admin/*` endpoints below are **planned** and should not be treated as implemented unless the code exists under `Evermail.WebApp/Endpoints/*`.
+
+> ℹ️ **Tenant admin UI note**: Tenant-admin features live in the customer WebApp under `/settings/*` (e.g., `/settings/billing`, `/settings/encryption`, `/settings/compliance`, `/settings/recovery`). Legacy `/admin/*` routes remain as aliases.
 
 ### GET /admin/tenants
 List all tenants (SuperAdmin only).

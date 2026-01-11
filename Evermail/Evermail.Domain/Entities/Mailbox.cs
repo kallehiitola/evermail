@@ -36,6 +36,13 @@ public class Mailbox
     [MaxLength(64)]
     public string? ZeroAccessTokenSalt { get; set; }
 
+    /// <summary>
+    /// Security level for this mailbox (copied from tenant default at creation, can be overridden per mailbox).
+    /// Values: FullService | Confidential | ZeroAccess
+    /// </summary>
+    [MaxLength(32)]
+    public string SecurityLevel { get; set; } = "FullService";
+
     [Required, MaxLength(64)]
     public string SourceFormat { get; set; } = "mbox";
     

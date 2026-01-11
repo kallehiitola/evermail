@@ -1,0 +1,77 @@
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+
+<div class="data-row">
+    <div class="data-key">@Label</div>
+    <div class="data-value">
+        @if (IsCode)
+        {
+            <code title="@Value">@DisplayValue</code>
+        }
+        else
+        {
+            <span title="@Value">@DisplayValue</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(_copyMessage))
+        {
+            <div class="small text-muted mt-1">@_copyMessage</div>
+        }
+    </div>
+    @if (Copyable && !IsEmptyOrNotConfigured(Value))
+    {
+        <div class="data-value admin-row-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CopyAsync">Copy</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public bool Copyable { get; set; } = true;
+    [Parameter] public bool IsCode { get; set; } = true;
+    [Parameter] public int MaxLen { get; set; } = 64;
+
+    private string? _copyMessage;
+
+    private string DisplayValue
+    {
+        get
+        {
+            if (IsEmptyOrNotConfigured(Value))
+            {
+                return "Not configured";
+            }
+
+            if (Value!.Length <= MaxLen)
+            {
+                return Value;
+            }
+
+            return Value[..MaxLen] + "…";
+        }
+    }
+
+    private static bool IsEmptyOrNotConfigured(string? s) =>
+        string.IsNullOrWhiteSpace(s) || s == "Not configured";
+
+    private async Task CopyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Value))
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Value);
+            _copyMessage = "Copied.";
+        }
+        catch
+        {
+            _copyMessage = "Copy failed (clipboard permission).";
+        }
+    }
+}
+
+

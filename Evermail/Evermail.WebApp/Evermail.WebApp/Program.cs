@@ -19,6 +19,7 @@ using Evermail.Common.DTOs;
 using Evermail.WebApp.Services.Gdpr;
 using Evermail.WebApp.Services.RateLimiting;
 using Evermail.WebApp.Services.Notifications;
+using Evermail.Common.Runtime;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Authorization;
@@ -71,7 +72,8 @@ catch (Exception ex)
 }
 
 // Add database context
-var connectionString = builder.Configuration.GetConnectionString("evermaildb")
+var runtimeMode = EvermailRuntimeResolver.ResolveMode(builder.Configuration, builder.Environment);
+var connectionString = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "evermaildb")
     ?? "Server=(localdb)\\mssqllocaldb;Database=Evermail;Trusted_Connection=True;MultipleActiveResultSets=true";
 
 builder.Services.AddDbContext<EvermailDbContext>((serviceProvider, options) =>
@@ -203,7 +205,7 @@ builder.Services.AddScoped<ITwoFactorService, TwoFactorService>();
 // Configure Azure Blob Storage
 builder.Services.AddSingleton(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("blobs");
+    var connectionString = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "blobs");
     if (string.IsNullOrEmpty(connectionString))
     {
         if (builder.Environment.IsDevelopment())
@@ -224,7 +226,7 @@ builder.Services.AddScoped<IArchiveFormatDetector, ArchiveFormatDetector>();
 // Configure Azure Queue Storage
 builder.Services.AddSingleton(sp =>
 {
-    var connectionString = builder.Configuration.GetConnectionString("queues");
+    var connectionString = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "queues");
     if (string.IsNullOrEmpty(connectionString))
     {
         if (builder.Environment.IsDevelopment())

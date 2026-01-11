@@ -81,7 +81,7 @@
 
 10. **[Documentation/ARCHITECTURE_REVIEW.md](Documentation/ARCHITECTURE_REVIEW.md)**
     - Microsoft Learn validation of all decisions
-    - .NET 9 vs .NET 8 analysis
+    - .NET upgrade analysis (historical)
     - Blazor Web App vs WASM
     - Azure SQL vs PostgreSQL
     - Multi-tenancy strategies
@@ -93,7 +93,7 @@
 
 11. **[ARCHITECTURE_DECISIONS.md](ARCHITECTURE_DECISIONS.md)**
     - Comprehensive rationale for all choices
-    - .NET 9 decision
+    - .NET upgrade decisions (historical)
     - Blazor Web App decision
     - Database choice (Azure SQL)
     - Multi-tenancy approach
@@ -202,6 +202,11 @@
 
 ### "I'm new, what is this project?"
 → **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)** ⭐
+
+### "What are the 3 security levels and how does BYOK onboarding work?"
+→ **[Documentation/Security.md](Documentation/Security.md)** → “Security Modes (3 levels)” + “World-class BYOK onboarding (UX spec)”  
+→ **[Documentation/Architecture.md](Documentation/Architecture.md)** → “Security levels (service capability vs cryptographic isolation)” + “Guided Onboarding Wizard”  
+→ **[Documentation/API.md](Documentation/API.md)** → “Security levels (Full Service / Confidential / Zero-Access)”
 
 ### "How do I set up development environment?"
 → **[README.md](README.md)** → Getting Started section
@@ -331,7 +336,7 @@
 ## ✅ Documentation Health
 
 All documentation is:
-- ✅ **Up-to-date** (as of 2025-11-11)
+- ✅ **Up-to-date** (as of 2025-12-16)
 - ✅ **Comprehensive** (10,000+ lines)
 - ✅ **Validated** (Microsoft Learn MCP)
 - ✅ **Cross-referenced** (documents link to each other)
@@ -343,18 +348,19 @@ All documentation is:
 ## 🎯 Summary
 
 ### One-Sentence Summary
-**Evermail** is a cloud-based email archive viewer with AI-powered search, built with .NET 9 and Azure, targeting individuals and SMBs at €0-99/month with 88% gross margins.
+**Evermail** is a cloud-based email archive viewer with advanced search and privacy modes, built with **.NET 10 + Azure Aspire**, targeting individuals and SMBs at €0-99/month with ~90% gross margins.
 
 ### For Quick Understanding
 1. Read: **[PROJECT_BRIEF.md](PROJECT_BRIEF.md)** (10 min)
 2. Skim: **[README.md](README.md)** (5 min)
 3. Review: **[Documentation/Architecture.md](Documentation/Architecture.md)** (20 min)
+4. Decide: **[Documentation/Security.md](Documentation/Security.md)** (15 min) — pick Full/Confidential/Zero-Access and understand the guarantees
 
-**Total**: 35 minutes to understand the entire project.
+**Total**: ~50 minutes to understand the project + the security model trade-offs.
 
 ---
 
-**Last Updated**: 2025-11-11  
-**Status**: ✅ All documentation complete and validated  
-**Next**: Start building MVP with .NET 9 + Aspire 9.4
+**Last Updated**: 2025-12-16  
+**Status**: ✅ Core documentation + 3 security levels + onboarding UX documented  
+**Next**: Implement security-level selection (per mailbox) and align Blazor render modes with Zero-Access guarantees
 

@@ -9,6 +9,7 @@ using Evermail.Infrastructure.Services;
 using Evermail.Infrastructure.Services.Archives;
 using Evermail.Infrastructure.Services.Encryption;
 using Evermail.Infrastructure.Configuration;
+using Evermail.Common.Runtime;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 
@@ -30,7 +31,8 @@ catch (Exception ex)
 }
 
 // Database connection
-var connectionString = builder.Configuration.GetConnectionString("evermaildb");
+var runtimeMode = EvermailRuntimeResolver.ResolveMode(builder.Configuration, builder.Environment);
+var connectionString = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "evermaildb");
 if (string.IsNullOrEmpty(connectionString))
 {
     if (builder.Environment.IsDevelopment())
@@ -56,7 +58,7 @@ builder.Services.AddDbContext<EvermailDbContext>(options =>
 // Azure Blob Storage
 builder.Services.AddSingleton(sp =>
 {
-    var blobsConnection = builder.Configuration.GetConnectionString("blobs");
+    var blobsConnection = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "blobs");
     if (string.IsNullOrEmpty(blobsConnection))
     {
         if (builder.Environment.IsDevelopment())
@@ -75,7 +77,7 @@ builder.Services.AddSingleton(sp =>
 // Azure Queue Storage
 builder.Services.AddSingleton(sp =>
 {
-    var queuesConnection = builder.Configuration.GetConnectionString("queues");
+    var queuesConnection = EvermailRuntimeResolver.ResolveConnectionString(builder.Configuration, runtimeMode, "queues");
     if (string.IsNullOrEmpty(queuesConnection))
     {
         if (builder.Environment.IsDevelopment())

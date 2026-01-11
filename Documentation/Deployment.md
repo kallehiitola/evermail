@@ -2,7 +2,45 @@
 
 ## Overview
 
-Evermail is deployed using **Azure Aspire** to Azure Container Apps. This guide covers local development, CI/CD setup, and production deployment.
+Evermail is deployed on Microsoft Azure. We use **Azure Aspire** locally for orchestration, but the **production hosting model depends on the security tier** (standard vs confidential/SKR).
+
+### Confidential compute / SKR reality check (important)
+
+Evermail’s “zero-touch / zero-trust” posture needs **attested confidential compute** for workloads that decrypt data (ingestion/search/AI) and may require **Azure Key Vault Secure Key Release (SKR)**.
+
+Microsoft’s current positioning (as of Dec 2025) implies:
+- **Azure Container Apps confidential compute** exists as a *preview* and is **region-limited** (doc notes UAE North). See `https://learn.microsoft.com/en-us/azure/container-apps/security` (“Confidential compute (Preview)”).
+- **SKR + confidential containers** are documented for **Azure Container Instances (ACI)** confidential containers with an SKR sidecar. See `https://learn.microsoft.com/en-us/azure/container-instances/container-instances-confidential-overview` and `https://learn.microsoft.com/en-us/azure/confidential-computing/skr-flow-confidential-containers-azure-container-instance`.
+- **AKS confidential VM node pools (SEV-SNP)** are generally available and are the most stable Kubernetes-based path for sensitive workloads. See `https://learn.microsoft.com/en-us/azure/confidential-computing/confidential-node-pool-aks`.
+
+### Deployment decision matrix (what runs where)
+
+| Evermail component | Standard security (no SKR/TEE requirement) | “Zero-touch” security (attested compute + optional SKR) | Recommendation |
+| --- | --- | --- | --- |
+| `Evermail.WebApp` (customer UI + API) | Azure Container Apps / App Service / AKS | Stays standard (does not need to decrypt if we keep decryption in worker/TEE) | **Standard compute** (Container Apps or App Service). Keep decrypt operations out of this service. |
+| `Evermail.AdminApp` (Evermail SuperAdmin portal) | Azure Container Apps / App Service | Standard compute | **Standard compute** (does not handle tenant plaintext). |
+| `Evermail.MigrationService` | Same compute as WebApp or a one-shot job | Standard compute | Keep simple: run as a job in the same compute plane as WebApp. |
+| `Evermail.IngestionWorker` (parsing/indexing; decrypt point) | Any compute | Needs **TEE** if decrypting; SKR if Key Vault release policies enforce attestation | **AKS confidential VM node pool** for EU-ready path. Consider ACI confidential containers if you want SKR-sidecar pattern sooner. |
+| Search / AI workers (future) | Any compute | Same as worker: TEE + SKR when decrypting | **AKS confidential node pool** (align with worker). |
+| Azure SQL / Storage / Key Vault | Managed services | Same | Keep in Azure managed services; enforce SKR policies for keys where applicable. |
+
+**Bottom line**:
+- If we require **attested compute in Europe**, plan on **AKS confidential VM node pools** for data-plane workloads.
+- If we require **SKR sidecar reference implementation**, ACI confidential containers are a documented path (operationally different from AKS).
+ 
+This guide still documents the current “Container Apps” flow for standard workloads, but the confidential worker section should be treated as conditional on regional availability (or replaced with AKS/ACI for strict zero-touch).
+
+### Mapping deployment to the 3 security levels
+
+Evermail now supports **three security levels** (see `Documentation/Security.md`):
+
+| Security level | What must decrypt? | Where decryption is allowed | Deployment implication |
+| --- | --- | --- | --- |
+| **Full Service** | WebApp/Worker during ingestion/search | Standard compute is acceptable (with audit + least privilege) | Simplest deployment path (ACA/App Service) |
+| **Confidential Processing** | Worker (and any future search/AI workers) | **Confidential compute only**, keys via SKR | Requires AKS confidential nodes or ACI confidential containers for EU-ready attestation |
+| **Zero-Access** | Client only | Browser (WASM/JS) only | Server never decrypts; worker must skip these mailboxes entirely |
+
+**Operational requirement**: we must keep “Zero-Access” mailboxes out of any code path that would parse/decrypt archives server-side (ingestion worker, attachment extraction, AI enrichment).
 
 ## Prerequisites
 
@@ -50,6 +88,19 @@ dotnet user-secrets set "AzureOpenAI:Endpoint" "https://your-resource.openai.azu
 dotnet user-secrets set "AzureOpenAI:ApiKey" "..."
 ```
 
+### OAuth credentials (WebApp + AdminApp)
+
+AdminApp uses the same OAuth providers (Google + Microsoft) as WebApp, but with **AdminApp-specific redirect URIs** (different host/ports). For local dev, store credentials in user secrets for **both** projects:
+
+- `Authentication:Google:ClientId`
+- `Authentication:Google:ClientSecret`
+- `Authentication:Microsoft:ClientId`
+- `Authentication:Microsoft:ClientSecret`
+
+AdminApp local redirect URIs (copy exactly):
+- Google: `http://localhost:5152/signin-google-admin`, `https://localhost:7241/signin-google-admin`
+- Microsoft: `http://localhost:5152/signin-microsoft-admin`, `https://localhost:7241/signin-microsoft-admin`
+
 ### 4. Start Aspire AppHost
 ```bash
 cd Evermail.AppHost
@@ -61,7 +112,7 @@ This will:
 - Start Azurite (local blob/queue storage)
 - **Run database migrations automatically** (via MigrationService)
 - Start WebApp API (after migrations complete)
-- Start Admin Dashboard (after migrations complete)
+- Start AdminApp (SuperAdmin portal) (after migrations complete)
 - Start Ingestion Worker (after migrations complete)
 - Open Aspire Dashboard at `http://localhost:15000`
 
@@ -69,7 +120,7 @@ This will:
 
 ### 5. Access Applications
 - **User Web App**: `https://localhost:7136` or `http://localhost:5264`
-- **Admin Dashboard**: `http://localhost:5001`
+- **AdminApp (SuperAdmin portal)**: `https://localhost:7241` or `http://localhost:5152`
 - **API**: `https://localhost:7136/api/v1` or `http://localhost:5264/api/v1`
 - **Aspire Dashboard**: `http://localhost:15000`
 

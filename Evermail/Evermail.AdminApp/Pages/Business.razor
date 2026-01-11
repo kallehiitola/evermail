@@ -1,0 +1,236 @@
+@page "/business"
+@attribute [Authorize(Policy = "SuperAdminOnly")]
+@using Microsoft.EntityFrameworkCore
+@inject Evermail.Infrastructure.Data.EvermailDbContext Db
+
+<PageTitle>Business Dashboard - Evermail</PageTitle>
+
+<div class="admin-page">
+    <div class="page-hero">
+        <div>
+            <div class="hero-eyebrow">Evermail</div>
+            <h1>Business Dashboard</h1>
+            <p class="text-muted">Adoption, revenue, and usage signals (iterative build-out).</p>
+        </div>
+    </div>
+
+@if (_isLoading)
+{
+        <div class="modern-card">
+            <div class="text-muted">Loading…</div>
+        </div>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+        <div class="alert alert-danger">@_error</div>
+}
+else
+{
+        <div class="stat-grid">
+        <div class="stat-card modern-card">
+            <div class="stat-label">Active tenants</div>
+            <div class="stat-value">@_activeTenants</div>
+        </div>
+        <div class="stat-card modern-card">
+            <div class="stat-label">New tenants (30d)</div>
+            <div class="stat-value">@_newTenants30d</div>
+        </div>
+        <div class="stat-card modern-card">
+            <div class="stat-label">Active subscriptions</div>
+            <div class="stat-value">@_activeSubscriptions</div>
+        </div>
+        <div class="stat-card modern-card">
+            <div class="stat-label">Est. MRR (@_currency)</div>
+            <div class="stat-value">@_mrr.ToString("0")</div>
+        </div>
+    </div>
+
+        <div class="modern-card">
+        <h2 class="h5 mb-2">Funnel snapshot</h2>
+        <div class="text-muted small mb-3">These are product signals derived from the current schema (not marketing pixels yet).</div>
+
+        <div class="data-table">
+            <AdminValueRow Label="New users (30d)" Value="@_newUsers30d.ToString()" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Plan confirmed" Value="@_planConfirmed.ToString()" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Security configured" Value="@_securityConfigured.ToString()" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Tenants w/ mailbox" Value="@_tenantsWithMailbox.ToString()" IsCode="false" Copyable="false" />
+        </div>
+    </div>
+
+        <div class="modern-card">
+        <h2 class="h5 mb-2">Usage & storage</h2>
+        <div class="text-muted small mb-3">Uses the DB’s recorded mailbox sizes (no blob enumeration).</div>
+
+        <div class="data-table">
+            <AdminValueRow Label="Mailboxes" Value="@_mailboxes.ToString()" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Emails indexed" Value="@_emails.ToString()" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Total archive size (GB)" Value="@_totalArchiveGb.ToString("0.00")" IsCode="false" Copyable="false" />
+            <AdminValueRow Label="Normalized size (GB)" Value="@_normalizedArchiveGb.ToString("0.00")" IsCode="false" Copyable="false" />
+        </div>
+    </div>
+
+        <div class="modern-card">
+        <h2 class="h5 mb-3">Plan mix (active tenants)</h2>
+
+        <div class="table-responsive">
+            <table class="table data-table">
+                <thead>
+                    <tr>
+                        <th>Tier</th>
+                        <th>Tenants</th>
+                        <th>Est. MRR (@_currency)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _planMix)
+                    {
+                        <tr>
+                            <td><strong>@row.Tier</strong></td>
+                            <td>@row.TenantCount</td>
+                            <td>@row.EstimatedMrr.ToString("0")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <div class="text-muted small mt-3">
+            Est. MRR is derived from <code>Subscriptions</code> + <code>SubscriptionPlans</code>. Cost/profit tiles are coming next (requires Azure Cost data).
+        </div>
+    </div>
+}
+
+</div>
+
+@code {
+    private bool _isLoading = true;
+    private string? _error;
+
+    private int _activeTenants;
+    private int _newTenants30d;
+    private int _newUsers30d;
+    private int _planConfirmed;
+    private int _securityConfigured;
+    private int _tenantsWithMailbox;
+
+    private int _activeSubscriptions;
+    private decimal _mrr;
+    private string _currency = "EUR";
+
+    private int _mailboxes;
+    private int _emails;
+    private decimal _totalArchiveGb;
+    private decimal _normalizedArchiveGb;
+
+    private List<PlanMixRow> _planMix = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isLoading = true;
+        _error = null;
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var since30 = now.AddDays(-30);
+
+            _activeTenants = await Db.Tenants.AsNoTracking().CountAsync(t => t.IsActive);
+            _newTenants30d = await Db.Tenants.AsNoTracking().CountAsync(t => t.CreatedAt >= since30);
+            _newUsers30d = await Db.Users.AsNoTracking().CountAsync(u => u.CreatedAt >= since30);
+
+            _planConfirmed = await Db.Tenants.AsNoTracking().CountAsync(t => t.OnboardingPlanConfirmedAt != null);
+            _securityConfigured = await Db.TenantEncryptionSettings.AsNoTracking()
+                .CountAsync(s => s.EncryptionPhase != "NotConfigured");
+            _tenantsWithMailbox = await Db.Mailboxes.AsNoTracking()
+                .Select(m => m.TenantId)
+                .Distinct()
+                .CountAsync();
+
+            // Usage (from DB records)
+            _mailboxes = await Db.Mailboxes.AsNoTracking().CountAsync();
+            _emails = await Db.EmailMessages.AsNoTracking().CountAsync();
+
+            var totalBytes = await Db.Mailboxes.AsNoTracking()
+                .SumAsync(m => (long?)(m.FileSizeBytes)) ?? 0L;
+            var normalizedBytes = await Db.Mailboxes.AsNoTracking()
+                .SumAsync(m => (long?)(m.NormalizedSizeBytes)) ?? 0L;
+
+            _totalArchiveGb = BytesToGb(totalBytes);
+            _normalizedArchiveGb = BytesToGb(normalizedBytes);
+
+            // Revenue approximation: active subs * plan price (monthly or yearly/12 inferred by StripePriceId match)
+            var plans = await Db.SubscriptionPlans.AsNoTracking()
+                .Where(p => p.IsActive)
+                .ToListAsync();
+
+            _currency = plans.Select(p => p.Currency).FirstOrDefault() ?? "EUR";
+
+            var planById = plans.ToDictionary(p => p.Id);
+            var activeSubs = await Db.Subscriptions.AsNoTracking()
+                .Where(s => s.Status == "Active" && s.CurrentPeriodEnd >= now)
+                .ToListAsync();
+
+            _activeSubscriptions = activeSubs.Count;
+            _mrr = activeSubs.Sum(s => EstimateMrr(s, planById));
+
+            _planMix = activeSubs
+                .GroupBy(s =>
+                {
+                    if (planById.TryGetValue(s.SubscriptionPlanId, out var p))
+                        return p.Name;
+                    return "Unknown";
+                })
+                .Select(g => new PlanMixRow(
+                    Tier: g.Key,
+                    TenantCount: g.Select(x => x.TenantId).Distinct().Count(),
+                    EstimatedMrr: g.Sum(x => EstimateMrr(x, planById))))
+                .OrderByDescending(x => x.TenantCount)
+                .ToList();
+
+            if (_planMix.Count == 0)
+            {
+                // Fall back to tenant tier mix when Stripe subs aren't present yet.
+                var rows = await Db.Tenants.AsNoTracking()
+                    .Where(t => t.IsActive)
+                    .GroupBy(t => t.SubscriptionTier)
+                    .Select(g => new { Tier = g.Key, TenantCount = g.Count() })
+                    .ToListAsync();
+
+                _planMix = rows
+                    .Select(r => new PlanMixRow(r.Tier, r.TenantCount, 0))
+                    .OrderByDescending(x => x.TenantCount)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+    }
+
+    private static decimal BytesToGb(long bytes) => bytes <= 0 ? 0 : (decimal)bytes / 1024m / 1024m / 1024m;
+
+    private static decimal EstimateMrr(
+        Evermail.Domain.Entities.Subscription sub,
+        Dictionary<Guid, Evermail.Domain.Entities.SubscriptionPlan> planById)
+    {
+        if (!planById.TryGetValue(sub.SubscriptionPlanId, out var plan))
+            return 0;
+
+        // If we can detect yearly price ID, spread it over 12 months.
+        if (!string.IsNullOrWhiteSpace(plan.StripePriceIdYearly) &&
+            string.Equals(plan.StripePriceIdYearly, sub.StripePriceId, StringComparison.Ordinal))
+        {
+            return (plan.PriceYearly ?? (plan.PriceMonthly * 12m)) / 12m;
+        }
+
+        return plan.PriceMonthly;
+    }
+
+    private sealed record PlanMixRow(string Tier, int TenantCount, decimal EstimatedMrr);
+}
+

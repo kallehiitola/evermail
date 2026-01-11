@@ -31,6 +31,13 @@ public class MailboxUpload
     [MaxLength(128)]
     public string? EncryptionKeyFingerprint { get; set; }
 
+    /// <summary>
+    /// Security level used for this upload.
+    /// Values: FullService | Confidential | ZeroAccess
+    /// </summary>
+    [MaxLength(32)]
+    public string SecurityLevel { get; set; } = "FullService";
+
     [Required, MaxLength(64)]
     public string SourceFormat { get; set; } = "mbox";
     

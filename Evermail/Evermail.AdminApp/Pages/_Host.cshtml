@@ -9,10 +9,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="~/" />
-    <link rel="stylesheet" href="css/bootstrap/bootstrap.min.css" />
-    <link href="css/site.css" rel="stylesheet" />
+    <link rel="stylesheet" href="bootstrap/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
+    <link href="~/app.css" rel="stylesheet" asp-append-version="true" />
     <link href="Evermail.AdminApp.styles.css" rel="stylesheet" />
     <link rel="icon" type="image/png" href="favicon.png"/>
+    <script src="js/theme.js"></script>
+    <script src="js/preferences.js"></script>
     <component type="typeof(HeadOutlet)" render-mode="ServerPrerendered" />
 </head>
 <body>
@@ -30,5 +34,6 @@
     </div>
 
     <script src="_framework/blazor.server.js"></script>
+    <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
 </html>

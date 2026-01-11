@@ -308,7 +308,7 @@
     private readonly List<WizardStep> _steps =
     [
         new(WizardStepType.Plan, "Pick your archive plan", "Choose the storage, AI, and retention bundle that matches your workload."),
-        new(WizardStepType.Security, "Confirm security mode", "Stay on Evermail-managed keys for fast debugging or flip to BYOK when compliance asks."),
+        new(WizardStepType.Security, "Choose your security level", "Pick how much you trust Evermail, then choose Evermail-managed keys or BYOK."),
         new(WizardStepType.Billing, "Acknowledge billing", "Preview pricing and mark that you’ll connect Stripe before going live."),
         new(WizardStepType.Upload, "Upload a mailbox", "Drag Gmail/Outlook exports (or our sample file) and start searching within minutes.")
     ];
@@ -333,6 +333,7 @@
     private string _securityPreference = "QuickStart";
     private bool _isProvisioningQuickStart;
     private bool _isUpdatingSecurityPreference;
+    private bool _isUpdatingSecurityLevel;
     private bool _paymentAcknowledged;
     private DateTime? _paymentAcknowledgedAt;
     private bool _isAcknowledgingPayment;
@@ -647,6 +648,84 @@
             </div>
         </div>
 
+        <div class="mt-4">
+            <p class="hero-eyebrow text-uppercase mb-1">Security level</p>
+            <h3 class="mb-1">How much should Evermail be able to do?</h3>
+            <p class="text-muted mb-0">
+                Full Service unlocks the richest search and previews. Confidential Processing restricts decryption to attested workloads. Zero-Access keeps keys on the client and trades away server-side content search.
+            </p>
+        </div>
+
+        <div class="security-choice-grid">
+            <article class="security-choice @(IsFullServiceLevelSelected ? "is-selected" : null)">
+                <span class="security-choice__badge text-uppercase">Full search</span>
+                <h4>Full Service</h4>
+                <p class="text-muted">
+                    Best experience: server-side search, message rendering, attachments preview, and AI features.
+                </p>
+                <ul class="security-choice__highlights">
+                    <li>Fastest, most accurate search across the full archive.</li>
+                    <li>Requires trusting Evermail services more.</li>
+                    <li>Still supports BYOK if you want key ownership.</li>
+                </ul>
+                <button class="btn btn-outline-primary"
+                        disabled="@_isUpdatingSecurityLevel"
+                        @onclick="SelectFullServiceLevelAsync">
+                    @if (_isUpdatingSecurityLevel && IsFullServiceLevelSelected)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    }
+                    @(IsFullServiceLevelSelected ? "Selected" : "Use Full Service")
+                </button>
+            </article>
+
+            <article class="security-choice @(IsConfidentialLevelSelected ? "is-selected" : null)">
+                <span class="security-choice__badge text-uppercase">Attested compute</span>
+                <h4>Confidential Processing</h4>
+                <p class="text-muted">
+                    Decryption is only permitted inside a Trusted Execution Environment (TEE) with auditable policy gating.
+                </p>
+                <ul class="security-choice__highlights">
+                    <li>Supports Evermail-managed keys or customer BYOK.</li>
+                    <li>Restricts decryption to approved workers.</li>
+                    <li>Requires confidential compute deployment.</li>
+                </ul>
+                <button class="btn btn-outline-primary"
+                        disabled="@_isUpdatingSecurityLevel"
+                        @onclick="SelectConfidentialLevelAsync">
+                    @if (_isUpdatingSecurityLevel && IsConfidentialLevelSelected)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    }
+                    @(IsConfidentialLevelSelected ? "Selected" : "Use Confidential")
+                </button>
+            </article>
+
+            <article class="security-choice @(IsZeroAccessLevelSelected ? "is-selected" : null)">
+                <span class="security-choice__badge text-uppercase">Strict</span>
+                <h4>Zero-Access</h4>
+                <p class="text-muted">
+                    Evermail stores ciphertext only. Your mailbox key never leaves the client in normal operation.
+                </p>
+                <ul class="security-choice__highlights">
+                    <li>Server-side content search is not available.</li>
+                    <li>Client-side filters + local search index (optional) power discovery.</li>
+                    <li>Requires BYOK bundle setup and careful key recovery hygiene.</li>
+                </ul>
+                <button class="btn btn-outline-primary"
+                        disabled="@_isUpdatingSecurityLevel"
+                        @onclick="SelectZeroAccessLevelAsync">
+                    @if (_isUpdatingSecurityLevel && IsZeroAccessLevelSelected)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    }
+                    @(IsZeroAccessLevelSelected ? "Selected" : "Use Zero-Access")
+                </button>
+            </article>
+        </div>
+
+        <hr class="my-4" />
+
         <div class="security-choice-grid">
             <article class="security-choice @(IsQuickStartSelected ? "is-selected" : null)">
                 <span class="security-choice__badge text-uppercase">Fast start</span>
@@ -674,10 +753,10 @@
                 <span class="security-choice__badge text-uppercase">Maximum control</span>
                 <h4>Bring your own key (BYOK)</h4>
                 <p class="text-muted">
-                    Point Evermail at your Azure Key Vault, AWS KMS role, or generate an offline bundle and keep operators out of plaintext entirely.
+                    Point Evermail at your Azure Key Vault, AWS KMS role, or generate an offline bundle as a simple “bring-your-own-key” on-ramp.
                 </p>
                 <ul class="security-choice__highlights">
-                    <li>Your tenant master key never leaves your custody.</li>
+                    <li>Plaintext keys are generated in your browser; you keep the recovery bundle offline.</li>
                     <li>Attach attested workloads + Secure Key Release in Phase 2.</li>
                     <li>Inline lab helps you prototype today—swap to Azure/AWS later.</li>
                 </ul>
@@ -1033,7 +1112,7 @@
     private bool IsStepComplete(WizardStep step) => step.Type switch
     {
         WizardStepType.Plan => _status?.PlanConfirmed == true,
-        WizardStepType.Security => _status?.EncryptionConfigured == true,
+        WizardStepType.Security => _status?.EncryptionConfigured == true && _status?.SecurityLevelReady == true,
         WizardStepType.Billing => _paymentAcknowledged,
         WizardStepType.Upload => _status?.HasMailbox == true,
         _ => false
@@ -1077,7 +1156,7 @@
             WizardStepType.Plan => ("Choose a plan", "Lock in your workspace limits", "Pick the storage, AI, and retention bundle that matches your pilot. This unlocks security, billing, and uploads.", false),
 
             WizardStepType.Security when complete => ("Step complete", "Encryption locked down", "Keys are ready. You can reconfigure or rotate them from the Encryption page whenever compliance asks.", true),
-            WizardStepType.Security => ("Secure your tenant", "Finish BYOK or use quick-start keys", "Provision Evermail-managed keys for instant access or complete the BYOK wiring. We’ll keep routing you here until a key provider is active.", false),
+            WizardStepType.Security => ("Secure your tenant", "Choose security level + finish key setup", "Pick Full Service / Confidential / Zero-Access, then complete the key setup we require for that mode. We’ll keep routing you here until the selection is ready.", false),
 
             WizardStepType.Billing when complete => ("Step complete", "Billing acknowledged", "We’ll remind you to hook up Stripe when checkout launches. For now you’re cleared to keep importing.", true),
             WizardStepType.Billing => ("Acknowledge billing", "Confirm you’ve seen the pricing", "Click “Mark as acknowledged.” It’s just a placeholder until live billing arrives, but it keeps the checklist tidy.", false),
@@ -1094,6 +1173,18 @@
     private bool IsByokSelected => string.Equals(_securityPreference, "BYOK", StringComparison.OrdinalIgnoreCase);
 
     private Task SelectByokAsync() => SetSecurityPreferenceAsync("BYOK");
+
+    private bool IsFullServiceLevelSelected => string.Equals(_status?.SecurityLevel, "FullService", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsConfidentialLevelSelected => string.Equals(_status?.SecurityLevel, "Confidential", StringComparison.OrdinalIgnoreCase);
+
+    private bool IsZeroAccessLevelSelected => string.Equals(_status?.SecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase);
+
+    private Task SelectFullServiceLevelAsync() => SetSecurityLevelAsync("FullService");
+
+    private Task SelectConfidentialLevelAsync() => SetSecurityLevelAsync("Confidential");
+
+    private Task SelectZeroAccessLevelAsync() => SetSecurityLevelAsync("ZeroAccess");
 
     private double CompletionPercent => _steps.Count == 0
         ? 0
@@ -1213,6 +1304,51 @@
         finally
         {
             _isUpdatingSecurityPreference = false;
+        }
+    }
+
+    private async Task SetSecurityLevelAsync(string level)
+    {
+        if (!_canManageOnboarding || _isUpdatingSecurityLevel)
+        {
+            return;
+        }
+
+        _errorMessage = null;
+        _statusMessage = null;
+        _isUpdatingSecurityLevel = true;
+
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Put, BuildApiUri("api/v1/tenants/security-level"))
+            {
+                Content = JsonContent.Create(new SetSecurityLevelRequest(level))
+            };
+
+            var response = await SendAuthorizedAsync(request);
+            var payload = await response.Content.ReadFromJsonAsync<ApiResponse<SecurityLevelResponse>>();
+
+            if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                _errorMessage = "Session expired. Please sign in again.";
+            }
+            else if (response.IsSuccessStatusCode && payload?.Success == true)
+            {
+                await LoadStatusAsync();
+                _statusMessage = $"Security level set to {payload.Data?.SecurityLevel ?? level}.";
+            }
+            else
+            {
+                _errorMessage = payload?.Error ?? "Failed to update security level.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Unable to update security level: {ex.Message}";
+        }
+        finally
+        {
+            _isUpdatingSecurityLevel = false;
         }
     }
 

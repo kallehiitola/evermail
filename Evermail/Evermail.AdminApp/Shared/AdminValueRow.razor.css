@@ -1,0 +1,16 @@
+.admin-row-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* Keep long values from wrecking the row layout */
+.data-row code,
+.data-row span {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
+

@@ -110,6 +110,9 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
             entity.Property(t => t.SecurityPreference)
                 .HasMaxLength(32)
                 .HasDefaultValue("QuickStart");
+            entity.Property(t => t.SecurityLevel)
+                .HasMaxLength(32)
+                .HasDefaultValue("FullService");
         });
 
         modelBuilder.Entity<TenantEncryptionSettings>(entity =>
@@ -170,6 +173,9 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .HasMaxLength(128);
             entity.Property(m => m.ZeroAccessTokenSalt)
                 .HasMaxLength(64);
+            entity.Property(m => m.SecurityLevel)
+                .HasMaxLength(32)
+                .HasDefaultValue("FullService");
 
             entity.HasOne(m => m.Tenant)
                 .WithMany(t => t.Mailboxes)
@@ -205,6 +211,9 @@ public class EvermailDbContext : IdentityDbContext<ApplicationUser, IdentityRole
                 .HasMaxLength(100);
             entity.Property(mu => mu.EncryptionKeyFingerprint)
                 .HasMaxLength(128);
+            entity.Property(mu => mu.SecurityLevel)
+                .HasMaxLength(32)
+                .HasDefaultValue("FullService");
 
             entity.HasOne(mu => mu.Mailbox)
                 .WithMany(m => m.Uploads)

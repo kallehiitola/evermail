@@ -131,6 +131,54 @@
                         <p class="mb-1 fw-semibold">@FormatDetectionSummary</p>
                         <p class="text-muted small mb-0">@FormatDetectionDetails</p>
                     </div>
+                    <div class="modern-card subtle-card mb-3">
+                        <label class="form-label fw-semibold mb-2">Security level</label>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="securityLevel"
+                                       id="securityLevelFull"
+                                       value="FullService"
+                                       checked="@string.Equals(_selectedSecurityLevel, "FullService", StringComparison.OrdinalIgnoreCase)"
+                                       @onchange="OnSecurityLevelChanged" />
+                                <label class="form-check-label" for="securityLevelFull">
+                                    <strong>Full Service</strong> <span class="text-muted small">— best search + previews</span>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="securityLevel"
+                                       id="securityLevelConfidential"
+                                       value="Confidential"
+                                       checked="@string.Equals(_selectedSecurityLevel, "Confidential", StringComparison.OrdinalIgnoreCase)"
+                                       @onchange="OnSecurityLevelChanged" />
+                                <label class="form-check-label" for="securityLevelConfidential">
+                                    <strong>Confidential Processing</strong> <span class="text-muted small">— restricts decryption to TEEs</span>
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input"
+                                       type="radio"
+                                       name="securityLevel"
+                                       id="securityLevelZero"
+                                       value="ZeroAccess"
+                                       disabled="@(!_supportsZeroAccess)"
+                                       checked="@string.Equals(_selectedSecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase)"
+                                       @onchange="OnSecurityLevelChanged" />
+                                <label class="form-check-label" for="securityLevelZero">
+                                    <strong>Zero-Access</strong> <span class="text-muted small">— client-side encryption only</span>
+                                </label>
+                            </div>
+                        </div>
+                        @if (string.Equals(_selectedSecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase) && !_supportsZeroAccess)
+                        {
+                            <div class="alert alert-warning mt-3 mb-0" role="alert">
+                                Zero-Access requires BYOK to be configured first. Go to <a href="/onboarding?step=Security">Onboarding → Security</a>.
+                            </div>
+                        }
+                    </div>
                     <div class="upload-plan-card">
                         <p class="text-muted mb-1">Plan limit</p>
                         <h4 class="mb-0">@_maxFileSizeGB GB per file</h4>
@@ -341,6 +389,7 @@
     private TenantOnboardingStatusDto? _tenantStatus;
     private bool _supportsZeroAccess;
     private bool _useZeroAccess;
+    private string _selectedSecurityLevel = "FullService";
     private ZeroAccessKeyBundleModel? _zeroAccessBundle;
     private string _zeroAccessTagInput = string.Empty;
     private ZeroAccessHeaderIndexStatus _headerIndexStatus = ZeroAccessHeaderIndexStatus.Hidden();
@@ -376,8 +425,25 @@
 
         // TODO: Fetch actual tenant plan limit from API
         _maxFileSizeGB = 100;
+    }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        // Token lives in localStorage; JSRuntime isn't available during prerendering.
         await LoadTenantStatusAsync();
+
+        if (_useZeroAccess)
+        {
+            await EnsureZeroAccessBundleAsync();
+            await ScanZeroAccessHeadersAsync();
+        }
+
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task LoadTenantStatusAsync()
@@ -412,9 +478,17 @@
                 _tenantStatus = statusResponse.Data;
                 _supportsZeroAccess = statusResponse.Data.EncryptionConfigured &&
                     string.Equals(statusResponse.Data.SecurityPreference, "BYOK", StringComparison.OrdinalIgnoreCase);
+                if (!string.IsNullOrWhiteSpace(statusResponse.Data.SecurityLevel))
+                {
+                    _selectedSecurityLevel = statusResponse.Data.SecurityLevel;
+                }
                 if (!_supportsZeroAccess)
                 {
                     _useZeroAccess = false;
+                }
+                if (string.Equals(_selectedSecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase) && _supportsZeroAccess)
+                {
+                    _useZeroAccess = true;
                 }
             }
         }
@@ -422,6 +496,36 @@
         {
             _supportsZeroAccess = false;
             _useZeroAccess = false;
+        }
+    }
+
+    private async Task OnSecurityLevelChanged(ChangeEventArgs args)
+    {
+        var next = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(next))
+        {
+            return;
+        }
+
+        _selectedSecurityLevel = next;
+
+        if (string.Equals(_selectedSecurityLevel, "ZeroAccess", StringComparison.OrdinalIgnoreCase))
+        {
+            if (_supportsZeroAccess)
+            {
+                _useZeroAccess = true;
+                await EnsureZeroAccessBundleAsync();
+                await ScanZeroAccessHeadersAsync();
+            }
+            else
+            {
+                _useZeroAccess = false;
+            }
+        }
+        else
+        {
+            _useZeroAccess = false;
+            ResetZeroAccessHeaderState();
         }
     }
 
@@ -593,7 +697,8 @@
                     _fileName,
                     _totalBytes,
                     _targetMailboxId,
-                    "zero-access/aes-gcm-chunked/v1"));
+                    "zero-access/aes-gcm-chunked/v1",
+                    SecurityLevel: _selectedSecurityLevel));
 
                 var zeroAccessResponse = await Http.SendAsync(zeroAccessRequest);
                 if (!zeroAccessResponse.IsSuccessStatusCode)
@@ -627,7 +732,8 @@
                     _totalBytes,
                     _formatHint,
                     _targetMailboxId,
-                    ClientSideEncryption: false));
+                    ClientSideEncryption: false,
+                    SecurityLevel: _selectedSecurityLevel));
 
                 var initiateResponse = await Http.SendAsync(request);
                 if (!initiateResponse.IsSuccessStatusCode)
